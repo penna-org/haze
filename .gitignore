@@ -6,3 +6,5 @@ coverage
 *.log
 .env.local
 .env.*.local
+.netlify
+.vercel

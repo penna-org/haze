@@ -15,7 +15,9 @@ overrides:
   make-dir@3>semver: ^7.7.0
 
 allowBuilds:
+  deno: false
   esbuild: false
+  workerd: false
 
 catalog:
   '@antfu/eslint-config': ^10.0.0
@@ -26,10 +28,12 @@ catalog:
   '@vitejs/plugin-vue': ^6.0.10
   citty: ^0.2.2
   consola: ^3.4.2
+  deno: ^2.9.6
   drizzle-kit: ^0.31.11
   drizzle-orm: ^0.45.4
   eslint: ^10.13.0
   h3: ^2.0.8
+  miniflare: ^4.20260730.0
   mongodb: ^7.7.0
   mongodb-memory-server-core: ^11.3.0
   mysql2: ^3.24.6

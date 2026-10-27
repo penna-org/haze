@@ -1,0 +1,68 @@
+export const PRESET_NAMES = [
+  'node',
+  'bun',
+  'deno',
+  'docker',
+  'cloudflare',
+  'vercel',
+  'netlify',
+  'aws-lambda',
+] as const
+
+export type PresetName = (typeof PRESET_NAMES)[number]
+
+export interface PresetContext {
+  root: string
+  /** think.config.ts 的 outDir（绝对路径） */
+  outDir: string
+  /** 是否包含前端（Vue 等）构建 */
+  fullstack: boolean
+  /** 交给后端处理的路径前缀（全栈模式） */
+  prefixes: string[]
+  port: number
+  host: string | undefined
+}
+
+export interface Layout {
+  /** 服务端产物目录 */
+  serverDir: string
+  /** 前端产物目录（全栈模式） */
+  clientDir: string | undefined
+  /**
+   * 运行时托管前端产物的目录（相对服务端入口）；
+   * undefined 表示静态资源由平台（CDN）提供
+   */
+  staticFromServer: string | undefined
+}
+
+export interface FinalizeContext extends PresetContext {
+  layout: Layout
+  /** 服务端产物中仍需从 node_modules 加载的依赖 */
+  externals: string[]
+}
+
+export interface Preset {
+  name: PresetName
+  /**
+   * - external：依赖保留在 node_modules
+   * - drivers-external：除数据库驱动（原生二进制 / WASM）外全部打包，驱动运行时安装或随产物复制
+   * - all：全部打包（Edge 运行时没有 node_modules，驱动按 workerd 等条件使用其 Web 版本）
+   */
+  bundle: 'external' | 'drivers-external' | 'all'
+  /** 构建时的 package.json exports 条件 */
+  conditions?: string[]
+  target?: string
+  /** 打包平台：Edge 运行时使用 browser，避免生成依赖 import.meta.url 的 createRequire 辅助代码 */
+  platform?: 'node' | 'browser' | 'neutral'
+  /** 替换为“调用即报错”空模块的包（该运行时不支持） */
+  unsupported?: string[]
+  /** 输出单文件（Workers 要求入口模块只导出处理器，不能被拆分出的 chunk 反向导入） */
+  singleFile?: boolean
+  layout: (context: PresetContext) => Layout
+  /** 生产入口（virtual:think/server-entry）源码 */
+  entry: (context: PresetContext & { layout: Layout }) => string
+  /** 构建完成后生成平台配置、复制依赖等 */
+  finalize?: (context: FinalizeContext) => Promise<void>
+  /** 构建完成后提示如何运行 / 部署 */
+  hint: (context: FinalizeContext) => string
+}

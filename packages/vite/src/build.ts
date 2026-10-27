@@ -1,28 +1,29 @@
 import type { InlineConfig } from 'vite'
-import { join, resolve } from 'node:path'
+import type { BuildInfo } from './plugin'
+import type { PresetName } from './presets'
+import { resolve } from 'node:path'
 import process from 'node:process'
-import { build, mergeConfig } from 'vite'
+import { createBuilder, mergeConfig } from 'vite'
 import { loadThinkConfig } from './config'
-import { VIRTUAL_MODULES } from './constants'
 import { thinkH3 } from './plugin'
 
 export interface BuildServerOptions {
   root?: string
   /** 覆盖 think.config.ts 中的 outDir */
   outDir?: string
+  /** 部署预设，默认读取 think.config.ts，否则为 node */
+  preset?: PresetName
   minify?: boolean
   sourcemap?: boolean
 }
 
-export interface BuildServerResult {
+export interface BuildServerResult extends BuildInfo {
   outDir: string
-  /** 生产入口：`node <entry>` 即可启动 */
-  entry: string
 }
 
 /**
- * 构建生产服务端产物。依赖保持 external（运行时需要 node_modules），
- * `.env` 在运行时从当前工作目录加载。
+ * 构建纯后端项目的生产产物。产物布局、打包策略与入口由部署预设决定；
+ * node 预设下依赖保持 external（运行时需要 node_modules），`.env` 从运行时工作目录加载。
  */
 export async function buildServer(options: BuildServerOptions = {}): Promise<BuildServerResult> {
   const root = resolve(options.root ?? process.cwd())
@@ -30,40 +31,31 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
   const outDir = options.outDir
     ? resolve(root, options.outDir)
     : config.outDir
+  const plugin = thinkH3({
+    srcDir: config.srcDir,
+    outDir,
+    port: config.port,
+    host: config.host,
+    preset: options.preset ?? config.preset,
+    standalone: true,
+  })
 
-  await build(mergeConfig(config.vite, {
+  const builder = await createBuilder(mergeConfig(config.vite, {
     root,
     configFile: false,
     mode: 'production',
     envDir: false,
     logLevel: 'warn',
-    plugins: [
-      thinkH3({
-        srcDir: config.srcDir,
-        port: config.port,
-        host: config.host,
-        standalone: true,
-      }),
-    ],
+    plugins: [plugin],
     build: {
-      ssr: true,
-      outDir,
-      emptyOutDir: true,
-      target: 'node22',
       minify: options.minify ?? false,
       sourcemap: options.sourcemap ?? true,
-      rolldownOptions: {
-        input: { index: VIRTUAL_MODULES.serverEntry },
-        output: {
-          entryFileNames: '[name].mjs',
-          chunkFileNames: 'chunks/[name]-[hash].mjs',
-        },
-      },
     },
   } satisfies InlineConfig))
+  await builder.buildApp()
 
-  return {
-    outDir,
-    entry: join(outDir, 'index.mjs'),
-  }
+  const info = plugin.api!.lastBuild()
+  if (!info)
+    throw new Error('Build did not produce a server bundle')
+  return { ...info, outDir }
 }

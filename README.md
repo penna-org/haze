@@ -34,6 +34,14 @@ export default defineConfig({
 export default defineThinkConfig({ srcDir: 'server' })
 ```
 
+## 部署
+
+```bash
+npx think-h3 build --preset <node|bun|deno|docker|cloudflare|vercel|netlify|aws-lambda>
+```
+
+也可在 `think.config.ts` 中设置 `preset`。纯后端与 Vue 全栈项目均支持，构建结束会提示运行 / 部署方式。
+
 ## 常用命令
 
 ```bash

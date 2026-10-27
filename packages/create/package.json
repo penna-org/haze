@@ -39,6 +39,7 @@
     "@vitejs/plugin-vue": "catalog:",
     "drizzle-kit": "catalog:",
     "drizzle-orm": "catalog:",
+    "miniflare": "catalog:",
     "valibot": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",

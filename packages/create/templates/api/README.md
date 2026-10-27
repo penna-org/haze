@@ -87,6 +87,21 @@ export default defineConfig(() => ({
 - 路由名自动带应用前缀：`router.url('admin.users.index')`
 - 生成代码：`npx think-h3 make:controller User --app admin`
 
+## 部署
+
+```bash
+npx think-h3 build --preset node        # 默认：node dist/index.mjs（依赖使用 node_modules）
+npx think-h3 build --preset docker      # dist/ 即构建上下文：docker build -t app dist
+npx think-h3 build --preset bun         # bun dist/index.mjs
+npx think-h3 build --preset deno        # deno run -A dist/server/index.mjs
+npx think-h3 build --preset vercel      # .vercel/output → vercel deploy --prebuilt
+npx think-h3 build --preset netlify     # .netlify/v1/functions + netlify.toml
+npx think-h3 build --preset aws-lambda  # 打包 dist/lambda，handler 为 index.handler
+npx think-h3 build --preset cloudflare  # dist/wrangler.json → wrangler deploy -c dist/wrangler.json
+```
+
+也可在 `think.config.ts` 中设置 `preset`。数据库：Cloudflare Workers 上 SQL 驱动暂不可用（规划中：D1 / Turso HTTP），其余预设会自动带上 SQLite 等驱动。
+
 ## 目录
 
 ```

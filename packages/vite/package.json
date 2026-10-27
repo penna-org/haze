@@ -38,6 +38,8 @@
   },
   "devDependencies": {
     "@think-h3/core": "workspace:*",
+    "deno": "catalog:",
+    "miniflare": "catalog:",
     "vite": "catalog:"
   }
 }

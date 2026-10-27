@@ -740,3 +740,31 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - **其它**：`config/database.ts` 新增 `driver: 'mongodb'`（`database` 指定库名）；重复键（11000）同样转换为 409；`refreshDatabase()` 对 MongoDB 清空数据库；`db:generate / db:migrate` 跳过 MongoDB 连接；`make:model --dialect mongodb` 生成带文档接口的模型。
 - **类型实现要点**：模型相关泛型只用品牌属性约束（`ModelLike` / `MongoModelLike`），关联目标不加 `extends ActiveRecord` 约束，避免互相引用的模型在结构比较时无限展开。
 - **依赖**：`mongodb-memory-server-core` 间接依赖的 `semver@6.3.1` 被 trustPolicy 拦截，通过 `overrides: 'make-dir@3>semver': ^7.7.0` 改用 semver 7（make-dir 只调用 `semver.satisfies()`），未放宽安全策略；使用 `-core` 包，没有安装脚本。
+
+### M9 实施记录（2026-10-26）
+
+`think-h3 build --preset <name>`（或 `think.config.ts` 的 `preset`），纯后端与 Vue 全栈项目共用同一套预设：插件在构建时按预设决定产物布局、打包策略、解析条件与生产入口，构建结束执行预设的收尾步骤（生成平台配置、复制依赖）并给出部署提示。178 个测试通过。
+
+| 预设 | 产物 | 打包策略 | 验证方式 |
+|------|------|----------|----------|
+| node（默认） | `dist/index.mjs`；全栈为 `dist/server` + `dist/client` | 依赖 external | 真实 Node 进程 |
+| bun | 同 node | 依赖 external，`bun` 条件 | 真实 Bun 1.4 进程 |
+| deno | `dist/server/index.mjs` | 全部打包（驱动除外），`deno` 条件 | 真实 Deno 2.9 进程 |
+| docker | `dist/` 即构建上下文：Dockerfile + 运行时 package.json | 框架与纯 JS 依赖打包，数据库驱动在镜像内 `npm install` | 真实 Docker 构建与运行（colima） |
+| aws-lambda | `dist/lambda`（含复制的驱动 node_modules，全栈含 client） | 驱动 external + 复制 | 以 API Gateway v2 / v1 事件调用 handler |
+| vercel | `.vercel/output`（static + `__server.func` + config.json 路由） | 驱动 external + 复制 | 以 Node HTTP 服务器挂载函数 |
+| netlify | `.netlify/v1/functions/think-h3-server.mjs` + `netlify.toml` + `_redirects` | 驱动 external（Netlify 构建时打包） | 直接调用函数 |
+| cloudflare | `dist/index.mjs` 单文件 Worker + `wrangler.json`（nodejs_compat、Assets、SPA 回退、`run_worker_first`） | 全部打包、`browser` 平台，不可用驱动替换为报错空模块 | 真实 workerd（miniflare） |
+
+**要点**
+- 全栈：服务端先于前端构建（部分预设的前端目录位于服务端目录内）；Vercel / Netlify / Cloudflare 的静态资源由平台 CDN 提供，Lambda / Docker / Node 由同一进程托管。
+- 打包后的产物不依赖框架包的发布（`@think-h3/*` 已打包）；ORM 按变量动态加载的驱动扫描不到，按项目依赖显式带上。
+- Docker 中驱动在镜像内安装，得到 Linux 平台的原生二进制（实测容器内为 `@libsql/linux-x64-*`）。
+- Cloudflare：消除了 Node 平台的 `createRequire(import.meta.url)` 辅助代码；core 的日志颜色改为自带的小工具（原 `consola/utils` 依赖 `node:tty`）；Worker 入口只能导出处理器，因此输出单文件。
+- core 新增 `createLambdaHandler`（API Gateway v1 / v2、ALB、Function URL）并导出 `toNodeHandler`。
+- 依赖：新增 miniflare、deno（npm 包）作为测试开发依赖；pnpm 11 中 `deno`、`workerd` 的安装脚本被设置为不执行（平台二进制随可选依赖安装）。
+
+**已知限制 / 后续**
+- Cloudflare Workers 上 ORM 的 SQL 驱动不可用（驱动通过变量动态加载，Workers 只接受静态模块）；需要专门的 D1 / Turso HTTP 驱动支持。
+- Vercel / Netlify / AWS Lambda 只在本地按平台约定模拟调用验证，尚未真实部署。
+- Docker / Lambda 等生产环境的数据库迁移需在部署流程中单独执行（`think-h3 db:migrate` 依赖开发工具链）；可考虑提供生产可用的迁移入口。

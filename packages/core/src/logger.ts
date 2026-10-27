@@ -1,7 +1,7 @@
 import type { ConsolaInstance } from 'consola'
 import process from 'node:process'
 import { createConsola } from 'consola'
-import { colors } from 'consola/utils'
+import { colors } from './colors'
 import { FRAMEWORK_NAME } from './constants'
 import { isPlainObject } from './utils'
 
