@@ -705,7 +705,14 @@ it('获取用户', async () => {
 
 ### M7 实施记录（2026-10-26）
 
-新增 `@think-h3/orm`，150 个测试通过；同一套 ORM 用例在 SQLite（libsql）与 PostgreSQL（PGlite）上运行，MySQL 用例在设置 `THINK_TEST_MYSQL_URL` 时执行（本机无 MySQL，尚未在真实 MySQL 上跑过）。
+新增 `@think-h3/orm`，150 个测试通过；同一套 ORM 用例（17 个场景）在 SQLite（libsql）、PostgreSQL（PGlite）与 MySQL 8.4.13（Docker）上全部通过。MySQL 用例只在设置 `THINK_TEST_MYSQL_URL` 时执行：
+
+```bash
+docker run -d --name think-h3-mysql -e MYSQL_ROOT_PASSWORD=think -e MYSQL_DATABASE=think_test -p 3307:3306 mysql:8
+THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest run --project orm
+```
+
+尚未覆盖：MySQL / PostgreSQL 下的 `db:generate` / `db:migrate` 命令流程（模板端到端测试只覆盖 SQLite）。
 
 **Db 查询构造器**（`Db.table(users)`）：`where`（列/值、运算符、对象、drizzle 表达式、分组回调）、`orWhere`、`whereIn / whereNull / whereBetween / whereLike`、`when`、`order / limit / page / field`、`select / find / findOrFail / value / column`、`count / sum / avg / max / min / exists`、`paginate`、`chunk`、`insert`（返回完整行，MySQL 通过 `$returningId()` 回查）、`insertGetId`、`update / delete`（返回影响行数，无条件写入需显式 `{ all: true }`）、`increment / decrement`、`toSQL`；`Db.execute(sql)`、`Db.drizzle()` 用于复杂查询；`Db.connection(name)` 切换连接。
 
