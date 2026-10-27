@@ -4,6 +4,7 @@ import type { ValidationIssue } from './exceptions'
 import { HTTPError } from 'h3'
 import { Config } from '../config/config'
 import { inject } from '../container/container'
+import { ResponseFormatter } from '../http/formatter'
 import { Logger } from '../logger'
 import { Router } from '../routing/router'
 import { renderErrorPage } from './error-page'
@@ -54,7 +55,7 @@ export class ExceptionHandler {
     normalized.headers?.forEach((value, key) => ctx.setHeader(key, value))
     if (this.debug && this.wantsHtml(ctx))
       return this.renderDebugPage(error, normalized, ctx)
-    return this.format(normalized)
+    return this.format(normalized, ctx)
   }
 
   protected wantsHtml(ctx: HttpContext): boolean {
@@ -119,14 +120,8 @@ export class ExceptionHandler {
     }
   }
 
-  protected format(error: NormalizedError): unknown {
-    const envelope = this.config.get('app.response.envelope')
-    return {
-      ...(envelope
-        ? { code: error.code, message: error.message, data: error.data ?? null }
-        : { status: error.status, message: error.message, data: error.data }),
-      ...(error.errors && { errors: error.errors }),
-      ...(error.stack && { stack: error.stack }),
-    }
+  /** 错误响应体，默认交给 ResponseFormatter.error()，与成功响应保持同一套格式 */
+  protected format(error: NormalizedError, ctx: HttpContext): unknown {
+    return ctx.make(ResponseFormatter).error(error, ctx)
   }
 }

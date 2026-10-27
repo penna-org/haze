@@ -41,6 +41,12 @@ router.url('api.hello') // 路由名有补全，参数按路径检查
 - 生产环境：JSON 行日志（含 requestId），便于日志平台采集
 - 请求内使用 `ctx.logger.info(...)`，自动带上请求 ID
 
+## 响应格式
+
+- `app/response/Formatter.ts`：全局成功 / 失败响应结构（默认 `{ code, message, data }`）
+- `app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`think-h3 make:interceptor`）
+- 单个路由跳过：`.meta({ envelope: false })` 或 `return raw(value)`
+
 ## 目录
 
 ```

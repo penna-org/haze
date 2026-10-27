@@ -664,3 +664,33 @@ it('获取用户', async () => {
 
 - monorepo 内框架包以链接方式被内联执行，重新构建 core 后需重启开发服务器（真实安装时框架位于 node_modules，升级依赖本就需要重启）。
 - 中间件别名尚未生成类型（`.middleware('auth')` 仍为字符串）。
+
+---
+
+## 15. 第二阶段决策（2026-10-26）
+
+| 议题 | 决定 |
+|------|------|
+| 统一业务码 | 默认输出 `{ code, message, data }`；用户可全局替换成功 / 错误的响应格式（`app/response/Formatter.ts`），并可拦截最终出站的 Response（出站拦截器） |
+| ORM | 不完全自研：以 drizzle 为底层，二次开发 ThinkPHP 风格的 `Db` 查询构造器 + `Model`（软删除、时间戳、获取器 / 修改器、作用域、关联、分页、事务）；表结构用 drizzle schema 定义，类型由其推导 |
+| 数据库 | MySQL、PostgreSQL、SQLite；MongoDB 通过独立适配器（官方 `mongodb` 驱动）提供同形态的 Db / Model API，聚合等特有能力单独暴露 |
+| 多应用 | 目录多应用：`app/<name>/` 各自拥有 controller / route / middleware / config / 异常处理 / 响应格式，按 URL 前缀或域名分发，共享容器与 `app/common` |
+| 部署 | 尽可能覆盖全部模式：Node（单进程 / 集群 / Docker）、Bun、Deno、Serverless（Vercel、Netlify、AWS Lambda）、边缘（Cloudflare Workers、Deno Deploy） |
+| 发布 | 暂不考虑，功能完成后再定 |
+
+### 后续路线
+
+| 阶段 | 内容 |
+|------|------|
+| M5 | 响应格式化器（ResponseFormatter）+ 出站拦截器 + `raw()` 跳过格式化 |
+| M6 | 目录多应用（前缀 / 域名 / 应用级配置、中间件、异常处理、响应格式，路由名带应用前缀） |
+| M7 | `@think-h3/orm`：drizzle 之上的 Db + Model（MySQL / PostgreSQL / SQLite），迁移与 make:model |
+| M8 | MongoDB 适配器 |
+| M9 | 部署预设：`think-h3 build --preset node|bun|deno|cloudflare|vercel|netlify|aws-lambda|docker` |
+
+### M5 实施记录（2026-10-26）
+
+- **统一格式改为出站阶段处理**：路由处理器返回原始数据，异常边界在出站时交给 `ResponseFormatter.success()`；错误经 `ExceptionHandler.render()` → `format()` → `ResponseFormatter.error()`，成功与失败由同一个类定义格式。中间件 `await next()` 拿到的是原始数据，可在格式化前加工；中间件短路返回的数据同样会被格式化。
+- **自定义**：`app/response/Formatter.ts` 继承 `ResponseFormatter` 覆盖 `success / error / shouldFormat`（自动发现，支持热更新）；跳过格式化用 `.meta({ envelope: false })` 或 `return raw(value)`。
+- **出站拦截器**：`app/interceptor/*.ts`（`defineInterceptor`，按文件名顺序）或在提供者中 `app.intercept(fn)`；拿到最终 Response（格式化、异常渲染之后），可改头或返回新 Response。仅在注册了拦截器时才提前把返回值转成 Response，不影响默认性能；访问日志仍只记录一次。
+- `make:interceptor`；模板新增 `app/response/Formatter.ts` 作为可直接修改的入口。

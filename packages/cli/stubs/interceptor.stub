@@ -1,0 +1,9 @@
+import { defineInterceptor } from '@think-h3/core'
+
+/**
+ * 出站拦截器：拿到最终的 Response（统一格式与异常渲染之后），
+ * 可修改响应头，或返回新的 Response 替换；app/interceptor 下按文件名顺序执行。
+ */
+export default defineInterceptor((response, ctx) => {
+  response.headers.set('x-response-time', `${Math.round(performance.now() - ctx.startedAt)}ms`)
+})

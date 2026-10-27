@@ -1,5 +1,4 @@
 import type { H3 } from 'h3'
-import type { ResponseConfig } from '../config/config'
 import type { Container } from '../container/container'
 import type { MiddlewareRegistry } from '../middleware/registry'
 import type { MiddlewareRef } from '../middleware/types'
@@ -8,7 +7,6 @@ import type { RouteModule, RouteRegistrar } from './builder'
 import type { Route, RouteDefinition, RouteHandler } from './route'
 import { Scope, scopeOf } from '../container/container'
 import { getHttpContext } from '../http/context'
-import { envelope } from '../http/response'
 import { validateRequest } from '../http/validation'
 import { isPlainObject } from '../utils'
 import { isRouteModule, RouteBuilder } from './builder'
@@ -49,7 +47,6 @@ export interface CompileOptions {
   h3: H3
   container: Container
   middleware: MiddlewareRegistry
-  response: ResponseConfig
 }
 
 export class Router {
@@ -96,7 +93,7 @@ export class Router {
       : path
   }
 
-  compile({ h3, container, middleware, response }: CompileOptions): void {
+  compile({ h3, container, middleware }: CompileOptions): void {
     const names = new Set<string>()
     this.#compiled = this.definitions().map((definition) => {
       if (definition.name) {
@@ -120,9 +117,10 @@ export class Router {
       const resolved = middleware.resolve(refs)
       h3.on(definition.method === 'ALL'
         ? ''
-        : definition.method, definition.path, createHandler(definition, response), {
+        : definition.method, definition.path, createHandler(definition), {
         middleware: resolved.map(item => middleware.toH3(item)),
-        meta: { name: definition.name },
+        // 出站格式化时读取（例如 envelope: false）
+        meta: { ...definition.meta, name: definition.name },
       })
 
       return {
@@ -136,9 +134,8 @@ export class Router {
   }
 }
 
-function createHandler(definition: RouteDefinition, response: ResponseConfig) {
+function createHandler(definition: RouteDefinition) {
   const { handler, validate } = definition
-  const wrap = response.envelope && definition.meta.envelope !== false
 
   return async (event: Parameters<typeof getHttpContext>[0]): Promise<unknown> => {
     const ctx = getHttpContext(event)!
@@ -154,9 +151,8 @@ function createHandler(definition: RouteDefinition, response: ResponseConfig) {
     else {
       result = await handler(ctx)
     }
-    return wrap
-      ? envelope(result, response)
-      : result
+    // 返回原始数据，统一格式在出站时由 ResponseFormatter 处理，中间件可在 next() 之后拿到原始值
+    return result
   }
 }
 

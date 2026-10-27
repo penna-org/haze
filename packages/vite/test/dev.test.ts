@@ -35,6 +35,33 @@ describe('dev server', () => {
     expect(missing.headers.get('x-handler')).toBe('custom')
   })
 
+  it('discovers a custom response formatter and interceptors, and hot-reloads them', async () => {
+    fixture = copyFixture('basic')
+    fixture.write('app/response/Formatter.ts', `
+import { ResponseFormatter } from '@think-h3/core'
+export default class Formatter extends ResponseFormatter {
+  override success(data: unknown) {
+    return { ok: true, result: data }
+  }
+}
+`)
+    fixture.write('app/interceptor/powered-by.ts', `
+import { defineInterceptor } from '@think-h3/core'
+export default defineInterceptor(response => void response.headers.set('x-powered-by', 'think-h3'))
+`)
+    dev = await createDevServer({ root: fixture.root, port: 0, debounce: 10 })
+    await settle()
+
+    const res = await getJson(dev, '/hello')
+    expect(res.body).toEqual({ ok: true, result: { message: 'hello v1' } })
+    expect(res.headers.get('x-powered-by')).toBe('think-h3')
+
+    const reloaded = nextReload(dev)
+    fixture.edit('app/response/Formatter.ts', 'ok: true', 'success: true')
+    expect((await reloaded).ok).toBe(true)
+    expect((await getJson(dev, '/hello')).body).toEqual({ success: true, result: { message: 'hello v1' } })
+  })
+
   it('hot-swaps service changes without restarting the server', async () => {
     const dev = await start()
     const url = dev.url

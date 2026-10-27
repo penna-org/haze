@@ -1,8 +1,7 @@
-import type { ResponseConfig } from '../config/config'
 import { isPlainObject } from '../utils'
 
-/** 只包装可 JSON 序列化的“数据”，字符串、Response、流、二进制等原样返回 */
-export function shouldEnvelope(value: unknown): boolean {
+/** 只格式化可 JSON 序列化的“数据”；字符串、Response、流、二进制等原样输出 */
+export function isFormattable(value: unknown): boolean {
   return value === null
     || value === undefined
     || Array.isArray(value)
@@ -11,12 +10,18 @@ export function shouldEnvelope(value: unknown): boolean {
     || typeof value === 'boolean'
 }
 
-export function envelope(value: unknown, config: ResponseConfig): unknown {
-  if (!shouldEnvelope(value))
-    return value
-  return {
-    code: config.successCode,
-    message: config.successMessage,
-    data: value ?? null,
-  }
+const kRaw = Symbol.for('think-h3.raw')
+
+export interface RawValue<T = unknown> {
+  readonly [kRaw]: true
+  readonly value: T
+}
+
+/** 跳过统一响应格式，按原样输出：`return raw({ ok: true })` */
+export function raw<T>(value: T): RawValue<T> {
+  return { [kRaw]: true, value }
+}
+
+export function isRaw(value: unknown): value is RawValue {
+  return typeof value === 'object' && value !== null && kRaw in value
 }

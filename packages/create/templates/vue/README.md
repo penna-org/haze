@@ -25,6 +25,12 @@ npx think-h3 make:test user
 
 开发时浏览器直接访问出错的 `/api/*` 地址，会看到带源码定位的错误页；前端 `fetch` 仍得到 JSON。
 
+## 响应格式
+
+- `server/app/response/Formatter.ts`：全局成功 / 失败响应结构（默认 `{ code, message, data }`）
+- `server/app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`think-h3 make:interceptor`）
+- 单个路由跳过：`.meta({ envelope: false })` 或 `return raw(value)`
+
 ## 目录
 
 ```

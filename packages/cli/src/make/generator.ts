@@ -62,6 +62,16 @@ export const KINDS = {
     stub: 'middleware',
     hint: v => `在 config/middleware.ts 的 alias 中注册：${v.camelName}: ${v.className}`,
   },
+  interceptor: {
+    description: '出站拦截器',
+    suffix: 'Interceptor',
+    dir: 'app/interceptor',
+    base: 'src',
+    file: 'kebab',
+    flat: true,
+    stub: 'interceptor',
+    hint: () => 'app/interceptor 下的拦截器按文件名顺序自动加载',
+  },
   provider: {
     description: '服务提供者',
     suffix: 'Provider',

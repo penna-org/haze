@@ -1,19 +1,23 @@
 import type { H3Event } from 'h3'
 import type { ConfigInput, ConfigPath, ConfigPathValue } from './config/config'
 import type { InjectionKey } from './container/token'
+import type { Interceptor } from './http/interceptor'
 import type { StaticOptions } from './http/static'
 import type { MiddlewareConfig } from './middleware/types'
 import type { ProviderInput, ServiceProvider } from './provider'
 import type { RouteModule, RouteRegistrar } from './routing/builder'
+import type { RouteMeta } from './routing/route'
 import type { Constructor, MaybePromise, ModuleRecord } from './utils'
 import process from 'node:process'
-import { H3, serve } from 'h3'
+import { H3, serve, toResponse } from 'h3'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
 import { Container } from './container/container'
 import { NotFoundException } from './exception/exceptions'
 import { ExceptionHandler } from './exception/handler'
 import { getHttpContext, HttpContext, setHttpContext } from './http/context'
+import { ResponseFormatter } from './http/formatter'
+import { isRaw } from './http/response'
 import { createStaticMiddleware } from './http/static'
 import { Logger } from './logger'
 import { MiddlewareRegistry } from './middleware/registry'
@@ -36,6 +40,10 @@ export interface ApplicationOptions {
   routes?: Array<RouteModule | RouteRegistrar> | ModuleRecord
   providers?: ProviderInput[] | ModuleRecord
   exceptionHandler?: Constructor<ExceptionHandler>
+  /** 统一响应格式（`app/response/Formatter.ts`） */
+  responseFormatter?: Constructor<ResponseFormatter>
+  /** 出站拦截器（`app/interceptor/*.ts`），按顺序处理最终 Response */
+  interceptors?: Interceptor[] | ModuleRecord
   /** 托管静态资源（全栈项目的前端构建产物） */
   static?: StaticOptions
   /** 在提供者 register 之后、boot 之前执行，常用于测试中替换绑定 */
@@ -63,6 +71,7 @@ export class Application {
 
   readonly #options: ApplicationOptions
   readonly #providers: ServiceProvider[] = []
+  readonly #interceptors: Interceptor[] = []
   #h3: H3 | undefined
   #booted = false
 
@@ -119,6 +128,9 @@ export class Application {
       .instance(Logger, this.logger)
       .instance(Router, this.router)
       .singleton(ExceptionHandler, options.exceptionHandler ?? ExceptionHandler)
+      .singleton(ResponseFormatter, options.responseFormatter ?? ResponseFormatter)
+    for (const [, interceptor] of normalizeModules<Interceptor>(options.interceptors))
+      this.intercept(interceptor)
 
     // 4. 提供者 register → setup → boot
     for (const [, Provider] of normalizeModules<ProviderInput>(options.providers)) {
@@ -138,6 +150,15 @@ export class Application {
     // 记录最近启动的应用，供请求之外的 useApp() / config() 使用
     // eslint-disable-next-line ts/no-this-alias
     currentApp = this
+    return this
+  }
+
+  /**
+   * 注册出站拦截器：拿到最终的 Response（统一格式、异常渲染之后），可修改响应头 / 状态，
+   * 或返回新的 Response 替换。常在服务提供者的 boot() 中调用。
+   */
+  intercept(interceptor: Interceptor): this {
+    this.#interceptors.push(interceptor)
     return this
   }
 
@@ -163,6 +184,18 @@ export class Application {
       await disposePersistent()
     if (currentApp === this)
       currentApp = undefined
+  }
+
+  async #runInterceptors(result: unknown, event: H3Event, ctx: HttpContext): Promise<Response> {
+    // 先按 h3 的规则转换为 Response（不触发 onResponse，访问日志仍只记录一次）
+    let response = result instanceof Response
+      ? result
+      : await toResponse(result, event, {
+          debug: this.config.get('app.debug'),
+        })
+    for (const interceptor of this.#interceptors)
+      response = (await interceptor(response, ctx)) ?? response
+    return response
   }
 
   #loadConfig(): void {
@@ -199,6 +232,19 @@ export class Application {
       return new HttpContext(event, container, { requestId, logger })
     }
 
+    // 出站：处理器 / 中间件返回的数据交给 ResponseFormatter 统一格式
+    const formatOutbound = (result: unknown, event: H3Event, ctx: HttpContext): unknown => {
+      if (isRaw(result))
+        return result.value
+      const meta = event.context.matchedRoute?.meta as RouteMeta | undefined
+      if (meta?.envelope === false)
+        return result
+      const formatter = ctx.make(ResponseFormatter)
+      return formatter.shouldFormat(result, ctx)
+        ? formatter.success(result, ctx)
+        : result
+    }
+
     const h3 = new H3({
       debug: this.config.get('app.debug'),
       silent: true,
@@ -229,8 +275,12 @@ export class Application {
         event.res.headers.set(requestIdHeader, ctx.requestId)
       container.instance(HttpContext, ctx)
       setHttpContext(event, ctx)
+      const store = { app: this, event, ctx, container }
       try {
-        return await runInRequest({ app: this, event, ctx, container }, () => next())
+        const result = await runInRequest(store, () => next())
+        return this.#interceptors.length
+          ? await runInRequest(store, () => this.#runInterceptors(result, event, ctx))
+          : result
       }
       finally {
         await container.dispose()
@@ -244,7 +294,7 @@ export class Application {
         const result = await next()
         if (result === kNotFound)
           throw new NotFoundException(`Cannot find any route matching [${ctx.method}] ${ctx.path}`)
-        return result
+        return formatOutbound(result, event, ctx)
       }
       catch (error) {
         return handleError(error, ctx)
@@ -265,7 +315,6 @@ export class Application {
       h3,
       container: this.container,
       middleware: registry,
-      response: this.config.get('app.response'),
     })
 
     return h3

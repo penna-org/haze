@@ -37,6 +37,7 @@ describe('make', () => {
       service: 'server/app/service/admin/UserProfileService.ts',
       repository: 'server/app/repository/admin/UserProfileRepository.ts',
       middleware: 'server/app/middleware/admin/UserProfile.ts',
+      interceptor: 'server/app/interceptor/user-profile.ts',
       provider: 'server/app/provider/admin/UserProfileProvider.ts',
       validate: 'server/app/validate/admin/user-profile.ts',
       test: 'tests/admin/user-profile.test.ts',
@@ -45,7 +46,7 @@ describe('make', () => {
     }
     for (const kind of Object.keys(KINDS) as KindName[]) {
       // config / route 只按第一层自动发现，不带子目录
-      const name = kind === 'config' || kind === 'route'
+      const name = kind === 'config' || kind === 'route' || kind === 'interceptor'
         ? 'user-profile'
         : 'admin/user-profile'
       const result = await make({ root, srcDir, kind, name })

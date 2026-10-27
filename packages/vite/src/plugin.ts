@@ -235,6 +235,9 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const providers = ${glob('app/provider/*.{ts,mts,js,mjs}')}`,
     `const handlers = ${glob('app/exception/Handler.{ts,mts,js,mjs}', ', import: \'default\'')}`,
     `export const exceptionHandler = Object.values(handlers)[0]`,
+    `const formatters = ${glob('app/response/Formatter.{ts,mts,js,mjs}', ', import: \'default\'')}`,
+    `export const responseFormatter = Object.values(formatters)[0]`,
+    `export const interceptors = ${glob('app/interceptor/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
 }
 
@@ -252,6 +255,8 @@ export function createApp(options = {}) {
     routes: manifest.routes,
     providers: manifest.providers,
     exceptionHandler: manifest.exceptionHandler,
+    responseFormatter: manifest.responseFormatter,
+    interceptors: manifest.interceptors,
     ...options,
   })
 }

@@ -107,7 +107,7 @@ describe('code generation and types', () => {
       const result = await think(`make:${kind}`, 'admin/order-item')
       expect(result.code, result.output).toBe(0)
     }
-    for (const kind of ['config', 'route']) {
+    for (const kind of ['config', 'route', 'interceptor']) {
       const result = await think(`make:${kind}`, 'order-item')
       expect(result.code, result.output).toBe(0)
     }

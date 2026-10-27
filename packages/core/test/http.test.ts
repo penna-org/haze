@@ -289,7 +289,12 @@ describe('middleware', () => {
     })
     expect((await json(ok)).data).toEqual({ user: 'alice' })
 
-    expect(await json(await app.request('/down'))).toEqual({ maintenance: true })
+    // 中间件短路返回的数据同样经过统一响应格式
+    expect(await json(await app.request('/down'))).toEqual({
+      code: 0,
+      message: 'ok',
+      data: { maintenance: true },
+    })
   })
 
   it('expands middleware groups', async () => {
