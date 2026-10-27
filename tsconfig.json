@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@think-h3/core": ["./packages/core/src/index.ts"],
+      "~/*": ["./playground/*"]
+    }
+  },
+  "include": ["packages/*/src", "packages/*/test", "playground", "*.ts"]
+}

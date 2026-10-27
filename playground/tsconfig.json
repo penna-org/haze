@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@think-h3/core": ["../packages/core/src/index.ts"],
+      "~/*": ["./*"]
+    },
+    "types": ["node", "vite/client"]
+  },
+  "include": ["**/*.ts"]
+}

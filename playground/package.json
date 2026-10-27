@@ -1,0 +1,15 @@
+{
+  "name": "playground",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@think-h3/core": "workspace:*",
+    "valibot": "catalog:"
+  },
+  "devDependencies": {
+    "vite": "catalog:"
+  }
+}
