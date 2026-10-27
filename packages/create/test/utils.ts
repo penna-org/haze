@@ -125,3 +125,15 @@ export async function waitFor(check: () => Promise<boolean>, timeout = 10_000): 
   }
   throw new Error('Timed out')
 }
+
+/** 直接读取 SQLite 文件（验证 db:migrate / db:seed 的结果） */
+export async function sqliteRows(file: string, query: string): Promise<Array<Record<string, unknown>>> {
+  const { createClient } = await import('@libsql/client')
+  const client = createClient({ url: `file:${file}` })
+  try {
+    return (await client.execute(query)).rows.map(row => ({ ...row }))
+  }
+  finally {
+    client.close()
+  }
+}

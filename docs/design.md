@@ -702,3 +702,22 @@ it('获取用户', async () => {
 - **应用级能力**：配置 = 全局 + 应用配置深合并（`ctx.config`、`config()`、请求作用域内的 `inject(Config)` 读取应用配置；单例服务注入的仍是全局配置）；应用中间件只作用于本应用，可覆盖全局别名；应用自己的 `exception/Handler.ts`、`response/Formatter.ts` 绑定到请求容器。
 - **路由**：路由名自动加 `<app>.` 前缀，`router.url()` / `route:list` / typegen 覆盖所有应用，`route:list` 显示 APP / DOMAIN 列；启动时检查重名与前缀 / 域名冲突。
 - **生成器**：`make:* --app <name>`。
+
+### M7 实施记录（2026-10-26）
+
+新增 `@think-h3/orm`，150 个测试通过；同一套 ORM 用例在 SQLite（libsql）与 PostgreSQL（PGlite）上运行，MySQL 用例在设置 `THINK_TEST_MYSQL_URL` 时执行（本机无 MySQL，尚未在真实 MySQL 上跑过）。
+
+**Db 查询构造器**（`Db.table(users)`）：`where`（列/值、运算符、对象、drizzle 表达式、分组回调）、`orWhere`、`whereIn / whereNull / whereBetween / whereLike`、`when`、`order / limit / page / field`、`select / find / findOrFail / value / column`、`count / sum / avg / max / min / exists`、`paginate`、`chunk`、`insert`（返回完整行，MySQL 通过 `$returningId()` 回查）、`insertGetId`、`update / delete`（返回影响行数，无条件写入需显式 `{ all: true }`）、`increment / decrement`、`toSQL`；`Db.execute(sql)`、`Db.drizzle()` 用于复杂查询；`Db.connection(name)` 切换连接。
+
+**事务**：`Db.transaction(fn)` 通过 AsyncLocalStorage 隐式传播，回调内的 Db / Model 查询自动使用事务，嵌套为保存点。
+
+**Model**：`class User extends Model.define(users)`，字段类型由 drizzle 表推导（不需要重复声明）；`create / find / findOrFail / all / paginate / destroy / save（只更新脏字段）/ delete / forceDelete / restore / refresh`；软删除（`withTrashed / onlyTrashed`）、时间戳（列存在时自动维护，按列类型写 Date / 字符串 / 毫秒）、`get*Attr / set*Attr`、`hidden / append`、`static scopeXxx` → `scope('xxx')`、事件 `onBefore/AfterInsert|Update|Write|Delete|Restore`；关联 `hasOne / hasMany / belongsTo`，可直接 await，也可 `with('posts.author')` 嵌套预加载，`toJSON` 包含已加载关联。
+- 类型实现要点：模型通过 `'~table'` 品牌属性推导表类型，避免互相引用的模型在结构比较时无限展开。
+
+**连接**：`config/database.ts`（`sqlite | postgres | pglite | mysql`），驱动为可选 peer 依赖、按需动态加载；连接懒建立、跨 HMR 复用、应用关闭时释放；唯一约束冲突统一转换为 `UniqueConstraintException`（409）。
+
+**迁移与命令**：表结构在 `database/schema/*.ts`，`think-h3 db:generate`（调用 drizzle-kit）、`db:migrate`（drizzle 运行时迁移器）、`db:seed`（在应用模块图中执行 `database/seeders/*.ts`）、`make:model`（模型 + 对应方言的表结构）、`make:seeder`；测试用 `refreshDatabase()` 配合 `.env.test` 的 `DATABASE_URL=:memory:`。
+
+**模板**：api / vue 模板默认集成 SQLite、User 模型与 CRUD 控制器、初始迁移、数据填充与测试。
+
+**环境说明**：pnpm 11 要求显式决定依赖的安装脚本；drizzle-kit 依赖的 esbuild 安装脚本已设置为不执行（`allowBuilds: esbuild: false`），esbuild 通过平台二进制包正常工作。pnpm 还自动把较新的 `@electric-sql/pglite` 加入了 `minimumReleaseAgeExclude`。

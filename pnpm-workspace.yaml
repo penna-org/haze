@@ -1,4 +1,7 @@
 minimumReleaseAgeExcludePrune: true
+minimumReleaseAgeExclude:
+  - '@electric-sql/pglite@0.5.12'
+
 trustPolicy: no-downgrade
 shellEmulator: true
 
@@ -6,15 +9,24 @@ packages:
   - packages/*
   - playground
 
+allowBuilds:
+  esbuild: false
+
 catalog:
   '@antfu/eslint-config': ^10.0.0
+  '@electric-sql/pglite': ^0.5.12
+  '@libsql/client': ^0.18.0
   '@standard-schema/spec': ^1.0.0
   '@types/node': ^24.0.0
   '@vitejs/plugin-vue': ^6.0.10
   citty: ^0.2.2
   consola: ^3.4.2
+  drizzle-kit: ^0.31.11
+  drizzle-orm: ^0.45.4
   eslint: ^10.13.0
   h3: ^2.0.8
+  mysql2: ^3.24.6
+  postgres: ^3.4.9
   srvx: ^1.0.7
   tsdown: ^0.23.2
   typescript: ~6.0.3

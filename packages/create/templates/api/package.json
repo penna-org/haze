@@ -10,10 +10,16 @@
     "test": "think-h3 test",
     "routes": "think-h3 route:list",
     "typecheck": "tsc --noEmit",
-    "typegen": "think-h3 typegen"
+    "typegen": "think-h3 typegen",
+    "db:generate": "think-h3 db:generate",
+    "db:migrate": "think-h3 db:migrate",
+    "db:seed": "think-h3 db:seed"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "@think-h3/core": "{{version}}",
+    "@think-h3/orm": "{{version}}",
+    "drizzle-orm": "^0.45.4",
     "valibot": "^1.1.0"
   },
   "devDependencies": {
@@ -21,6 +27,7 @@
     "@think-h3/testing": "{{version}}",
     "@think-h3/vite": "{{version}}",
     "@types/node": "^24.0.0",
+    "drizzle-kit": "^0.31.11",
     "typescript": "~6.0.3",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"

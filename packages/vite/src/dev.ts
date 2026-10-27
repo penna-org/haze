@@ -31,6 +31,8 @@ export interface DevServer {
   /** 手动触发一次重载 */
   reload: (file?: string) => Promise<ReloadResult>
   onReload: (listener: (result: ReloadResult) => void) => () => void
+  /** 在应用的模块图中执行模块（命令行的 db:migrate / db:seed 使用） */
+  import: <T = any>(id: string) => Promise<T>
   close: () => Promise<void>
 }
 
@@ -98,6 +100,7 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
     fetch: host.fetch,
     reload: host.reload,
     onReload: host.onReload,
+    import: host.import,
     async close() {
       await server?.close(true)
       await host.close()

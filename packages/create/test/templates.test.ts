@@ -1,11 +1,11 @@
 import type { createProject as CreateProject } from './utils'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildServer, createDevServer } from '@think-h3/vite'
 import { createBuilder, createServer } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { scaffold, toPackageName } from '../src/scaffold'
-import { binOf, createProject, run, startProduction, waitFor } from './utils'
+import { binOf, createProject, run, sqliteRows, startProduction, waitFor } from './utils'
 
 let project: ReturnType<typeof CreateProject> | undefined
 afterEach(() => {
@@ -50,7 +50,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    expect(tests.output).toContain('3 passed')
+    // greeting 3 + users 3
+    expect(tests.output, tests.output).toContain('6 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -92,7 +93,8 @@ describe('code generation and types', () => {
 
     const typegen = await think('typegen')
     expect(typegen.code, typegen.output).toBe(0)
-    expect(typegen.output).toContain('1 named route(s)')
+    // api.hello + api.users.{index,store,show,update,destroy}
+    expect(typegen.output).toContain('6 named route(s)')
     expect(project.read('.think/types/think.d.ts')).toContain('"api.hello": Record<never, never>')
 
     for (const kind of [
@@ -117,25 +119,54 @@ describe('code generation and types', () => {
     expect(resource.output).toContain('app/controller/ProductController.ts')
     expect((await think('make:service', 'admin/order-item')).output).toContain('already exists')
 
+    // 模型 → 迁移 → 执行迁移 → 数据填充
+    const model = await think('make:model', 'Product', '--soft-delete')
+    expect(model.output, model.output).toContain('database/schema/products.ts')
+    const generate = await think('db:generate', '--name', 'create_products')
+    expect(generate.code, generate.output).toBe(0)
+    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0001_create_products.sql')
+    const migrate = await think('db:migrate')
+    expect(migrate.output, migrate.output).toContain('[main] migrated')
+    writeFileSync(join(project.root, 'database/seeders/02-products.ts'), `
+import { Product } from '~/app/model/Product'
+export default async function seed() {
+  await Product.create({ name: 'Keyboard' })
+}
+`)
+    const seed = await think('db:seed')
+    expect(seed.output, seed.output).toContain('Seeded 02-products.ts')
+    const tables = await sqliteRows(join(project.root, 'data/app.db'), 'select (select count(*) from users) as users, (select name from products) as product')
+    expect(tables).toEqual([
+      { users: 1, product: 'Keyboard' },
+    ])
+
     // 类型探针：生成的配置键 / 路由名必须能拦截拼写错误
     writeFileSync(join(project.root, 'probe.ts'), `
 import { config, Router } from '@think-h3/core'
+import { Product } from '~/app/model/Product'
 declare const router: Router
 const name: string = config('app.name')
 const enabled: boolean = config('orderItem.enabled')
 router.url('api.hello')
+router.url('api.users.show', { id: 1 })
 // @ts-expect-error 未知配置键
 config('app.nope')
 // @ts-expect-error 未知路由名
 router.url('api.nope')
-export { enabled, name }
+// 模型字段类型来自 drizzle 表结构
+const product = await Product.findOrFail(1)
+const productName: string = product.name
+// @ts-expect-error 不存在的字段
+product.nope
+export { enabled, name, productName }
 `)
     const tsc = await run(binOf('typescript', 'tsc'), ['--noEmit', '-p', 'tsconfig.json'], project.root)
     expect(tsc.output).toBe('')
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    expect(tests.output, tests.output).toContain('4 passed')
+    // greeting 3 + users 3 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('7 passed')
   })
 })
 
@@ -147,7 +178,8 @@ describe('vue template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    expect(tests.output).toContain('3 passed')
+    // greeting 3 + users 3
+    expect(tests.output, tests.output).toContain('6 passed')
     expect(tests.code).toBe(0)
   })
 

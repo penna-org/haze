@@ -47,6 +47,26 @@ router.url('api.hello') // 路由名有补全，参数按路径检查
 - `app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`think-h3 make:interceptor`）
 - 单个路由跳过：`.meta({ envelope: false })` 或 `return raw(value)`
 
+## 数据库
+
+默认使用 SQLite（`config/database.ts`，文件位于 `data/app.db`），表结构在 `database/schema/*.ts`（drizzle），模型在 `app/model/`：
+
+```bash
+pnpm db:migrate                         # 执行迁移（首次运行前执行）
+pnpm db:seed                            # 数据填充（database/seeders）
+npx think-h3 make:model Post            # 生成模型 + 表结构
+pnpm db:generate --name create_posts    # 表结构变化后生成迁移
+```
+
+```ts
+const user = await User.findOrFail(1) // 404：User 1 不存在
+await User.where('name', 'like', '%a%').order('id', 'desc').paginate(1, 20)
+await Db.table(users).where('id', 1).update({ name: 'Ada' })
+await Db.transaction(async () => { /* 内部的 Db / Model 操作自动加入事务 */ })
+```
+
+切换到 PostgreSQL / MySQL：安装 `postgres` 或 `mysql2`，修改 `driver` 与 `url`，表结构改用 `drizzle-orm/pg-core` / `mysql-core`。
+
 ## 多应用
 
 在 `config/app.ts` 中声明应用，代码放在 `app/<name>/`（controller、route、config、middleware 配置、exception/Handler.ts、response/Formatter.ts）：

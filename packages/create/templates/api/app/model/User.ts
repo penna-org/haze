@@ -1,0 +1,8 @@
+import { Model } from '@think-h3/orm'
+import { users } from '~/database/schema/users'
+
+/**
+ * 用户模型：字段与类型来自 database/schema/users.ts。
+ * 常用：User.findOrFail(id)、User.where('name', 'Ada').paginate(1, 20)、User.create(data)、user.save()
+ */
+export class User extends Model.define(users) {}

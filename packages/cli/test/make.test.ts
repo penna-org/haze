@@ -4,7 +4,7 @@ import { join, relative } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { KINDS, make } from '../src/make/generator'
+import { KINDS, make, makeModel } from '../src/make/generator'
 import { camelCase, kebabCase, parseName, plural } from '../src/make/naming'
 
 const root = fileURLToPath(new URL(`./.tmp/make-${process.pid}`, import.meta.url))
@@ -43,10 +43,11 @@ describe('make', () => {
       test: 'tests/admin/user-profile.test.ts',
       config: 'server/config/userProfile.ts',
       route: 'server/route/user-profile.ts',
+      seeder: 'server/database/seeders/user-profile.ts',
     }
     for (const kind of Object.keys(KINDS) as KindName[]) {
       // config / route 只按第一层自动发现，不带子目录
-      const name = kind === 'config' || kind === 'route' || kind === 'interceptor'
+      const name = kind === 'config' || kind === 'route' || kind === 'interceptor' || kind === 'seeder'
         ? 'user-profile'
         : 'admin/user-profile'
       const result = await make({ root, srcDir, kind, name })
@@ -122,6 +123,41 @@ describe('make', () => {
       'server/app/admin/config/app.ts',
       'tests/admin-user.test.ts',
     ])
+  })
+
+  it('generates a model with its drizzle schema per dialect', async () => {
+    const result = await makeModel({
+      root,
+      srcDir,
+      name: 'OrderItem',
+      softDelete: true,
+    })
+    expect(rel(result.model)).toBe('server/app/model/OrderItem.ts')
+    expect(rel(result.schema!)).toBe('server/database/schema/order_items.ts')
+    const model = readFileSync(result.model, 'utf8')
+    expect(model).toContain(`import { orderItems } from '~/database/schema/order_items'`)
+    expect(model).toContain('export class OrderItem extends Model.define(orderItems)')
+    expect(model).toContain('static override softDelete = true')
+    expect(readFileSync(result.schema!, 'utf8')).toContain(`sqliteTable('order_items'`)
+
+    // 表结构已存在时只生成模型
+    const again = await makeModel({
+      root,
+      srcDir,
+      name: 'Admin/OrderItem',
+      dialect: 'mysql',
+      app: 'admin',
+    })
+    expect(rel(again.model)).toBe('server/app/admin/model/admin/OrderItem.ts')
+    expect(again.schema).toBeUndefined()
+
+    const pg = await makeModel({
+      root,
+      srcDir,
+      name: 'Category',
+      dialect: 'postgres',
+    })
+    expect(readFileSync(pg.schema!, 'utf8')).toContain(`pgTable('categories'`)
   })
 
   it('refuses to overwrite unless forced', async () => {

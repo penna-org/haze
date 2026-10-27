@@ -1,0 +1,10 @@
+import { mysqlTable, serial, timestamp, varchar } from 'drizzle-orm/mysql-core'
+
+// 表结构定义（drizzle）：此文件只依赖 drizzle-orm，不要使用 ~ 别名（drizzle-kit 需要直接读取）
+export const {{tableVar}} = mysqlTable('{{tableName}}', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at'),
+  updatedAt: timestamp('updated_at'),
+  deletedAt: timestamp('deleted_at'),
+})

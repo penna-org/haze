@@ -1,0 +1,10 @@
+import { Model } from '@think-h3/orm'
+import { {{tableVar}} } from '~/database/schema/{{tableName}}'
+
+/**
+ * {{name}} 模型：字段与类型来自 database/schema/{{tableName}}.ts，
+ * 修改表结构后运行 think-h3 db:generate 生成迁移，再 think-h3 db:migrate。
+ */
+export class {{className}} extends Model.define({{tableVar}}) {
+  static override softDelete = {{softDelete}}
+}

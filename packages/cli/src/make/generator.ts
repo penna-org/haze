@@ -118,6 +118,16 @@ export const KINDS = {
     flat: true,
     stub: 'route',
   },
+  seeder: {
+    description: '数据填充',
+    suffix: 'Seeder',
+    dir: 'database/seeders',
+    base: 'src',
+    file: 'kebab',
+    flat: true,
+    stub: 'seeder',
+    hint: () => '运行：think-h3 db:seed',
+  },
 } satisfies Record<string, MakeKind>
 
 export type KindName = keyof typeof KINDS
@@ -212,6 +222,53 @@ export function readStub(root: string, stubName: string): { content: string, cus
   return {
     content: readFileSync(builtin, 'utf8'),
     custom: false,
+  }
+}
+
+export type Dialect = 'sqlite' | 'postgres' | 'mysql'
+
+export interface MakeModelOptions {
+  root: string
+  srcDir: string
+  name: string
+  /** 表名，默认为名称的复数下划线形式（OrderItem → order_items） */
+  table?: string
+  dialect?: Dialect
+  softDelete?: boolean
+  app?: string
+  force?: boolean
+}
+
+/** 生成模型（app/model）与对应的 drizzle 表结构（database/schema，已存在时跳过） */
+export async function makeModel(options: MakeModelOptions): Promise<{ model: string, schema?: string, hint: string }> {
+  const { dir, name } = parseName(options.name, 'Model')
+  const tableName = options.table ?? plural(kebabCase(name)).replace(/-/g, '_')
+  const vars = {
+    name,
+    className: name,
+    tableName,
+    tableVar: camelCase(tableName),
+    softDelete: String(options.softDelete ?? false),
+  }
+  const modelDir = options.app
+    ? `app/${kebabCase(options.app)}/model`
+    : 'app/model'
+  const model = join(options.srcDir, modelDir, dir, `${name}.ts`)
+  if (existsSync(model) && !options.force)
+    throw new Error(`${model} already exists. Use --force to overwrite.`)
+
+  const schema = join(options.srcDir, 'database/schema', `${tableName}.ts`)
+  const writeSchema = !existsSync(schema)
+  await mkdir(dirname(model), { recursive: true })
+  await writeFile(model, render(readStub(options.root, 'model').content, vars as unknown as StubVariables))
+  if (writeSchema) {
+    await mkdir(dirname(schema), { recursive: true })
+    await writeFile(schema, render(readStub(options.root, `schema.${options.dialect ?? 'sqlite'}`).content, vars as unknown as StubVariables))
+  }
+  return {
+    model,
+    schema: writeSchema ? schema : undefined,
+    hint: '修改表结构后运行：think-h3 db:generate && think-h3 db:migrate',
   }
 }
 

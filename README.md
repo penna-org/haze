@@ -61,6 +61,7 @@ npx think-h3 stub:publish                    # 导出 stub 到 stubs/ 以定制�
 ## 目录
 
 ```
+packages/orm/    @think-h3/orm  基于 drizzle 的 Db 查询构造器 + Model（MySQL / PostgreSQL / SQLite）
 packages/create/ create-think-h3 脚手架与 api / vue 模板
 packages/testing/ @think-h3/testing  useTestApp / createTestApp / defineThinkTestConfig
 packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / test / route:list / typegen / make:*）

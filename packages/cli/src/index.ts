@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { defineCommand, runMain } from 'citty'
-import { makeCommands } from './commands/make'
+import { generateCommand, migrateCommand, seedCommand } from './commands/db'
+import { makeCommands, makeModelCommand } from './commands/make'
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
@@ -19,6 +20,10 @@ const main = defineCommand({
     'typegen': () => import('./commands/typegen').then(m => m.default),
     'stub:publish': () => import('./commands/stub-publish').then(m => m.default),
     ...makeCommands,
+    'make:model': makeModelCommand,
+    'db:generate': generateCommand,
+    'db:migrate': migrateCommand,
+    'db:seed': seedCommand,
   },
 })
 

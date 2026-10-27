@@ -36,6 +36,8 @@ export interface AppHost {
   /** 手动触发一次重载 */
   reload: (file?: string) => Promise<ReloadResult>
   onReload: (listener: (result: ReloadResult) => void) => () => void
+  /** 在应用的模块图中执行模块（与应用共享同一份依赖实例，例如数据库连接） */
+  import: <T = any>(id: string) => Promise<T>
   close: () => Promise<void>
 }
 
@@ -175,6 +177,7 @@ export function createAppHost({ vite, api, debounce = 30 }: AppHostOptions): App
     start,
     fetch,
     reload,
+    import: id => runner.import(id),
     onReload(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

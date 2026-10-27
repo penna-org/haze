@@ -1,6 +1,9 @@
 import { isPlainObject } from '../utils'
 
-/** 只格式化可 JSON 序列化的“数据”；字符串、Response、流、二进制等原样输出 */
+/**
+ * 只格式化可 JSON 序列化的“数据”：普通对象、数组、数字、布尔、null，以及实现了 toJSON() 的对象
+ * （如 ORM 模型、Date）；字符串、Response、流、二进制等原样输出
+ */
 export function isFormattable(value: unknown): boolean {
   return value === null
     || value === undefined
@@ -8,6 +11,7 @@ export function isFormattable(value: unknown): boolean {
     || isPlainObject(value)
     || typeof value === 'number'
     || typeof value === 'boolean'
+    || (typeof value === 'object' && typeof (value as { toJSON?: unknown }).toJSON === 'function')
 }
 
 const kRaw = Symbol.for('think-h3.raw')

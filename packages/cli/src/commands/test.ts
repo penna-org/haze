@@ -1,10 +1,8 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { resolveRoot } from '../args'
+import { binOf } from '../resolve'
 
 export default defineCommand({
   meta: { name: 'test', description: '运行 Vitest（其余参数原样透传）' },
@@ -13,15 +11,7 @@ export default defineCommand({
   },
   async run({ args, rawArgs }) {
     const root = resolveRoot(args.root)
-    let bin: string
-    try {
-      const pkgPath = createRequire(join(root, 'package.json')).resolve('vitest/package.json')
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }
-      bin = join(dirname(pkgPath), pkg.bin.vitest)
-    }
-    catch {
-      throw new Error('vitest is not installed. Run `pnpm add -D vitest` first.')
-    }
+    const bin = binOf(root, 'vitest')
 
     const passthrough = stripRootArg(rawArgs)
     const vitestArgs = passthrough.length
