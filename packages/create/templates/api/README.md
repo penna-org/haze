@@ -106,6 +106,20 @@ curl localhost:3000/api/auth/me -H 'authorization: Bearer <token>'
 - 测试：`await t.actingAs(user)` 返回已登录的客户端
 - 密码：`Hash.make(password)` / `Hash.verify(hash, password)`（scrypt）
 
+授权（`app/policy/*.ts` 自动注册，`npx think-h3 make:policy Post` 生成）：
+
+```ts
+export default definePolicy(User, {
+  before: (actor: User | undefined) => actor?.role === 'admin' || undefined, // 管理员全部放行
+  update: (actor: User, user: User) => actor.id === user.id || deny('只能修改自己的资料'),
+})
+```
+
+- 控制器：`await ctx.authorize('update', user)`（未登录 401，无权限 403），`await ctx.can('delete', user)` 返回 boolean
+- 路由：`.middleware('can:admin.access')`、`'can:create,Post'`、`'can:update,Post,id'`（按路由参数加载模型，实例在 `ctx.get('post')`）
+- 能力名由 typegen 生成类型，拼错会在类型检查时报错；与模型无关的能力用 `defineAbilities({ 'admin.access': user => ... })`
+- CSRF：使用 Session Guard 等 Cookie 认证时，在中间件中加入 `csrf`。前端回传 `XSRF-TOKEN` Cookie 的值（`X-XSRF-TOKEN` 头或表单 `_token` 字段），否则返回 419
+
 内置中间件（`config/middleware.ts` 中按名使用，配置文件放在 `config/` 下同名文件）：
 
 | 名字 | 用途 | 配置 |
@@ -117,6 +131,8 @@ curl localhost:3000/api/auth/me -H 'authorization: Bearer <token>'
 | `bodyLimit:10mb` | 调整单个路由的请求体上限（默认 `app.bodyLimit`，1mb） | — |
 | `session` | 启动会话：`ctx.session.get / set / flash / regenerate` | `session.ts`（cookie / memory / 自定义存储） |
 | `auth` / `guest` | 认证 | `auth.ts` |
+| `can:<ability>[,Model[,param]]` | 授权 | `app/policy/*.ts` |
+| `csrf` | CSRF 同步令牌（419） | `csrf.ts`（except、cookie、testing） |
 
 文件上传：multipart 请求的 `await ctx.body()` 中文件字段为 `UploadedFile`（继承 File，可直接用 valibot 的 `v.file()`、`v.maxSize()`、`v.mimeType()` 校验），`await (await ctx.file('avatar'))?.store('storage/avatars')` 保存到本地。
 

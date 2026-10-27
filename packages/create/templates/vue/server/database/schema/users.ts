@@ -8,6 +8,10 @@ export const users = sqliteTable('users', {
   email: text('email').notNull().unique(),
   // 密码哈希（Hash.make()），通过 /api/auth/register 注册的用户才有
   password: text('password'),
+  // 角色：admin 可以管理所有用户（app/policy/UserPolicy.ts）
+  role: text('role', {
+    enum: ['member', 'admin'],
+  }).notNull().default('member'),
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 })

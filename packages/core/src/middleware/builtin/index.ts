@@ -1,8 +1,9 @@
 import type { MiddlewareHandler } from '../types'
-import { authenticate, guest } from '../../auth/middleware'
+import { authenticate, can, guest } from '../../auth/middleware'
 import { parseSize } from '../../utils'
 import { compress } from './compress'
 import { cors } from './cors'
+import { csrf } from './csrf'
 import { secureHeaders } from './secure-headers'
 import { throttle } from './throttle'
 
@@ -30,4 +31,6 @@ export const builtinMiddleware: Record<string, MiddlewareHandler> = {
   session,
   auth: authenticate,
   guest,
+  can,
+  csrf,
 }

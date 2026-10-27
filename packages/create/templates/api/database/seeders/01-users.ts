@@ -6,5 +6,10 @@ export default async function seed(): Promise<void> {
   if (await User.where('email', 'admin@example.com').exists())
     return
   // 开发用账号，上线前请修改密码
-  await User.create({ name: 'Admin', email: 'admin@example.com', password: await Hash.make('password') })
+  await User.create({
+    name: 'Admin',
+    email: 'admin@example.com',
+    password: await Hash.make('password'),
+    role: 'admin',
+  })
 }

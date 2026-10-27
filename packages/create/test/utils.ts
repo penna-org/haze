@@ -96,12 +96,28 @@ export function freePort(): Promise<number> {
   })
 }
 
+/**
+ * 全栈模板启用了 csrf：先请求 /api/csrf-cookie，返回带会话 Cookie 与 X-XSRF-TOKEN 的请求头（与 src/api.ts 相同）
+ */
+export async function csrfHeaders(fetcher: (path: string) => Promise<Response>): Promise<Record<string, string>> {
+  const res = await fetcher('/api/csrf-cookie')
+  const cookies = res.headers.getSetCookie().map(cookie => cookie.split(';')[0])
+  const xsrf = cookies.find(cookie => cookie.startsWith('XSRF-TOKEN='))
+  if (!xsrf)
+    throw new Error(`No XSRF-TOKEN cookie (status ${res.status})`)
+  return {
+    'cookie': cookies.join('; '),
+    'x-xsrf-token': decodeURIComponent(xsrf.slice('XSRF-TOKEN='.length)),
+  }
+}
+
 /** 启动生产产物并等待就绪 */
-export async function startProduction(entry: string, cwd: string): Promise<{ url: string, stop: () => Promise<void> }> {
+export async function startProduction(entry: string, cwd: string, env: Record<string, string> = {}): Promise<{ url: string, stop: () => Promise<void> }> {
   const port = await freePort()
   const child = spawn(process.execPath, [entry], {
     cwd,
     env: childEnv({
+      ...env,
       PORT: String(port),
       NODE_ENV: 'production',
     }),

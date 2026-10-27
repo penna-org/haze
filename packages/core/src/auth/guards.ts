@@ -4,6 +4,7 @@ import type { WebCryptoKey } from '../security/key'
 import type { JwtGuardConfig } from './config'
 import type { Credentials, UserProvider } from './provider'
 import { importPKCS8, importSPKI, jwtVerify, SignJWT } from 'jose'
+import { regenerateCsrfToken } from '../middleware/builtin/csrf'
 import { appKey } from '../security/key'
 import { parseDuration } from '../utils'
 
@@ -175,6 +176,8 @@ export class SessionGuard<U = unknown> extends BaseGuard<U> {
   async login(user: U): Promise<void> {
     const session = await this.ctx.startSession()
     session.regenerate()
+    if (session.has('_csrf'))
+      regenerateCsrfToken(session)
     session.set(this.#key, this.provider.getId(user))
     this.setUser(user)
   }

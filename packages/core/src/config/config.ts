@@ -4,6 +4,7 @@ import type { CookieOptions } from '../http/cookie'
 import type { LoggerConfig } from '../logger'
 import type { CompressOptions } from '../middleware/builtin/compress'
 import type { CorsOptions } from '../middleware/builtin/cors'
+import type { CsrfConfig } from '../middleware/builtin/csrf'
 import type { SecureHeadersOptions } from '../middleware/builtin/secure-headers'
 import type { ThrottleConfig } from '../middleware/builtin/throttle'
 import type { MiddlewareConfig } from '../middleware/types'
@@ -19,6 +20,8 @@ export interface ResponseConfig {
 
 export interface AppConfig {
   name: string
+  /** 运行模式（由 createApplication 的 mode 决定，只读） */
+  mode: 'development' | 'production' | 'test'
   /** 调试模式：错误响应携带堆栈，默认 development 下开启 */
   debug: boolean
   response: ResponseConfig
@@ -42,6 +45,7 @@ export interface CoreConfig {
   logger: LoggerConfig
   middleware: MiddlewareConfig
   cors?: CorsOptions
+  csrf?: CsrfConfig
   throttle?: ThrottleConfig
   secureHeaders?: SecureHeadersOptions
   compress?: CompressOptions
@@ -105,6 +109,7 @@ export function defaultConfig(mode: 'development' | 'production' | 'test'): Core
   return {
     app: {
       name: 'think-h3',
+      mode,
       debug: mode === 'development',
       requestIdHeader: 'x-request-id',
       bodyLimit: '1mb',

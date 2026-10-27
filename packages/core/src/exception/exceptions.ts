@@ -48,6 +48,8 @@ export class NotFoundException extends createHttpException(404, 'Not Found') {}
 export class MethodNotAllowedException extends createHttpException(405, 'Method Not Allowed') {}
 export class ConflictException extends createHttpException(409, 'Conflict') {}
 export class TooManyRequestsException extends createHttpException(429, 'Too Many Requests') {}
+/** CSRF token 缺失或不匹配（与 Laravel 一致使用 419，前端可据此刷新 token 后重试） */
+export class CsrfTokenMismatchException extends createHttpException(419, 'Page Expired') {}
 export class InternalServerErrorException extends createHttpException(500, 'Internal Server Error') {}
 
 export interface ValidationIssue {

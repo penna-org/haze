@@ -168,7 +168,7 @@ CMD ["node", "server/index.mjs"]
 `)
       await writeFile(join(context.outDir, '.dockerignore'), 'node_modules\nDockerfile\n.dockerignore\n')
     },
-    hint: context => `Build image: docker build -t ${packageName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} ${packageName(context.root)}${context.orm
+    hint: context => `Build image: docker build -t ${packageName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} -e APP_KEY=<key> ${packageName(context.root)}${context.orm
       ? `\nMigrate: docker run --rm ${packageName(context.root)} node server/migrate.mjs`
       : ''}`,
   },
@@ -206,7 +206,7 @@ export async function migrate(event = {}) {
       const dir = context.layout.serverDir
       await writeFile(join(dir, 'package.json'), '{ "type": "module" }\n')
     },
-    hint: context => `Zip ${rel(context, context.layout.serverDir)} and set the Lambda handler to index.handler (runtime nodejs22.x)${context.orm
+    hint: context => `Zip ${rel(context, context.layout.serverDir)} and set the Lambda handler to index.handler (runtime nodejs22.x), with APP_KEY in the environment${context.orm
       ? '\nMigrate: invoke the same bundle with handler index.migrate (event: { "connection"?: string, "all"?: boolean })'
       : ''}`,
   },
@@ -255,7 +255,7 @@ export default async function vercelHandler(req, res) {
           ]
       await writeFile(join(output, 'config.json'), `${JSON.stringify({ version: 3, routes }, null, 2)}\n`)
     },
-    hint: () => 'Deploy the prebuilt output: vercel deploy --prebuilt',
+    hint: () => 'Deploy the prebuilt output: vercel deploy --prebuilt (set APP_KEY with: vercel env add APP_KEY)',
   },
 
   'netlify': {
@@ -299,9 +299,9 @@ export const config = {
       if (!existsSync(toml))
         await writeFile(toml, `[build]\n  command = "npx think-h3 build --preset netlify"\n  publish = "${rel(context, publish)}"\n`)
     },
-    hint: context => existsSync(join(context.root, 'netlify.toml'))
+    hint: context => `${existsSync(join(context.root, 'netlify.toml'))
       ? 'Deploy with: netlify deploy --build (publish directory is set in netlify.toml)'
-      : 'Deploy with: netlify deploy --build',
+      : 'Deploy with: netlify deploy --build'}\nSet APP_KEY with: netlify env:set APP_KEY <key>`,
   },
 
   'cloudflare': {

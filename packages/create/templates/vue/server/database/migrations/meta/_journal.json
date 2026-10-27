@@ -15,6 +15,13 @@
       "when": 1793084099573,
       "tag": "0001_add_user_password",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793086076027,
+      "tag": "0002_add_user_role",
+      "breakpoints": true
     }
   ]
 }

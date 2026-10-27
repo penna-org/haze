@@ -51,6 +51,16 @@ export async function verify(value: string, signature: string, secret: string): 
   }
 }
 
+/** 常量时间比较字符串（长度不同直接返回 false） */
+export function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length)
+    return false
+  let diff = 0
+  for (let index = 0; index < a.length; index++)
+    diff |= a.charCodeAt(index) ^ b.charCodeAt(index)
+  return diff === 0
+}
+
 export function toBase64Url(bytes: Uint8Array): string {
   let binary = ''
   for (const byte of bytes)

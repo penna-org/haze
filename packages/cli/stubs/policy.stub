@@ -1,0 +1,21 @@
+import { allowGuest, definePolicy, deny } from '@think-h3/core'
+import { {{name}} } from '~/app/model/{{name}}'
+
+/**
+ * {{name}} 的授权策略（app/policy 下自动注册）：
+ * - 控制器：await ctx.authorize('update', {{camelName}})，或 if (await ctx.can('delete', {{camelName}}))
+ * - 路由：.middleware('can:update,{{name}},id')（按路由参数 id 加载并检查，实例存入 ctx.get('{{camelName}}')）
+ * 能力函数返回 true / false / deny('原因')；未登录用户默认拒绝，用 allowGuest() 包装后才会调用。
+ */
+export default definePolicy({{name}}, {
+  // 先于所有能力执行：返回 true / false 直接决定，undefined 继续判断（如超级管理员）
+  // before: user => user?.role === 'admin' || undefined,
+
+  viewAny: allowGuest(() => true),
+  view: allowGuest(() => true),
+  create: () => true,
+  // 示例：只有作者可以修改
+  // update: (user, {{camelName}}) => {{camelName}}.userId === user.id || deny('只能修改自己的{{name}}'),
+  update: () => deny('尚未配置 {{name}} 的修改权限'),
+  delete: () => deny('尚未配置 {{name}} 的删除权限'),
+})

@@ -12,6 +12,7 @@ import type { Constructor, MaybePromise, ModuleRecord } from './utils'
 import process from 'node:process'
 import { H3, serve, toResponse } from 'h3'
 import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
+import { Gate } from './auth/gate'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
 import { Container } from './container/container'
@@ -47,6 +48,8 @@ export interface ApplicationOptions {
   responseFormatter?: Constructor<ResponseFormatter>
   /** 出站拦截器（`app/interceptor/*.ts`），按顺序处理最终 Response */
   interceptors?: Interceptor[] | ModuleRecord
+  /** 授权策略与能力（app/policy/*.ts：definePolicy / defineAbilities） */
+  policies?: unknown[] | ModuleRecord
   /**
    * 多应用模块：`import.meta.glob('/app/*\/{route,config,provider,exception,response}/*')`。
    * 只有在 `config/app.ts` 的 `apps` 中声明的应用才会启用。
@@ -141,6 +144,11 @@ export class Application {
       .singleton(ResponseFormatter, options.responseFormatter ?? ResponseFormatter)
     for (const [, interceptor] of normalizeModules<Interceptor>(options.interceptors))
       this.intercept(interceptor)
+    // 授权：提供者可在 register / boot 中继续 app.make(Gate).define(...)
+    const gate = new Gate()
+    for (const [, policy] of normalizeModules<unknown>(options.policies))
+      gate.register(policy)
+    this.container.instance(Gate, gate)
 
     // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()

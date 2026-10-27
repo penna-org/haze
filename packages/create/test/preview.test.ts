@@ -4,7 +4,7 @@ import { readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { previewServer } from '@think-h3/vite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { binOf, createProject, freePort, run } from './utils'
+import { binOf, createProject, csrfHeaders, freePort, run } from './utils'
 
 let project: ReturnType<typeof createProject> | undefined
 let server: PreviewServer | undefined
@@ -77,10 +77,14 @@ describe('vite preview runs the build output of every preset', () => {
       expect.stringContaining('javascript'),
     ])
 
-    // 请求体与状态码原样经过产物
+    // 请求体、Cookie 与状态码原样经过产物（全栈模板启用了 csrf）
+    expect((await fetch(`${url}/api/users`, { method: 'POST' })).status).toBe(419)
     const invalid = await fetch(`${url}/api/users`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...await csrfHeaders(path => fetch(`${url}${path}`)),
+      },
       body: JSON.stringify({ name: '' }),
     })
     expect(invalid.status).toBe(422)
@@ -99,7 +103,10 @@ describe('vite preview runs the build output of every preset', () => {
     })
     const created = await fetch(`${url}/api/users`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...await csrfHeaders(path => fetch(`${url}${path}`)),
+      },
       body: JSON.stringify({ name: 'Ada', email: 'ada@example.com' }),
     })
     expect(created.status).toBe(201)

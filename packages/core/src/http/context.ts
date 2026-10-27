@@ -1,15 +1,18 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type { H3Event, HTTPResponse } from 'h3'
+import type { ModelAbility, PlainAbility } from '../auth/gate'
 import type { Container } from '../container/container'
 import type { InjectionKey } from '../container/token'
 import type { Session } from '../session/session'
 import type { CookieOptions } from './cookie'
 import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
+import { Gate } from '../auth/gate'
 import { Config } from '../config/config'
 import { Scope } from '../container/container'
 import { BadRequestException } from '../exception/exceptions'
 import { Logger } from '../logger'
+import { csrfToken } from '../middleware/builtin/csrf'
 import { appKey, sign, verify } from '../security/key'
 import { startSession } from '../session/session'
 import { parseSize } from '../utils'
@@ -224,6 +227,41 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
   get auth(): Auth {
     this.#auth ??= new Auth(this)
     return this.#auth
+  }
+
+  /** 当前用户是否拥有能力：`await ctx.can('update', post)`、`ctx.can('create', Post)`、`ctx.can('admin.access')` */
+  can<M extends object>(ability: ModelAbility<M>, model: M, ...args: unknown[]): Promise<boolean>
+  can<C extends abstract new (...args: any[]) => any>(ability: ModelAbility<InstanceType<C>>, model: C, ...args: unknown[]): Promise<boolean>
+  can(ability: PlainAbility, ...args: unknown[]): Promise<boolean>
+  async can(ability: string, ...args: unknown[]): Promise<boolean> {
+    return this.make(Gate).allows(await this.#gateUser(), ability, ...args)
+  }
+
+  cannot<M extends object>(ability: ModelAbility<M>, model: M, ...args: unknown[]): Promise<boolean>
+  cannot<C extends abstract new (...args: any[]) => any>(ability: ModelAbility<InstanceType<C>>, model: C, ...args: unknown[]): Promise<boolean>
+  cannot(ability: PlainAbility, ...args: unknown[]): Promise<boolean>
+  async cannot(ability: string, ...args: unknown[]): Promise<boolean> {
+    return this.make(Gate).denies(await this.#gateUser(), ability, ...args)
+  }
+
+  /** 无权限时抛出：未登录 401，已登录 403（消息取自策略的 deny()） */
+  authorize<M extends object>(ability: ModelAbility<M>, model: M, ...args: unknown[]): Promise<void>
+  authorize<C extends abstract new (...args: any[]) => any>(ability: ModelAbility<InstanceType<C>>, model: C, ...args: unknown[]): Promise<void>
+  authorize(ability: PlainAbility, ...args: unknown[]): Promise<void>
+  async authorize(ability: string, ...args: unknown[]): Promise<void> {
+    return this.make(Gate).authorize(await this.#gateUser(), ability, ...args)
+  }
+
+  /** 当前会话的 CSRF token（服务端渲染表单时放入隐藏字段 `_token`） */
+  csrfToken(): Promise<string> {
+    return csrfToken(this)
+  }
+
+  /** 授权使用的用户：未配置 config/auth.ts 时视为未登录 */
+  async #gateUser(): Promise<unknown> {
+    return this.config.get('auth', undefined)
+      ? this.auth.user()
+      : undefined
   }
 
   /**

@@ -8,6 +8,8 @@ import { UserIdParams } from '~/app/validate/user'
 export default defineRoutes((r) => {
   r.group({ prefix: '/api', as: 'api.' }, (r) => {
     r.get('/hello', [GreetingController, 'index']).name('hello')
+    // 下发 XSRF-TOKEN Cookie（前端首次发起修改类请求前调用，见 src/api.ts）
+    r.get('/csrf-cookie', ctx => ctx.noContent())
     r.post('/hello', [GreetingController, 'store']).validate({ body: GreetSchema })
     r.resource('/users', UserController).validateMember({ params: UserIdParams })
 

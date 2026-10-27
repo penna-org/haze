@@ -81,6 +81,16 @@ export const KINDS = {
     stub: 'provider',
     hint: () => 'app/provider 下的提供者会被自动加载',
   },
+  policy: {
+    description: '授权策略',
+    suffix: 'Policy',
+    dir: 'app/policy',
+    base: 'src',
+    file: 'class',
+    flat: true,
+    stub: 'policy',
+    hint: v => `app/policy 下的策略自动注册：await ctx.authorize('update', ${v.camelName}) / .middleware('can:update,${v.name},id')`,
+  },
   validate: {
     description: '请求校验',
     suffix: 'Schema',

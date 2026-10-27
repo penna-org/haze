@@ -16,6 +16,7 @@ export interface TypegenResult {
   changed: boolean
   configs: string[]
   routes: string[]
+  policies: string[]
 }
 
 const SOURCE_RE = /\.[cm]?[jt]s$/
@@ -42,6 +43,18 @@ export function generateTypes({ root, srcDir, routes }: TypegenOptions): Omit<Ty
     return { key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${JSON.stringify(path)}).default>` }
   })
 
+  // app/policy/*.ts：能力名与模型策略的类型
+  const policyDir = join(srcDir, 'app', 'policy')
+  const policies = (existsSync(policyDir)
+    ? readdirSync(policyDir).filter(name => SOURCE_RE.test(name) && !name.endsWith('.d.ts')).sort()
+    : []).map((name) => {
+    const key = name.replace(SOURCE_RE, '')
+    let path = normalizePath(relative(typesDir, join(policyDir, key)))
+    if (!path.startsWith('.'))
+      path = `./${path}`
+    return { key, line: `    ${JSON.stringify(key)}: typeof import(${JSON.stringify(path)}).default` }
+  })
+
   const named = routes
     .filter(route => route.name)
     .map((route) => {
@@ -66,6 +79,10 @@ ${configs.map(item => item.line).join('\n')}
   interface RouteNames {
 ${named.map(item => item.line).join('\n')}
   }
+
+  interface GeneratedPolicies {
+${policies.map(item => item.line).join('\n')}
+  }
 }
 
 export {}
@@ -75,6 +92,7 @@ export {}
     content,
     configs: configs.map(item => item.key),
     routes: named.map(item => item.name),
+    policies: policies.map(item => item.key),
   }
 }
 

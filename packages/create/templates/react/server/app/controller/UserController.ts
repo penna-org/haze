@@ -23,12 +23,15 @@ export class UserController {
 
   async update(ctx: WithId) {
     const user = await User.findOrFail(ctx.validated.params.id)
+    // 授权：app/policy/UserPolicy.ts
+    await ctx.authorize('update', user)
     user.fill(await validate(UpdateUserSchema, await ctx.body()))
     return user.save()
   }
 
   async destroy(ctx: WithId) {
     const user = await User.findOrFail(ctx.validated.params.id)
+    await ctx.authorize('delete', user)
     await user.delete()
     return ctx.noContent()
   }

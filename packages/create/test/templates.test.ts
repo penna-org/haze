@@ -5,7 +5,7 @@ import { buildServer, createDevServer } from '@think-h3/vite'
 import { createBuilder, createServer } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { scaffold, toPackageName } from '../src/scaffold'
-import { binOf, createProject, run, sqliteRows, startProduction, waitFor } from './utils'
+import { binOf, createProject, csrfHeaders, run, sqliteRows, startProduction, waitFor } from './utils'
 
 let project: ReturnType<typeof CreateProject> | undefined
 afterEach(() => {
@@ -50,8 +50,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 3 + auth 3
-    expect(tests.output, tests.output).toContain('9 passed')
+    // greeting 3 + users 4 + auth 3
+    expect(tests.output, tests.output).toContain('10 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -150,7 +150,7 @@ describe('code generation and types', () => {
     expect(model.output, model.output).toContain('database/schema/products.ts')
     const generate = await think('db:generate', '--name', 'create_products')
     expect(generate.code, generate.output).toBe(0)
-    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0002_create_products.sql')
+    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0003_create_products.sql')
     const migrate = await think('db:migrate')
     expect(migrate.output, migrate.output).toContain('[main] migrated')
     writeFileSync(join(project.root, 'database/seeders/02-products.ts'), `
@@ -166,11 +166,20 @@ export default async function seed() {
       { users: 1, product: 'Keyboard' },
     ])
 
-    // 类型探针：生成的配置键 / 路由名必须能拦截拼写错误
+    // 授权策略：make:policy 后 typegen 生成能力名类型
+    const policy = await think('make:policy', 'Product')
+    expect(policy.output, policy.output).toContain('app/policy/ProductPolicy.ts')
+    await think('typegen')
+    expect(project.read('.think/types/think.d.ts')).toContain('"ProductPolicy": typeof import(')
+
+    // 类型探针：生成的配置键 / 路由名 / 能力名必须能拦截拼写错误
     writeFileSync(join(project.root, 'probe.ts'), `
+import type { HttpContext } from '@think-h3/core'
 import { config, Router } from '@think-h3/core'
 import { Product } from '~/app/model/Product'
+import { User } from '~/app/model/User'
 declare const router: Router
+declare const ctx: HttpContext
 const name: string = config('app.name')
 const enabled: boolean = config('orderItem.enabled')
 router.url('api.hello')
@@ -184,15 +193,25 @@ const product = await Product.findOrFail(1)
 const productName: string = product.name
 // @ts-expect-error 不存在的字段
 product.nope
-export { enabled, name, productName }
+// 能力名按模型约束；当前用户的类型来自 config/auth.ts
+const user = await User.findOrFail(1)
+await ctx.authorize('update', user)
+await ctx.can('delete', product)
+await ctx.can('create', Product)
+// @ts-expect-error 拼写错误的能力名
+await ctx.can('updte', user)
+// @ts-expect-error UserPolicy 没有 create
+await ctx.authorize('create', User)
+const email: string | undefined = (await ctx.auth.user())?.email
+export { email, enabled, name, productName }
 `)
     const tsc = await run(binOf('typescript', 'tsc'), ['--noEmit', '-p', 'tsconfig.json'], project.root)
     expect(tsc.output).toBe('')
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 3 + auth 3 + 生成的测试 1
-    expect(tests.output, tests.output).toContain('10 passed')
+    // greeting 3 + users 4 + auth 3 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('11 passed')
   })
 })
 
@@ -204,8 +223,8 @@ describe('vue template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 3 + auth 3
-    expect(tests.output, tests.output).toContain('9 passed')
+    // greeting 3 + users 4 + auth 3
+    expect(tests.output, tests.output).toContain('10 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -231,7 +250,10 @@ describe('vue template', () => {
       expect((await json(`${base}/api/hello`)).data).toEqual({ app: 'demo-vue', message: 'Hello, think-h3!' })
       const posted = await json(`${base}/api/hello`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...await csrfHeaders(path => fetch(`${base}${path}`)),
+        },
         body: JSON.stringify({ name: 'Vue' }),
       })
       expect(posted.data).toEqual({ message: 'Hello, Vue!' })

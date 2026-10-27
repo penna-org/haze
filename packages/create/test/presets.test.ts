@@ -4,13 +4,20 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { Miniflare } from 'miniflare'
-import { afterEach, describe, expect, it } from 'vitest'
-import { binOf, createProject, run, sqliteRows, startProduction } from './utils'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { binOf, createProject, csrfHeaders, run, sqliteRows, startProduction } from './utils'
 
 let project: ReturnType<typeof createProject> | undefined
+// 进程内调用的函数产物（Lambda / Vercel / Netlify）读取运行环境中的 APP_KEY
+beforeAll(() => {
+  process.env.APP_KEY = 'k'.repeat(32)
+})
 afterEach(() => {
   project?.cleanup()
   project = undefined
+})
+afterAll(() => {
+  delete process.env.APP_KEY
 })
 
 async function buildVue(preset: string, prepare?: (project: ReturnType<typeof createProject>) => void) {
@@ -45,19 +52,25 @@ describe('full-stack deployment presets (vue template)', () => {
     const dist = join(root, 'dist')
     const env = { NODE_ENV: 'production' }
     const first = await run(join(dist, 'server/migrate.mjs'), [], dist, env)
-    expect(first.output).toContain('[main] 2 of 2 migrations applied (database/migrations)')
+    expect(first.output).toContain('[main] 3 of 3 migrations applied (database/migrations)')
     const again = await run(join(dist, 'server/migrate.mjs'), [], dist, env)
     expect([again.code, again.output]).toEqual([
       0,
-      expect.stringContaining('[main] 0 of 2 migrations applied'),
+      expect.stringContaining('[main] 0 of 3 migrations applied'),
     ])
-    expect((await sqliteRows(join(dist, 'data/app.db'), 'select count(*) as n from __drizzle_migrations'))[0].n).toBe(2)
+    expect((await sqliteRows(join(dist, 'data/app.db'), 'select count(*) as n from __drizzle_migrations'))[0].n).toBe(3)
 
-    const server = await startProduction(join(dist, 'server/index.mjs'), dist)
+    // 产物目录中没有 .env：APP_KEY 由部署环境提供（docker run -e APP_KEY=...）
+    const server = await startProduction(join(dist, 'server/index.mjs'), dist, {
+      APP_KEY: 'k'.repeat(32),
+    })
     try {
       const created = await fetch(`${server.url}/api/users`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...await csrfHeaders(path => fetch(`${server.url}${path}`)),
+        },
         body: JSON.stringify({ name: 'Ada', email: 'ada@example.com' }),
       })
       expect(created.status).toBe(201)
@@ -104,8 +117,8 @@ describe('full-stack deployment presets (vue template)', () => {
         {
           connection: 'main',
           folder: 'database/migrations',
-          applied: 2,
-          total: 2,
+          applied: 3,
+          total: 3,
         },
       ])
       expect((await migrate({ all: true }))[0]).toMatchObject({ applied: 0 })
@@ -168,7 +181,10 @@ describe('full-stack deployment presets (vue template)', () => {
       scriptPath: join(dist, 'index.mjs'),
       compatibilityDate: wrangler.compatibility_date,
       compatibilityFlags: wrangler.compatibility_flags,
-      bindings: { APP_NAME: 'edge-app' },
+      bindings: {
+        APP_NAME: 'edge-app',
+        APP_KEY: 'k'.repeat(32),
+      },
     })
     try {
       const res = await mf.dispatchFetch('http://localhost/api/hello')
@@ -223,15 +239,16 @@ export default defineThinkConfig({
       // 与 wrangler d1 migrations apply 相同：按文件名顺序执行 migrations_dir 中的 SQL
       const db = await mf.getD1Database('DB')
       const files = readdirSync(join(dist, 'migrations')).filter(file => file.endsWith('.sql')).sort()
-      expect(files).toEqual(['0000_create_users.sql', '0001_add_user_password.sql'])
+      expect(files).toEqual(['0000_create_users.sql', '0001_add_user_password.sql', '0002_add_user_role.sql'])
       for (const file of files) {
         const statements = readFileSync(join(dist, 'migrations', file), 'utf8').split('--> statement-breakpoint')
         await db.batch(statements.map(statement => db.prepare(statement)))
       }
 
+      const csrf = await csrfHeaders(path => mf.dispatchFetch(`http://localhost${path}`) as unknown as Promise<Response>)
       const create = (email: string) => mf.dispatchFetch('http://localhost/api/users', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...csrf },
         body: JSON.stringify({ name: 'Ada', email }),
       })
       const created = await create('ada@example.com')
@@ -245,18 +262,21 @@ export default defineThinkConfig({
           { email: 'ada@example.com' },
         ],
       })
-      expect((await mf.dispatchFetch('http://localhost/api/users/1', { method: 'DELETE' })).status).toBe(204)
+      // 授权：未登录不能删除用户（UserPolicy）
+      expect((await mf.dispatchFetch('http://localhost/api/users/1', { method: 'DELETE', headers: csrf })).status).toBe(401)
+      // CSRF：不带 token 的修改请求返回 419
+      expect((await mf.dispatchFetch('http://localhost/api/users', { method: 'POST' })).status).toBe(419)
 
       // JWT 登录在 workerd 中运行（jose + 密码哈希）
       const register = await mf.dispatchFetch('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...csrf },
         body: JSON.stringify({ name: 'Edge', email: 'edge@example.com', password: 'workers-rock' }),
       })
       expect(register.status, await register.clone().text()).toBe(201)
       const login = await (await mf.dispatchFetch('http://localhost/api/auth/login', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...csrf },
         body: JSON.stringify({ email: 'edge@example.com', password: 'workers-rock' }),
       })).json() as any
       const me = await mf.dispatchFetch('http://localhost/api/auth/me', {
@@ -283,7 +303,7 @@ export default defineThinkConfig({
     })
     // Edge 没有迁移脚本：在 CI / 本地对远程库执行 db:migrate
     const migrate = await run(binOf('@think-h3/cli', 'think-h3'), ['db:migrate', '--root', root], root, { DATABASE_URL: url })
-    expect(migrate.output, migrate.output).toContain('[main] migrated: 2 of 2 applied (database/migrations)')
+    expect(migrate.output, migrate.output).toContain('[main] migrated: 3 of 3 applied (database/migrations)')
 
     const dist = join(root, 'dist')
     const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))
@@ -292,12 +312,18 @@ export default defineThinkConfig({
       scriptPath: join(dist, 'index.mjs'),
       compatibilityDate: wrangler.compatibility_date,
       compatibilityFlags: wrangler.compatibility_flags,
-      bindings: { DATABASE_URL: url },
+      bindings: {
+        DATABASE_URL: url,
+        APP_KEY: 'k'.repeat(32),
+      },
     })
     try {
       const created = await mf.dispatchFetch('http://localhost/api/users', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...await csrfHeaders(path => mf.dispatchFetch(`http://localhost${path}`) as unknown as Promise<Response>),
+        },
         body: JSON.stringify({ name: 'Turso', email: 'turso@example.com' }),
       })
       expect(created.status).toBe(201)

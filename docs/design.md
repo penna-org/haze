@@ -690,6 +690,7 @@ it('获取用户', async () => {
 | M10 | 补齐 M9 的已知限制：生产迁移入口、Cloudflare D1 / Turso HTTP 驱动 |
 | M11 | 参考 Nitro：依赖追踪进产物（nf3）、`vite preview` / `think-h3 preview` 运行产物、React 模板与多框架验证 |
 | M12 | 内置中间件（CORS、限流、安全头、压缩、请求体上限）、文件上传、Cookie / Session、认证（JWT / Session Guard） |
+| M13 | 授权（Gate / Policy、ctx.can / authorize、can: 中间件）与 CSRF 同步令牌 |
 
 ### M5 实施记录（2026-10-26）
 
@@ -944,6 +945,80 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 **仍然存在的限制 / 后续**
 - 限流与 memory Session 只在单进程内生效，多实例部署需要共享存储（计划在缓存模块中提供 Redis / KV 实现）。
 - `store()` 只写本地文件系统；S3 / R2 等存储计划在后续的 Storage 模块中提供。
-- 没有 CSRF 中间件：使用 Session Guard 并通过 Cookie 认证时，需依赖 SameSite=Lax，或自行校验。建议后续补上。
-- 授权（Gate / Policy、`can:ability`）放到下一个里程碑。
+- ~~没有 CSRF 中间件~~、~~授权~~（M13 已补）。
+
+### M13 实施记录（2026-10-27）：授权与 CSRF
+
+确认的决策：
+- CSRF 只用 token（Laravel 方式，不做 Origin / Sec-Fetch-Site 检查）；
+- `can:` 中间件支持按路由参数加载模型；
+- 能力名由 typegen 生成类型；
+- 模板加 UserPolicy 示例，全栈模板全局启用 csrf。
+
+**Gate / Policy**
+- 定义方式：
+  - `definePolicy(Model, { before?, <ability>(user, model) })`：模型策略；
+  - `defineAbilities({ name: (user, ...args) => ... })`：与模型无关的能力。
+- 两者都放在 `app/policy/*.ts`，虚拟清单新增 `policies` 并自动注册到应用的单例 `Gate`；提供者里也可以 `app.make(Gate).define()` / `.policy()`。
+- 能力函数的返回值：`true / false / undefined`，或 `allow()` / `deny(message)`，支持异步。
+- 判断顺序：
+  1. 全局 `Gate.before`；
+  2. 策略的 `before`：返回非 undefined 时直接决定结果；
+  3. 未登录用户默认拒绝，不调用能力函数（`allowGuest()` 包装后才调用）；
+  4. 执行能力函数；
+  5. 全局 `Gate.after` 只做观察。
+- 查找策略：传入模型实例时沿原型链查找，子类沿用父类的策略；传入模型类时为类级能力（如 `create`），能力函数只收到 user。未知能力、策略中没有的能力会抛错，属于编程错误。
+- 用法：
+  - 请求中：`ctx.can` / `ctx.cannot` / `ctx.authorize`。`authorize` 未登录时抛 401，已登录但无权限时抛 403，消息取自 `deny()`。用户来自 `ctx.auth`；没有 `config/auth.ts` 时视为未登录。
+  - 请求之外：`gate.forUser(user)`；`gate.inspect()` 返回 `{ allowed, message, guest }`。
+- 类型：
+  - typegen 读取 `app/policy` 生成 `GeneratedPolicies`；
+  - `ModelAbility<M>` 按实例类型匹配策略，得到可用的能力名，`PlainAbility` 为 `defineAbilities` 中的能力名；
+  - 没有生成类型时退回 string。
+  - 能力函数的类型用方法签名声明，参数是双变的，因此可以直接把 user 标注为 `User`。
+  - 已在脚手架项目中验证：拼错能力名、使用策略中没有的能力都会报类型错误。
+- 中间件：
+  - `can:<ability>`、`can:<ability>,<Model>`（按策略中的模型类名查找）；
+  - `can:<ability>,<Model>,<param>`：调用模型的静态 `findOrFail(ctx.param(param))`，不存在时 404；实例存入 `ctx.get('<model>')`。
+- 生成器：`make:policy`（stub 中包含 before / allowGuest / deny 的示例）。
+- 命名：允许未登录的包装函数叫 `allowGuest()`，避免与 `guest` 中间件同名。
+
+**CSRF（`csrf` 中间件）**
+- token 存在会话的 `_csrf` 中（需要 APP_KEY），响应时同步一个不带 HttpOnly 的 `XSRF-TOKEN` Cookie，axios 会自动回传。
+- 不安全方法须在 `X-CSRF-TOKEN` / `X-XSRF-TOKEN` 头，或 urlencoded / multipart 表单的 `_token` 字段中回传，用常量时间比较；失败返回 419（`CsrfTokenMismatchException`）。
+- 以下请求不校验：
+  - 安全方法；
+  - 带 `Authorization: Bearer` 的请求（不依赖 Cookie 认证）；
+  - `except` 中的路径（支持通配）；
+  - 测试模式（与 Laravel 一致，`csrf.testing: true` 时也校验）。
+- token 轮换：Session Guard 登录时更换 token；退出后会话被清空，响应时生成新 token。
+- `ctx.csrfToken()` 用于服务端渲染表单。
+
+**模板**
+- users 新增 `role` 列（member / admin，drizzle-kit 生成 `0002_add_user_role`），新增 `UserPolicy`：管理员通过 before 放行，其他人只能修改 / 删除自己。
+- `UserController.update/destroy` 调用 `ctx.authorize()`；模板测试改用 actingAs，并新增"本人 / 他人 403 / 未登录 401 / 管理员"的用例。
+- 全栈模板：
+  - 全局启用 `csrf`；
+  - 新增 `GET /api/csrf-cookie`；
+  - `src/api.ts` 在修改类请求前读取 XSRF-TOKEN，没有时先请求一次，然后带上 `X-XSRF-TOKEN`。
+
+**连带修改**
+- 全局 csrf 让每个请求都依赖 APP_KEY，因此做了以下调整：
+  - 预览：aws-lambda、vercel、netlify 在进程内运行前从项目根目录加载 `.env`，与 `think-h3 start` 一致；
+  - Cloudflare 预览：把 `.env` 中的变量作为绑定传入（与 wrangler dev 一致，wrangler.json 的 vars 优先）；
+  - 预览启动的产物子进程不再继承框架自己从 `.env` 写入的变量，修复了多个项目先后预览时 APP_NAME 互相串用的问题；
+  - Docker、Lambda、Vercel、Netlify 的部署提示加上了设置 APP_KEY 的方法。
+- `AppConfig` 新增只读的 `mode`。
+
+**验证**
+- core 的 `gate.test.ts`（11 个）覆盖：
+  - 策略的各种匹配方式（实例、子类、类级）、before、deny 消息、allowGuest、全局 before / after、未知能力；
+  - ctx.can / authorize（401 / 403）、三种 can: 写法（含 404）、未配置认证时的行为；
+  - CSRF：头、表单、multipart 三种回传方式，419，跨会话 token，Bearer / except / 测试模式跳过，登录后轮换。
+- 产物用例：Docker、Cloudflare（D1、Turso）、8 个预设的预览都在 csrf 开启的情况下运行，均验证"不带 token 返回 419、带上后通过"。
+- Cloudflare + D1 的用例同时验证了未登录不能删除用户（401）。
+
+**后续**
+- 授权目前只有全局策略，多应用的 `app/<name>/policy` 尚未支持。
+- 策略中的能力不能接收除模型外的类型化参数（能接收，但类型为 any）。
 

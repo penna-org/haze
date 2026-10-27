@@ -10,6 +10,7 @@ import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { parseEnv } from 'node:util'
 import { toNodeHandler } from 'srvx/node'
 
 /** 构建结果记录（`.think/build.json`），供 `vite preview` / `think-h3 preview` 使用 */
@@ -64,6 +65,12 @@ export async function startPreview(root: string, manifest: BuildManifest, logger
   const matches = staticDirOf(manifest)
     ? (url: string) => prefixes.some(prefix => url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`))
     : () => true
+
+  // 进程内运行的函数：与 think-h3 start 一致，从项目根目录加载 .env
+  if (['aws-lambda', 'vercel', 'netlify'].includes(manifest.preset)) {
+    const { loadEnv } = await import('@think-h3/core')
+    loadEnv({ cwd: root, mode: 'production' })
+  }
 
   switch (manifest.preset) {
     case 'node':
@@ -145,11 +152,14 @@ function runtimeCommand(root: string, preset: PresetName, entry: string): string
 async function startProcess(root: string, manifest: BuildManifest): Promise<Omit<PreviewServer, 'matches'>> {
   const port = await freePort()
   const [command, ...args] = runtimeCommand(root, manifest.preset, manifest.entry)
+  // 由框架从 .env 写入的变量不传给子进程：产物从项目根目录重新加载自己的 .env
+  const loaded = (globalThis as Record<string, unknown>).__THINK_H3__envKeys as Set<string> | undefined
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !loaded?.has(key)))
   const child = spawn(command, args, {
     // 与 think-h3 start 一致：.env 从项目根目录加载
     cwd: root,
     env: {
-      ...process.env,
+      ...inherited,
       NODE_ENV: 'production',
       PORT: String(port),
       HOST: '127.0.0.1',
@@ -223,7 +233,11 @@ async function startWorker(root: string, manifest: BuildManifest, logger: Logger
     scriptPath: manifest.entry,
     compatibilityDate: wrangler.compatibility_date,
     compatibilityFlags: wrangler.compatibility_flags,
-    bindings: wrangler.vars ?? {},
+    // 与 wrangler dev 一致：.env 中的变量（APP_KEY 等密钥）作为绑定，wrangler.json 的 vars 优先
+    bindings: {
+      ...envFileValues(root),
+      ...wrangler.vars,
+    },
     d1Databases: Object.fromEntries(d1.map(database => [database.binding, database.database_id ?? database.binding])),
     d1Persist: join(persist, 'd1'),
     kvNamespaces: Object.fromEntries((wrangler.kv_namespaces ?? []).map(namespace => [namespace.binding, namespace.id ?? namespace.binding])),
@@ -242,6 +256,17 @@ async function startWorker(root: string, manifest: BuildManifest, logger: Logger
     redirect: 'manual',
     duplex: 'half',
   }) as unknown as Promise<Response>, () => mf.dispose())
+}
+
+/** 读取项目根目录的 .env / .env.production（不写入 process.env） */
+function envFileValues(root: string): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const file of ['.env', '.env.production']) {
+    const path = join(root, file)
+    if (existsSync(path))
+      Object.assign(values, parseEnv(readFileSync(path, 'utf8')))
+  }
+  return values
 }
 
 interface D1Like {
