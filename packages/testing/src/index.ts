@@ -1,4 +1,5 @@
 import type { Application, ApplicationOptions, Container, InjectionKey } from '@think-h3/core'
+import { issueTestCredentials } from '@think-h3/core'
 import { createApp } from 'virtual:think/app'
 import { afterEach, beforeEach } from 'vitest'
 
@@ -28,6 +29,11 @@ export interface TestClient {
   patch: <T = any>(path: string, body?: unknown, init?: TestRequestInit) => Promise<TestResponse<T>>
   /** 返回带默认请求头的新客户端，例如 `withHeaders({ authorization: 'Bearer x' })` */
   withHeaders: (headers: Record<string, string>) => TestClient
+  /**
+   * 以指定用户登录的客户端：JWT Guard 签发真实令牌（Authorization 头），
+   * Session Guard 生成真实的会话 Cookie。默认使用 config/auth.ts 的默认 Guard。
+   */
+  actingAs: (user: unknown, guard?: string) => Promise<TestClient>
 }
 
 export interface TestApp extends TestClient {
@@ -100,6 +106,7 @@ export function useTestApp(options: TestAppOptions = {}): TestApp {
     put: (path, body, init) => active().put(path, body, init),
     patch: (path, body, init) => active().patch(path, body, init),
     withHeaders: headers => active().withHeaders(headers),
+    actingAs: (user, guard) => active().actingAs(user, guard),
   }
 }
 
@@ -155,6 +162,10 @@ function createClient(app: Application, defaults: Record<string, string>): TestC
     withHeaders: headers => createClient(app, {
       ...defaults,
       ...headers,
+    }),
+    actingAs: async (user, guard) => createClient(app, {
+      ...defaults,
+      ...await issueTestCredentials(app, user, guard),
     }),
   }
 }

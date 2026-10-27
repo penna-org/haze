@@ -54,6 +54,9 @@ catalogs:
     h3:
       specifier: ^2.0.8
       version: 2.0.8
+    jose:
+      specifier: ^6.2.13
+      version: 6.2.13
     miniflare:
       specifier: ^4.20260730.0
       version: 4.20260730.0
@@ -165,6 +168,9 @@ importers:
       h3:
         specifier: 'catalog:'
         version: 2.0.8
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.13
     devDependencies:
       valibot:
         specifier: 'catalog:'
@@ -2570,6 +2576,9 @@ packages:
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+
+  jose@6.2.13:
+    resolution: {integrity: sha512-7TIg10ZE1x82YediN+lcrPNvGMKge9yFHQD+Qho/b8y2adfugU3AsvvHfxV0fzyFllT6l9xCjf4RWY9g/Z9PJQ==}
 
   js-base64@3.9.4:
     resolution: {integrity: sha512-PtOMXpEGuP0RRiRXsjzHzl44dMHxSu2CPvAhinupR1tBa88me+1DPqsobl7eupn5UukjLkln1ZnAOAOXOrYG0Q==}
@@ -5447,6 +5456,8 @@ snapshots:
   is-property@1.0.2: {}
 
   isexe@2.0.0: {}
+
+  jose@6.2.13: {}
 
   js-base64@3.9.4: {}
 

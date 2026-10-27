@@ -2,6 +2,7 @@ import type { Middleware as H3Middleware } from 'h3'
 import type { MiddlewareClass, MiddlewareConfig, MiddlewareHandler, MiddlewareRef } from './types'
 import { getHttpContext } from '../http/context'
 import { isClass } from '../utils'
+import { builtinMiddleware } from './builtin'
 
 export interface ResolvedMiddleware {
   name: string
@@ -14,7 +15,11 @@ export class MiddlewareRegistry {
   readonly #groups: Record<string, MiddlewareRef[]>
 
   constructor(config: MiddlewareConfig = {}) {
-    this.#alias = config.alias ?? {}
+    // 内置中间件（cors、throttle、auth 等）可被同名别名覆盖
+    this.#alias = {
+      ...builtinMiddleware,
+      ...config.alias,
+    }
     this.#groups = config.groups ?? {}
   }
 

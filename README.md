@@ -35,6 +35,10 @@ export default defineConfig({
 export default defineThinkConfig({ srcDir: 'server' })
 ```
 
+## 认证与安全
+
+内置中间件按名使用：`cors`、`secureHeaders`、`compress`、`throttle:60,60`、`bodyLimit:10mb`、`session`、`auth` / `auth:web,api`、`guest`。认证参考 Laravel 的 Guard / Provider：`config/auth.ts` 中配置 jwt（jose，HS / RS / ES / EdDSA）与 session 两种 Guard，`modelUserProvider(() => User)` 基于 ORM 模型提供用户。Cookie 签名、Session 加密（AES-GCM）与 JWT 默认密钥均来自 `APP_KEY`（`think-h3 key:generate`）；密码哈希用 `Hash.make()`（scrypt）。multipart 上传解析为 `UploadedFile`（继承 File，可用 valibot 校验，`store()` 保存到本地）。
+
 ## 部署
 
 ```bash
@@ -80,7 +84,7 @@ packages/orm/    @think-h3/orm  基于 drizzle 的 Db 查询构造器 + Model（
                  @think-h3/orm/mongo 为同形态的 MongoDB 适配器（Mongo / MongoModel）
 packages/create/ create-think-h3 脚手架与 api / vue / react 模板
 packages/testing/ @think-h3/testing  useTestApp / createTestApp / defineThinkTestConfig
-packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / preview / test / route:list / typegen / make:* / db:*）
+packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / preview / test / route:list / typegen / make:* / db:* / key:generate）
 packages/vite/   @think-h3/vite Vite 插件（virtual:think/*）、热替换开发服务器、生产构建
 packages/core/   @think-h3/core 运行时内核
   src/container/   依赖注入（inject()、Singleton / Request / Transient 作用域）

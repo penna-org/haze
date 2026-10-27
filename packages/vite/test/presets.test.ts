@@ -27,8 +27,8 @@ afterEach(async () => {
 })
 
 /** 基础 fixture + 一个回显请求的路由（验证方法、请求体、查询参数、Cookie 的转换） */
-async function build(preset: PresetName, thinkConfig?: string) {
-  fixture = copyFixture('basic')
+async function build(preset: PresetName, thinkConfig?: string, existing?: ReturnType<typeof copyFixture>) {
+  fixture = existing ?? copyFixture('basic')
   if (thinkConfig)
     fixture.write('think.config.ts', thinkConfig)
   fixture.write('route/echo.ts', `
@@ -246,7 +246,17 @@ describe('deployment presets', () => {
   })
 
   it('cloudflare: runs in workerd with bindings as environment variables', async () => {
-    const result = await build('cloudflare')
+    fixture = copyFixture('basic')
+    // 加密 Cookie Session（Web Crypto）在 workerd 中运行
+    fixture.write('route/visits.ts', `
+import { defineRoutes } from '@think-h3/core'
+export default defineRoutes(r => r.get('/session-visits', (ctx) => {
+  const visits = ctx.session.get('visits', 0) + 1
+  ctx.session.set('visits', visits)
+  return { visits }
+}).middleware('session'))
+`)
+    const result = await build('cloudflare', undefined, fixture)
     const dist = join(result.root, 'dist')
     const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))
     expect(wrangler).toMatchObject({
@@ -261,7 +271,10 @@ describe('deployment presets', () => {
       scriptPath: join(dist, 'index.mjs'),
       compatibilityDate: wrangler.compatibility_date,
       compatibilityFlags: wrangler.compatibility_flags,
-      bindings: { APP_NAME: 'from-binding' },
+      bindings: {
+        APP_NAME: 'from-binding',
+        APP_KEY: 'k'.repeat(32),
+      },
     })
     try {
       const hello = await mf.dispatchFetch('http://localhost/hello')
@@ -283,6 +296,14 @@ describe('deployment presets', () => {
         name: 'from-binding',
       })
       expect((await mf.dispatchFetch('http://localhost/missing')).status).toBe(404)
+
+      const first = await mf.dispatchFetch('http://localhost/session-visits')
+      expect((await first.json() as any).data).toEqual({ visits: 1 })
+      const cookie = first.headers.getSetCookie()[0].split(';')[0]
+      const second = await mf.dispatchFetch('http://localhost/session-visits', {
+        headers: { cookie },
+      })
+      expect((await second.json() as any).data).toEqual({ visits: 2 })
     }
     finally {
       await mf.dispose()

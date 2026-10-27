@@ -25,7 +25,8 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:",
     "consola": "catalog:",
-    "h3": "catalog:"
+    "h3": "catalog:",
+    "jose": "catalog:"
   },
   "devDependencies": {
     "valibot": "catalog:"

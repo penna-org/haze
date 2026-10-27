@@ -1,6 +1,13 @@
 import type { SubAppConfig } from '../apps'
+import type { AuthConfig } from '../auth/config'
+import type { CookieOptions } from '../http/cookie'
 import type { LoggerConfig } from '../logger'
+import type { CompressOptions } from '../middleware/builtin/compress'
+import type { CorsOptions } from '../middleware/builtin/cors'
+import type { SecureHeadersOptions } from '../middleware/builtin/secure-headers'
+import type { ThrottleConfig } from '../middleware/builtin/throttle'
 import type { MiddlewareConfig } from '../middleware/types'
+import type { SessionConfig } from '../session/session'
 import { deepMerge, isPlainObject } from '../utils'
 
 export interface ResponseConfig {
@@ -19,6 +26,14 @@ export interface AppConfig {
   requestIdHeader: string | false
   /** 多应用：`{ admin: { prefix: '/admin' }, api: { domain: 'api.example.com' } }`，目录为 app/<name>/ */
   apps?: Record<string, SubAppConfig>
+  /** 应用密钥（默认读取 APP_KEY）：签名 Cookie、加密 Session、JWT 默认密钥 */
+  key?: string
+  /** 请求体上限，默认 `1mb`；单个路由用 `bodyLimit:10mb` 中间件调整 */
+  bodyLimit: string | number
+  /** 位于可信反向代理之后：客户端 IP / 协议取 X-Forwarded-For / X-Forwarded-Proto，默认 false */
+  trustProxy: boolean
+  /** 默认 Cookie 选项（默认 httpOnly、SameSite=Lax、非 debug 时 Secure） */
+  cookie?: CookieOptions
 }
 
 /** 框架内置的配置项 */
@@ -26,6 +41,12 @@ export interface CoreConfig {
   app: AppConfig
   logger: LoggerConfig
   middleware: MiddlewareConfig
+  cors?: CorsOptions
+  throttle?: ThrottleConfig
+  secureHeaders?: SecureHeadersOptions
+  compress?: CompressOptions
+  session?: Partial<SessionConfig>
+  auth?: AuthConfig
 }
 
 /**
@@ -86,6 +107,8 @@ export function defaultConfig(mode: 'development' | 'production' | 'test'): Core
       name: 'think-h3',
       debug: mode === 'development',
       requestIdHeader: 'x-request-id',
+      bodyLimit: '1mb',
+      trustProxy: false,
       response: {
         envelope: true,
         successCode: 0,

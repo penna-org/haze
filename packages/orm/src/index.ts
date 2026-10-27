@@ -1,3 +1,5 @@
+export { modelUserProvider } from './auth'
+export type { ModelUserProviderOptions } from './auth'
 export { defineDatabaseConfig, dialectOf } from './config'
 export type { ConnectionConfig, DatabaseConfig, Dialect, Driver } from './config'
 export { DatabaseManager } from './connection'

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -49,6 +50,8 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   const variables: Record<string, string> = {
     name,
     version: options.version ?? `^${ownVersion()}`,
+    // 每个项目独立的 APP_KEY（签名 Cookie、加密 Session、JWT 默认密钥）
+    appKey: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),
   }
 
   cpSync(source, root, { recursive: true })

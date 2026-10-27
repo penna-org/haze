@@ -386,7 +386,8 @@ export default {
       const wrangler = rel(context, join(context.outDir, 'wrangler.json'))
       const d1 = ((context.cloudflare?.wrangler?.d1_databases ?? []) as { database_name?: string, binding?: string }[])
         .map(database => `\nApply D1 migrations: npx wrangler d1 migrations apply ${database.database_name ?? database.binding} --remote -c ${wrangler}`)
-      return `Deploy: npx wrangler deploy -c ${wrangler}${d1.join('')}`
+      // Workers 没有 .env：APP_KEY 等密钥以 secret 绑定提供
+      return `Deploy: npx wrangler deploy -c ${wrangler}\nSecrets: npx wrangler secret put APP_KEY -c ${wrangler}${d1.join('')}`
     },
   },
 }

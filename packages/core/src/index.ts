@@ -5,11 +5,22 @@ export type { ApplicationOptions, AppMode, DisposeOptions } from './application'
 
 export { matchApp, matchDomain } from './apps'
 export type { SubAppConfig } from './apps'
+export { Auth } from './auth/auth'
+export type { AnyGuard, AuthUser, Guard } from './auth/auth'
+
+export { defineAuthConfig } from './auth/config'
+
+export type { AuthConfig, GuardConfig, JwtAlgorithm, JwtGuardConfig, SessionGuardConfig } from './auth/config'
+export { JwtGuard, SessionGuard } from './auth/guards'
+export type { IssuedToken } from './auth/guards'
+export { authenticate, guest } from './auth/middleware'
+export { defineUserProvider } from './auth/provider'
+
+export type { Credentials, UserProvider } from './auth/provider'
+export { issueTestCredentials } from './auth/testing'
 export { Config, defineConfig } from './config/config'
 export type { AppConfig, ConfigInput, ConfigKey, ConfigPath, ConfigPathValue, ConfigSchema, ConfigValue, CoreConfig, GeneratedConfig, PathValue, ResolvedConfigSchema, ResponseConfig } from './config/config'
-
 export { env, loadEnv } from './config/env'
-
 export type { LoadEnvOptions } from './config/env'
 export * from './container'
 export { parseStack, renderErrorPage } from './exception/error-page'
@@ -18,32 +29,41 @@ export * from './exception/exceptions'
 
 export { ExceptionHandler } from './exception/handler'
 export type { NormalizedError } from './exception/handler'
+
 export { getHttpContext, HttpContext } from './http/context'
-export type { ContextState, Validated, ValidationTargets } from './http/context'
+export type { ContextState, ResponseHook, Validated, ValidationTargets } from './http/context'
+export { serializeCookie } from './http/cookie'
+export type { CookieOptions } from './http/cookie'
+
 export { ResponseFormatter } from './http/formatter'
 export { defineInterceptor } from './http/interceptor'
+
 export type { Interceptor } from './http/interceptor'
 export { isFormattable, isRaw, raw } from './http/response'
 export type { RawValue } from './http/response'
 export { createStaticMiddleware } from './http/static'
-
 export type { StaticOptions } from './http/static'
+export { formDataToObject, UploadedFile } from './http/upload'
 export { validate } from './http/validation'
-
 export { Logger } from './logger'
 export type { AccessLogEntry, LogContext, LogFormat, LoggerConfig, LogLevel } from './logger'
+export { bodyLimit, builtinMiddleware, session } from './middleware/builtin'
+export { compress, defineCompressConfig, negotiateEncoding } from './middleware/builtin/compress'
+export type { CompressOptions, Encoding } from './middleware/builtin/compress'
+export { cors, defineCorsConfig } from './middleware/builtin/cors'
+export type { CorsOptions } from './middleware/builtin/cors'
+export { defineSecureHeadersConfig, secureHeaders } from './middleware/builtin/secure-headers'
+export type { SecureHeadersOptions } from './middleware/builtin/secure-headers'
+export { defineThrottleConfig, memoryRateLimitStore, throttle } from './middleware/builtin/throttle'
+export type { RateLimitStore, ThrottleConfig, ThrottleLimiter } from './middleware/builtin/throttle'
 export { MiddlewareRegistry } from './middleware/registry'
 export type { ResolvedMiddleware } from './middleware/registry'
-
 export { defineMiddleware, defineMiddlewareConfig } from './middleware/types'
 export type { Middleware, MiddlewareClass, MiddlewareConfig, MiddlewareHandler, MiddlewareRef, Next } from './middleware/types'
-
 export { definePersistent, disposePersistent } from './persistent'
 export type { PersistentOptions } from './persistent'
 export { setPlatformBindings, usePlatformBinding } from './platform'
-
 export { defineProvider } from './provider'
-
 export type { ProviderInput, ServiceProvider } from './provider'
 export { useContext, useEvent } from './request'
 export { defineRoutes, isRouteModule, ResourceRoutes, RouteBuilder } from './routing/builder'
@@ -54,7 +74,16 @@ export type { ControllerAction, HandlerFn, HttpMethod, RouteDefinition, RouteHan
 export { Router } from './routing/router'
 
 export type { ControllerMiddleware, MountOptions, RouteInfo, RouteName, RouteNames } from './routing/router'
+export { Hash } from './security/hash'
+export type { HashOptions } from './security/hash'
+export { appKey, generateKey } from './security/key'
+export { defineSessionConfig, Session } from './session/session'
+export type { SessionConfig } from './session/session'
+
+export { memorySessionStore } from './session/store'
+
+export type { SessionData, SessionStore } from './session/store'
 export type { Constructor, MaybePromise } from './utils'
 
 // 部署适配（vercel 预设使用）
-export { H3Event, HTTPError, toNodeHandler } from 'h3'
+export { H3Event, HTTPError, mockEvent, toNodeHandler } from 'h3'

@@ -16,6 +16,7 @@ const main = defineCommand({
     'build': () => import('./commands/build').then(m => m.default),
     'start': () => import('./commands/start').then(m => m.default),
     'preview': () => import('./commands/preview').then(m => m.default),
+    'key:generate': () => import('./commands/key').then(m => m.default),
     'test': () => import('./commands/test').then(m => m.default),
     'route:list': () => import('./commands/routes').then(m => m.default),
     'typegen': () => import('./commands/typegen').then(m => m.default),

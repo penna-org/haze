@@ -36,6 +36,7 @@ catalog:
   drizzle-orm: ^0.45.4
   eslint: ^10.13.0
   h3: ^2.0.8
+  jose: ^6.2.13
   miniflare: ^4.20260730.0
   mongodb: ^7.7.0
   mongodb-memory-server-core: ^11.3.0

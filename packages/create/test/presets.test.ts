@@ -45,13 +45,13 @@ describe('full-stack deployment presets (vue template)', () => {
     const dist = join(root, 'dist')
     const env = { NODE_ENV: 'production' }
     const first = await run(join(dist, 'server/migrate.mjs'), [], dist, env)
-    expect(first.output).toContain('[main] 1 of 1 migrations applied (database/migrations)')
+    expect(first.output).toContain('[main] 2 of 2 migrations applied (database/migrations)')
     const again = await run(join(dist, 'server/migrate.mjs'), [], dist, env)
     expect([again.code, again.output]).toEqual([
       0,
-      expect.stringContaining('[main] 0 of 1 migrations applied'),
+      expect.stringContaining('[main] 0 of 2 migrations applied'),
     ])
-    expect((await sqliteRows(join(dist, 'data/app.db'), 'select count(*) as n from __drizzle_migrations'))[0].n).toBe(1)
+    expect((await sqliteRows(join(dist, 'data/app.db'), 'select count(*) as n from __drizzle_migrations'))[0].n).toBe(2)
 
     const server = await startProduction(join(dist, 'server/index.mjs'), dist)
     try {
@@ -104,8 +104,8 @@ describe('full-stack deployment presets (vue template)', () => {
         {
           connection: 'main',
           folder: 'database/migrations',
-          applied: 1,
-          total: 1,
+          applied: 2,
+          total: 2,
         },
       ])
       expect((await migrate({ all: true }))[0]).toMatchObject({ applied: 0 })
@@ -214,12 +214,16 @@ export default defineThinkConfig({
       compatibilityDate: wrangler.compatibility_date,
       compatibilityFlags: wrangler.compatibility_flags,
       d1Databases: { DB: wrangler.d1_databases[0].database_id },
+      // Workers 没有 .env：密钥通过 wrangler secret put APP_KEY 设置为绑定
+      bindings: {
+        APP_KEY: 'k'.repeat(32),
+      },
     })
     try {
       // 与 wrangler d1 migrations apply 相同：按文件名顺序执行 migrations_dir 中的 SQL
       const db = await mf.getD1Database('DB')
       const files = readdirSync(join(dist, 'migrations')).filter(file => file.endsWith('.sql')).sort()
-      expect(files).toEqual(['0000_create_users.sql'])
+      expect(files).toEqual(['0000_create_users.sql', '0001_add_user_password.sql'])
       for (const file of files) {
         const statements = readFileSync(join(dist, 'migrations', file), 'utf8').split('--> statement-breakpoint')
         await db.batch(statements.map(statement => db.prepare(statement)))
@@ -242,6 +246,24 @@ export default defineThinkConfig({
         ],
       })
       expect((await mf.dispatchFetch('http://localhost/api/users/1', { method: 'DELETE' })).status).toBe(204)
+
+      // JWT 登录在 workerd 中运行（jose + 密码哈希）
+      const register = await mf.dispatchFetch('http://localhost/api/auth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Edge', email: 'edge@example.com', password: 'workers-rock' }),
+      })
+      expect(register.status, await register.clone().text()).toBe(201)
+      const login = await (await mf.dispatchFetch('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'edge@example.com', password: 'workers-rock' }),
+      })).json() as any
+      const me = await mf.dispatchFetch('http://localhost/api/auth/me', {
+        headers: { authorization: `Bearer ${login.data.token}` },
+      })
+      expect((await me.json() as any).data).toMatchObject({ email: 'edge@example.com' })
+      expect((await mf.dispatchFetch('http://localhost/api/auth/me')).status).toBe(401)
     }
     finally {
       await mf.dispose()
@@ -261,7 +283,7 @@ export default defineThinkConfig({
     })
     // Edge 没有迁移脚本：在 CI / 本地对远程库执行 db:migrate
     const migrate = await run(binOf('@think-h3/cli', 'think-h3'), ['db:migrate', '--root', root], root, { DATABASE_URL: url })
-    expect(migrate.output, migrate.output).toContain('[main] migrated: 1 of 1 applied (database/migrations)')
+    expect(migrate.output, migrate.output).toContain('[main] migrated: 2 of 2 applied (database/migrations)')
 
     const dist = join(root, 'dist')
     const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))

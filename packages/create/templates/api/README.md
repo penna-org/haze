@@ -88,6 +88,38 @@ export default defineConfig(() => ({
 - 路由名自动带应用前缀：`router.url('admin.users.index')`
 - 生成代码：`npx think-h3 make:controller User --app admin`
 
+## 认证与安全
+
+模板自带 JWT 登录示例（`config/auth.ts`）：
+
+```bash
+curl -X POST localhost:3000/api/auth/register -H 'content-type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com","password":"correct horse"}'
+curl -X POST localhost:3000/api/auth/login -H 'content-type: application/json' \
+  -d '{"email":"ada@example.com","password":"correct horse"}'     # → { token, expiresIn, ... }
+curl localhost:3000/api/auth/me -H 'authorization: Bearer <token>'
+```
+
+- `APP_KEY`（`.env`，创建项目时已生成）用于签名 Cookie、加密 Session 与 JWT；更换：`npx think-h3 key:generate --force`
+- 路由保护：`.middleware('auth')`、`'auth:web,api'`（任一 Guard 通过）、`'guest'`；代码中 `await ctx.auth.user()`、`ctx.auth.jwt().login(user)`
+- 浏览器同源场景可加 session Guard：`web: { driver: 'session', provider: 'users' }`，`ctx.auth.session('web').attempt(credentials)`
+- 测试：`await t.actingAs(user)` 返回已登录的客户端
+- 密码：`Hash.make(password)` / `Hash.verify(hash, password)`（scrypt）
+
+内置中间件（`config/middleware.ts` 中按名使用，配置文件放在 `config/` 下同名文件）：
+
+| 名字 | 用途 | 配置 |
+|------|------|------|
+| `cors` | 跨域，需放在 global | `cors.ts`（`defineCorsConfig`） |
+| `secureHeaders` | nosniff、frame-options、referrer-policy 等安全头，生产 https 下加 HSTS | `secureHeaders.ts` |
+| `compress` | br / gzip / deflate 压缩响应 | `compress.ts` |
+| `throttle:60,60` / `throttle:api` | 限流（默认按用户或 IP），返回 RateLimit-* 头与 429 | `throttle.ts`（命名规则、共享存储） |
+| `bodyLimit:10mb` | 调整单个路由的请求体上限（默认 `app.bodyLimit`，1mb） | — |
+| `session` | 启动会话：`ctx.session.get / set / flash / regenerate` | `session.ts`（cookie / memory / 自定义存储） |
+| `auth` / `guest` | 认证 | `auth.ts` |
+
+文件上传：multipart 请求的 `await ctx.body()` 中文件字段为 `UploadedFile`（继承 File，可直接用 valibot 的 `v.file()`、`v.maxSize()`、`v.mimeType()` 校验），`await (await ctx.file('avatar'))?.store('storage/avatars')` 保存到本地。
+
 ## 部署
 
 ```bash

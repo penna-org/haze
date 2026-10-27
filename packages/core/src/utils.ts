@@ -83,3 +83,31 @@ export function globalStore<T>(name: string, init: () => T): T {
   const g = globalThis as Record<string, unknown>
   return (g[key] ??= init()) as T
 }
+
+const SIZE_UNITS: Record<string, number> = {
+  b: 1,
+  kb: 1024,
+  mb: 1024 ** 2,
+  gb: 1024 ** 3,
+}
+
+/** `'1mb'` / `'512kb'` / `1024` → 字节数 */
+export function parseSize(value: string | number): number {
+  if (typeof value === 'number')
+    return value
+  const match = /^\s*(\d+(?:\.\d+)?)\s*(?:(b|kb|mb|gb)\s*)?$/i.exec(value)
+  if (!match)
+    throw new Error(`Invalid size "${value}" (expected e.g. 1mb, 512kb, 1024)`)
+  return Math.floor(Number(match[1]) * SIZE_UNITS[(match[2] ?? 'b').toLowerCase()])
+}
+
+/** `'2h'` / `'30m'` / `'7d'` / `3600` → 秒数 */
+export function parseDuration(value: string | number): number {
+  if (typeof value === 'number')
+    return value
+  const match = /^\s*(\d+)\s*(?:([smhd])\s*)?$/i.exec(value)
+  if (!match)
+    throw new Error(`Invalid duration "${value}" (expected e.g. 30s, 15m, 2h, 7d)`)
+  const unit = { s: 1, m: 60, h: 3600, d: 86400 }[(match[2] ?? 's').toLowerCase() as 's']
+  return Number(match[1]) * unit
+}

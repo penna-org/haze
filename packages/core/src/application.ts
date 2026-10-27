@@ -18,6 +18,7 @@ import { Container } from './container/container'
 import { NotFoundException } from './exception/exceptions'
 import { ExceptionHandler } from './exception/handler'
 import { getHttpContext, HttpContext, setHttpContext } from './http/context'
+import { mutableResponse } from './http/cookie'
 import { ResponseFormatter } from './http/formatter'
 import { isRaw } from './http/response'
 import { createStaticMiddleware } from './http/static'
@@ -204,13 +205,16 @@ export class Application {
 
   async #runInterceptors(result: unknown, event: H3Event, ctx: HttpContext): Promise<Response> {
     // 先按 h3 的规则转换为 Response（不触发 onResponse，访问日志仍只记录一次）
-    let response = result instanceof Response
+    let response = mutableResponse(result instanceof Response
       ? result
       : await toResponse(result, event, {
           debug: this.config.get('app.debug'),
-        })
+        }))
     for (const interceptor of this.#interceptors)
       response = (await interceptor(response, ctx)) ?? response
+    // 请求级钩子（ctx.onResponse）：后注册的先执行
+    for (const hook of [...ctx.responseHooks].reverse())
+      response = (await hook(response)) ?? response
     return response
   }
 
@@ -295,7 +299,7 @@ export class Application {
       const store = { app: this, event, ctx, container }
       try {
         const result = await runInRequest(store, () => next())
-        return this.#interceptors.length
+        return this.#interceptors.length || ctx.responseHooks.length
           ? await runInRequest(store, () => this.#runInterceptors(result, event, ctx))
           : result
       }

@@ -1,0 +1,38 @@
+import { refreshDatabase } from '@think-h3/orm'
+import { useTestApp } from '@think-h3/testing'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { User } from '~/app/model/User'
+
+const t = useTestApp()
+beforeEach(() => refreshDatabase({ migrations: 'server/database/migrations' }))
+
+const ada = { name: 'Ada', email: 'ada@example.com', password: 'correct horse' }
+
+describe('auth', () => {
+  it('registers, logs in and reads the current user with a Bearer token', async () => {
+    const registered = await t.post('/api/auth/register', ada)
+    expect(registered.status).toBe(201)
+    expect(registered.body.data.user).toMatchObject({ name: 'Ada', email: 'ada@example.com' })
+    // 密码哈希不会出现在响应中
+    expect(registered.body.data.user).not.toHaveProperty('password')
+
+    const login = await t.post('/api/auth/login', { email: ada.email, password: ada.password })
+    expect(login.body.data).toMatchObject({ type: 'Bearer', expiresIn: 7200 })
+
+    const me = await t.withHeaders({ authorization: `Bearer ${login.body.data.token}` }).get('/api/auth/me')
+    expect(me.body.data).toMatchObject({ email: 'ada@example.com' })
+  })
+
+  it('rejects wrong passwords and anonymous requests with 401', async () => {
+    await t.post('/api/auth/register', ada)
+    const wrong = await t.post('/api/auth/login', { email: ada.email, password: 'nope' })
+    expect([wrong.status, wrong.body.message]).toEqual([401, '邮箱或密码错误'])
+    expect((await t.get('/api/auth/me')).status).toBe(401)
+  })
+
+  it('actingAs() logs a user in without going through the login endpoint', async () => {
+    const user = await User.create({ name: 'Bob', email: 'bob@example.com' })
+    const me = await (await t.actingAs(user)).get('/api/auth/me')
+    expect(me.body.data).toMatchObject({ id: user.id, email: 'bob@example.com' })
+  })
+})

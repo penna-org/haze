@@ -689,6 +689,7 @@ it('获取用户', async () => {
 | M9 | 部署预设：`think-h3 build --preset node|bun|deno|cloudflare|vercel|netlify|aws-lambda|docker` |
 | M10 | 补齐 M9 的已知限制：生产迁移入口、Cloudflare D1 / Turso HTTP 驱动 |
 | M11 | 参考 Nitro：依赖追踪进产物（nf3）、`vite preview` / `think-h3 preview` 运行产物、React 模板与多框架验证 |
+| M12 | 内置中间件（CORS、限流、安全头、压缩、请求体上限）、文件上传、Cookie / Session、认证（JWT / Session Guard） |
 
 ### M5 实施记录（2026-10-26）
 
@@ -868,4 +869,81 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 **仍然存在的限制**
 - 预览不转发 WebSocket（框架目前也没有 WebSocket 支持）。
 - 在 macOS 上构建的 Lambda / Vercel 产物仍然带着 macOS 的原生二进制，构建只给警告，不会自动下载 Linux 版本。
+
+### M12 实施记录（2026-10-27）：内置中间件、上传、Session 与认证
+
+确认的决策：
+- JWT 使用 jose；
+- Session 提供 cookie、memory 两种驱动，加 `SessionStore` 接口（Redis / KV 等放到后续的缓存模块）；
+- 三个模板带上 JWT 登录示例；
+- 授权（Gate / Policy）放到后续。
+
+**请求管道**
+- 新增 `ctx.onResponse(hook)`：在统一格式化、异常渲染与出站拦截器之后执行。后注册的先执行（洋葱模型），所以全局的 `compress` 最后执行。`issueTestCredentials` 也复用这些钩子取回会话 Cookie。
+- 发现 h3 对没有额外响应头的 JSON 响应复用了冻结的 Headers，新增 `mutableResponse()` 统一处理，出站拦截器也因此更稳。
+- 内置中间件注册为默认别名，`config/middleware.ts` 的 alias 可以同名覆盖。
+
+**内置中间件**
+
+| 名字 | 实现要点 |
+|------|----------|
+| `cors` | h3 `handleCors`，配置在 `config/cors.ts`；预检请求必须放在 global |
+| `throttle:60,60` / `throttle:<name>` | 固定窗口：已登录按用户 ID，否则按 IP（`app.trustProxy` 为 true 时取 X-Forwarded-For）；返回 RateLimit-Limit / Remaining / Reset 头，超限 429 + Retry-After；`RateLimitStore` 可替换，默认内存（跨热更新保留） |
+| `secureHeaders` | 参考 helmet 默认值；CSP 默认关闭；HSTS 只在 https 且非 debug 时发送 |
+| `compress` | br（node:zlib，运行时没有时跳过）> gzip > deflate（CompressionStream），按 Accept-Encoding 的 q 值协商；长度未知时先读到阈值（1kb）再决定是否压缩；跳过已编码、不可压缩类型、SSE、`no-transform`、204 / 206 / 304 |
+| `bodyLimit:10mb` | 调整 `ctx.bodyLimit`；默认取 `app.bodyLimit`（1mb），在 `ctx.body()` 读取时校验 content-length 与实际字节数，超出返回 413 |
+| `session` / `auth` / `guest` | 见下文 |
+
+**文件上传**
+- `ctx.body()` 支持 multipart：普通字段为字符串，文件为 `UploadedFile`，同名多值为数组，空的文件输入会被忽略。
+- `UploadedFile` 继承 File，valibot 的 `v.file()`、`v.maxSize()`、`v.mimeType()` 可以直接校验；提供 `extension`、`store(dir)`（随机文件名）、`storeAs(dir, name)`（只取文件名，防止路径穿越）。
+- 其他入口：`ctx.file()`、`ctx.files()`。
+- 坑：srvx 对请求体做大小限制时会包装 Request，undici 的 `formData()` 因此丢失 multipart 类型。改为用计数后的流重新构造 Response 再解析。
+
+**Cookie 与 Session**
+- `ctx.cookie / setCookie / deleteCookie` 的默认选项为 httpOnly、SameSite=Lax、非 debug 时 Secure，可用 `app.cookie` 覆盖。
+- 签名 Cookie：`ctx.signedCookie / setSignedCookie`，HMAC-SHA256，密钥为 `APP_KEY`。
+- `APP_KEY`：至少 32 个字符。`think-h3 key:generate` 写入 `.env`（已有时需加 `--force`），create 模板为每个项目生成独立的密钥。
+- Session 由 `session` 中间件或 `await ctx.startSession()` 启动，`ctx.session` 提供 `get / set / has / forget / pull / flush / flash / regenerate / invalidate`。
+- 只有修改过才写回；新会话没有数据时不设置 Cookie。
+- 两种驱动：
+  - `cookie`：数据用 AES-GCM 加密存在 Cookie 中，密钥通过 HKDF 从 APP_KEY 派生，与签名用途分开；超过约 3.8KB 时报错，提示改用服务端存储。
+  - `memory` / 自定义 `SessionStore`：Cookie 中只保存签名的会话 ID；`regenerate` 时删除旧 ID。
+
+**认证**
+- `config/auth.ts`：`default`、`guards`（`jwt` / `session`）、`providers`（`UserProvider` 接口；`@think-h3/orm` 提供 `modelUserProvider(() => User, { username, password })`）。
+- `ctx.auth`：`user / check / id / logout`、`guard(name)`，`jwt()` / `session()` 取得具体类型的 Guard；`auth:<guards>` 中间件通过后调用 `shouldUse()` 设置默认 Guard。
+- JWT Guard（jose）：
+  - 算法：HS*（密钥默认 APP_KEY）以及 RS / PS / ES / EdDSA（PEM 公私钥）；
+  - 签发：`login(user, claims)` / `attempt(credentials)` 返回 `{ token, type, expiresIn, expiresAt }`；令牌中 sub 为用户 ID，并包含 jti、iss / aud；
+  - 读取令牌：Authorization: Bearer，也可以配置从 Cookie 读取；`payload()` 返回声明；
+  - 过期、篡改、格式错误都视为未登录；退出是无状态的（令牌在过期前仍有效，需要立即失效时在业务中维护黑名单）。
+- Session Guard：`login` 时 regenerate 会话 ID，`logout` 时 invalidate；会话按需自动启动，不需要额外加 `session` 中间件。
+- `Hash`：默认 scrypt（node:crypto），运行时没有 scrypt 时用 PBKDF2-SHA256（Web Crypto，600000 次迭代）；哈希串记录算法与参数，`needsRehash()` 用于升级参数。
+- 类型：`AuthUser` 由 typegen 生成的 `config/auth.ts` 类型推导，模板中 `ctx.auth.user()` 的类型即为 `User`（已在脚手架项目中验证）。
+- 测试：`@think-h3/testing` 的 `t.actingAs(user, guard?)` 基于 core 的 `issueTestCredentials()`，生成真实的令牌或会话 Cookie。
+- 未做 `make:guard`：Guard 由配置驱动，自定义用户来源实现 `UserProvider` 接口即可，暂不支持自定义 Guard 驱动。
+
+**模板**
+- users 表新增 nullable 的 `password` 列（drizzle-kit 生成 `0001_add_user_password`），模型隐藏 password。
+- 新增 `AuthController`（register / login / me）与 `validate/auth.ts`；`/api/auth/login` 加了 `throttle:10,60`。
+- 全局中间件：api 模板为 cors、secureHeaders、compress；全栈模板为 secureHeaders、compress。
+- 数据填充的管理员账号带上了密码；README 新增"认证与安全"一节。
+
+**验证**
+- core 新增两组测试：`middleware.test.ts`（11 个）和 `auth.test.ts`（24 个）。
+  - 覆盖每个中间件、上传（valibot 校验、保存、413）、签名 Cookie；
+  - 三种 Session 存储方式各跑一遍（含 flash、regenerate、伪造 Cookie）；
+  - JWT（HS256 / ES256、过期、篡改、guest）、Session Guard、Hash。
+- 模板：每个模板新增 3 个认证用例，其中包括 actingAs。
+- workerd（Miniflare）：
+  - vue 模板 + D1：注册 → 登录 → 用 Bearer 访问 `/me`（jose、scrypt 在 Workers 上可用）；
+  - basic fixture：加密 Cookie Session 计数。
+- Cloudflare 部署提示新增 `wrangler secret put APP_KEY`（Workers 没有 .env）。
+
+**仍然存在的限制 / 后续**
+- 限流与 memory Session 只在单进程内生效，多实例部署需要共享存储（计划在缓存模块中提供 Redis / KV 实现）。
+- `store()` 只写本地文件系统；S3 / R2 等存储计划在后续的 Storage 模块中提供。
+- 没有 CSRF 中间件：使用 Session Guard 并通过 Cookie 认证时，需依赖 SameSite=Lax，或自行校验。建议后续补上。
+- 授权（Gate / Policy、`can:ability`）放到下一个里程碑。
 

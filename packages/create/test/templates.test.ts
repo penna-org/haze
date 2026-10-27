@@ -50,8 +50,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 3
-    expect(tests.output, tests.output).toContain('6 passed')
+    // greeting 3 + users 3 + auth 3
+    expect(tests.output, tests.output).toContain('9 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -85,6 +85,32 @@ describe('api template', () => {
 })
 
 describe('code generation and types', () => {
+  it('scaffolds a unique APP_KEY and key:generate rotates it', async () => {
+    project = createProject('api')
+    const key = /^APP_KEY=(\S+)$/m.exec(project.read('.env'))![1]
+    expect(key).toMatch(/^[\w-]{43}$/)
+    const other = createProject('api')
+    expect(/^APP_KEY=(\S+)$/m.exec(other.read('.env'))![1]).not.toBe(key)
+    other.cleanup()
+
+    const cli = binOf('@think-h3/cli', 'think-h3')
+    const refused = await run(cli, ['key:generate', '--root', project.root], project.root, {})
+    expect([refused.code, refused.output]).toEqual([
+      1,
+      expect.stringContaining('already exists'),
+    ])
+    const rotated = await run(cli, [
+      'key:generate',
+      '--force',
+      '--root',
+      project.root,
+    ], project.root, {})
+    expect(rotated.code, rotated.output).toBe(0)
+    const next = /^APP_KEY=(\S+)$/m.exec(project.read('.env'))![1]
+    expect(next).not.toBe(key)
+    expect(project.read('.env').match(/APP_KEY=/g)).toHaveLength(1)
+  })
+
   it('make:* output and generated types typecheck in a fresh project', async () => {
     project = createProject('api')
     const cli = binOf('@think-h3/cli', 'think-h3')
@@ -93,8 +119,8 @@ describe('code generation and types', () => {
 
     const typegen = await think('typegen')
     expect(typegen.code, typegen.output).toBe(0)
-    // api.hello + api.users.{index,store,show,update,destroy}
-    expect(typegen.output).toContain('6 named route(s)')
+    // api.hello + api.users.{index,store,show,update,destroy} + api.auth.{register,login,me}
+    expect(typegen.output).toContain('9 named route(s)')
     expect(project.read('.think/types/think.d.ts')).toContain('"api.hello": Record<never, never>')
 
     for (const kind of [
@@ -124,7 +150,7 @@ describe('code generation and types', () => {
     expect(model.output, model.output).toContain('database/schema/products.ts')
     const generate = await think('db:generate', '--name', 'create_products')
     expect(generate.code, generate.output).toBe(0)
-    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0001_create_products.sql')
+    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0002_create_products.sql')
     const migrate = await think('db:migrate')
     expect(migrate.output, migrate.output).toContain('[main] migrated')
     writeFileSync(join(project.root, 'database/seeders/02-products.ts'), `
@@ -165,8 +191,8 @@ export { enabled, name, productName }
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 3 + 生成的测试 1
-    expect(tests.output, tests.output).toContain('7 passed')
+    // greeting 3 + users 3 + auth 3 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('10 passed')
   })
 })
 
@@ -178,8 +204,8 @@ describe('vue template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 3
-    expect(tests.output, tests.output).toContain('6 passed')
+    // greeting 3 + users 3 + auth 3
+    expect(tests.output, tests.output).toContain('9 passed')
     expect(tests.code).toBe(0)
   })
 
