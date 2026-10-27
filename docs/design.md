@@ -569,3 +569,34 @@ it('获取用户', async () => {
 | 其余待确认项 | ORM、多应用模式、部署目标、发布仓库：M1 不涉及，仍待定 |
 
 下一步：M2（Vite 插件虚拟模块 `virtual:think/manifest`、dev 热替换 runner、CLI `dev / build / start`）。
+
+### M2（2026-10-26）
+
+新增 `@think-h3/vite` 与 `@think-h3/cli`，65 个测试通过（含真实文件修改的热更新集成测试）。实测 playground：启动约 170ms，修改服务文件后 10–15ms 生效，PID 与端口不变。
+
+**虚拟模块**
+
+| 模块 | 内容 |
+|------|------|
+| `virtual:think/manifest` | `import.meta.glob` 发现 `config/*`、`route/*`、`app/provider/*`、`app/exception/Handler` |
+| `virtual:think/app` | `createApp(options)`，dev / build / vitest 共用（类型：`@think-h3/vite/client`） |
+| `virtual:think/server-entry` | 生产入口：`createApp({ mode: 'production' }).serve()` |
+
+**热替换机制要点**（实现于 `packages/vite/src/dev.ts`）
+
+- 外层 srvx 监听只创建一次，`fetch` 转发给当前应用；变化时 `runner.clearCache()` + 重新 import `virtual:think/app` 并 boot，成功后原子替换。
+- 触发点用插件的 `hotUpdate` 钩子（ssr 环境），而不是直接监听 watcher：Vite 的模块失效是异步的，`hotUpdate` 保证在失效之后执行。
+- `server.hmr` 必须保持开启（`hmr: false` 会跳过 `hotUpdate`），用 `server.ws: false` 关闭 WebSocket 端口。
+- `envDir: false`：否则 Vite 在 `.env` 变化时会重启整个开发服务器；`.env` 由框架在每次 boot 时重新加载。**M3 的 Vue 模式需要重新评估**（前端需要 `VITE_*` 变量）。
+- 旧应用等在途请求结束后才 `dispose({ reason: 'hmr' })`；重载串行执行并防抖。
+- 失败策略：重载失败保留旧版本继续服务并打印错误（带 source map 定位）；首次启动失败则所有请求返回 500 错误详情，修复后自动恢复。
+- 新增 / 删除文件时主动失效 manifest 模块，使 glob 重新计算。
+
+**其它**
+
+- `think.config.ts`（可选）：`srcDir`、`port`、`host`、`outDir`、`vite`。
+- 生产构建依赖保持 external；monorepo 内 `@think-h3/core` 为链接包，会被打进产物（真实安装时不会）。
+- srvx 默认的信号处理已关闭（`gracefulShutdown: false`），由 `Application.serve()` / CLI 统一执行停机流程。
+- 当前每次变化都重新执行全部应用代码（毫秒级）；细粒度 HMR（只重建路由等）暂无必要。
+
+下一步：M3（Vue 项目集成：dev 挂载 `/api/**`、client + server 一次构建、`create-think-h3` 模板、`@think-h3/testing`）。

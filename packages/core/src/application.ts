@@ -138,7 +138,8 @@ export class Application {
 
   /** 启动 HTTP 服务（生产环境入口使用） */
   serve(options: ServeOptions = {}): ReturnType<typeof serve> {
-    const server = serve(this.h3, { port: Number(process.env.PORT) || 3000, ...options })
+    // 关闭 srvx 自带的信号处理，由下方统一执行：停止监听 → 等待在途请求 → 释放资源
+    const server = serve(this.h3, { port: Number(process.env.PORT) || 3000, gracefulShutdown: false, ...options })
     const shutdown = async (): Promise<void> => {
       await server.close()
       await this.dispose({ reason: 'shutdown' })

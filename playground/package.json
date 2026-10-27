@@ -3,13 +3,19 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "vitest run"
+    "dev": "think-h3 dev",
+    "build": "think-h3 build",
+    "start": "think-h3 start",
+    "routes": "think-h3 route:list",
+    "test": "think-h3 test"
   },
   "dependencies": {
     "@think-h3/core": "workspace:*",
     "valibot": "catalog:"
   },
   "devDependencies": {
+    "@think-h3/cli": "workspace:*",
+    "@think-h3/vite": "workspace:*",
     "vite": "catalog:"
   }
 }

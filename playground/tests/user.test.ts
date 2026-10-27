@@ -1,9 +1,9 @@
 import type { Application } from '@think-h3/core'
 import { Logger } from '@think-h3/core'
+import { createApp } from 'virtual:think/app'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { UserRepository } from '~/app/repository/UserRepository'
 import { ErrorCode } from '~/app/service/UserService'
-import { createApp } from '~/bootstrap'
 
 const auth = { authorization: 'Bearer secret-token' }
 

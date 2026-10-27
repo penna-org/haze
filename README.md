@@ -2,7 +2,7 @@
 
 基于 [h3 v2](https://h3.dev) 的 Node 服务端框架：IoC 容器、集中路由、分层中间件、统一异常处理，设计参考 ThinkPHP。完整设计见 [docs/design.md](docs/design.md)。
 
-> 当前进度：M0（monorepo 基础设施）+ M1（运行时内核）。CLI、热更新、Vite 插件属于 M2/M3。
+> 当前进度：M0（monorepo）、M1（运行时内核）、M2（Vite 插件 + 热更新 + CLI）。Vue 集成与脚手架属于 M3。
 
 ## 环境
 
@@ -13,15 +13,28 @@
 
 ```bash
 pnpm install
-pnpm test        # vitest（core + playground）
+pnpm build       # tsdown 构建 packages/*
+pnpm test        # 先构建，再跑 vitest（core / vite / playground）
 pnpm typecheck
 pnpm lint
-pnpm build       # tsdown 构建 packages/*
+```
+
+在 playground 中体验框架命令：
+
+```bash
+cd playground
+pnpm dev          # think-h3 dev：修改代码即时生效，进程不重启
+pnpm routes       # think-h3 route:list
+pnpm build        # think-h3 build → dist/index.mjs
+pnpm start        # think-h3 start
+pnpm test         # think-h3 test（vitest）
 ```
 
 ## 目录
 
 ```
+packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / test / route:list）
+packages/vite/   @think-h3/vite Vite 插件（virtual:think/*）、热替换开发服务器、生产构建
 packages/core/   @think-h3/core 运行时内核
   src/container/   依赖注入（inject()、Singleton / Request / Transient 作用域）
   src/config/      配置仓库、.env 加载、env() 类型转换

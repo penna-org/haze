@@ -2,9 +2,26 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@think-h3/core": ["./packages/core/src/index.ts"],
-      "~/*": ["./playground/*"]
+      "@think-h3/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "~/*": [
+        "./playground/*"
+      ],
+      "@think-h3/vite": [
+        "./packages/vite/src/index.ts"
+      ]
     }
   },
-  "include": ["packages/*/src", "packages/*/test", "playground", "*.ts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "packages/vite/client.d.ts",
+    "playground",
+    "*.ts"
+  ],
+  "exclude": [
+    "packages/vite/test/fixtures",
+    "packages/vite/test/.tmp"
+  ]
 }

@@ -1,0 +1,30 @@
+{
+  "name": "@think-h3/cli",
+  "type": "module",
+  "version": "0.0.0",
+  "description": "think-h3 command line: dev / build / start / test / route:list",
+  "license": "MIT",
+  "bin": {
+    "think-h3": "./bin/think-h3.mjs"
+  },
+  "files": ["bin", "dist"],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "dependencies": {
+    "@think-h3/vite": "workspace:*",
+    "citty": "catalog:",
+    "consola": "catalog:"
+  },
+  "devDependencies": {
+    "@think-h3/core": "workspace:*",
+    "vite": "catalog:"
+  }
+}
