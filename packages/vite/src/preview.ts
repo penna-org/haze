@@ -1,12 +1,14 @@
+import type { Buffer } from 'node:buffer'
 import type { ChildProcess } from 'node:child_process'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { Logger } from 'vite'
 import type { BuildInfo } from './plugin'
 import type { PresetName } from './presets'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { createServer } from 'node:net'
+import { connect, createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
@@ -26,6 +28,8 @@ export interface PreviewServer {
   /** 是否交给产物处理；其余请求由 Vite 托管前端静态文件 */
   matches: (url: string) => boolean
   handle: NodeHandler
+  /** WebSocket 升级（进程型预设：按原始 TCP 连接转发给产物进程） */
+  upgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => void
   close: () => Promise<void>
 }
 
@@ -173,6 +177,7 @@ async function startProcess(root: string, manifest: BuildManifest): Promise<Omit
   await waitUntilReady(origin, child)
   return {
     handle: toNodeHandler(request => forward(request, origin)) as unknown as NodeHandler,
+    upgrade: proxyUpgrade(port),
     close: () => stopProcess(child),
   }
 }
@@ -208,6 +213,28 @@ async function forward(request: Request, origin: string): Promise<Response> {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers: out })
 }
 
+/** 把升级请求原样写给产物进程，之后双向转发字节 */
+function proxyUpgrade(port: number): NonNullable<PreviewServer['upgrade']> {
+  return (req, socket, head) => {
+    const upstream = connect(port, '127.0.0.1', () => {
+      const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`]
+      for (let index = 0; index < req.rawHeaders.length; index += 2)
+        lines.push(`${req.rawHeaders[index]}: ${req.rawHeaders[index + 1]}`)
+      upstream.write(`${lines.join('\r\n')}\r\n\r\n`)
+      if (head.length)
+        upstream.write(head)
+      upstream.pipe(socket)
+      socket.pipe(upstream)
+    })
+    const destroy = (): void => {
+      upstream.destroy()
+      socket.destroy()
+    }
+    upstream.on('error', destroy)
+    socket.on('error', destroy)
+  }
+}
+
 async function startWorker(root: string, manifest: BuildManifest, logger: Logger): Promise<PreviewServer> {
   const dir = manifest.layout.serverDir
   const wrangler = JSON.parse(readFileSync(join(dir, 'wrangler.json'), 'utf8')) as {
@@ -216,6 +243,7 @@ async function startWorker(root: string, manifest: BuildManifest, logger: Logger
     vars?: Record<string, string>
     d1_databases?: { binding: string, database_id?: string, database_name?: string, migrations_dir?: string }[]
     kv_namespaces?: { binding: string, id?: string }[]
+    durable_objects?: { bindings?: { name: string, class_name: string }[] }
   }
   let Miniflare: typeof import('miniflare').Miniflare
   try {
@@ -241,6 +269,7 @@ async function startWorker(root: string, manifest: BuildManifest, logger: Logger
     d1Databases: Object.fromEntries(d1.map(database => [database.binding, database.database_id ?? database.binding])),
     d1Persist: join(persist, 'd1'),
     kvNamespaces: Object.fromEntries((wrangler.kv_namespaces ?? []).map(namespace => [namespace.binding, namespace.id ?? namespace.binding])),
+    durableObjects: Object.fromEntries((wrangler.durable_objects?.bindings ?? []).map(binding => [binding.name, binding.class_name])),
     kvPersist: join(persist, 'kv'),
   })
   // 与 wrangler d1 migrations apply --local 相同：按文件名执行尚未执行的迁移（记录在 d1_migrations 表）

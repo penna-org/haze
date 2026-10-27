@@ -1,8 +1,10 @@
 import type { ValidationTargets } from '../http/context'
 import type { MiddlewareRef } from '../middleware/types'
 import type { Constructor } from '../utils'
+import type { WebSocketHandler } from '../websocket/handler'
 import type { ControllerAction, HandlerFn, RouteMethod } from './route'
 import { joinPath } from '../utils'
+import { upgradeResponse } from '../websocket/handler'
 import { isControllerAction, Route } from './route'
 
 export interface GroupOptions {
@@ -97,6 +99,14 @@ export class RouteBuilder {
   /** 匹配所有 HTTP 方法 */
   any<C extends Constructor>(path: string, handler: Handler<C>): Route {
     return this.#add('ALL', path, handler)
+  }
+
+  /**
+   * WebSocket：升级请求与普通 GET 一样经过全局与路由中间件（如 `.middleware('auth')`），
+   * 通过后由 crossws 建立连接；钩子的最后一个参数为升级请求的上下文
+   */
+  ws(path: string, handler: WebSocketHandler): Route {
+    return this.#add('GET', path, (ctx => upgradeResponse(ctx, handler)) as HandlerFn).meta({ websocket: true })
   }
 
   group(callback: (r: RouteBuilder) => void): void

@@ -4,7 +4,7 @@ import { readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { previewServer } from '@think-h3/vite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { binOf, createProject, csrfHeaders, freePort, run } from './utils'
+import { binOf, createProject, csrfHeaders, freePort, run, wsExchange } from './utils'
 
 let project: ReturnType<typeof createProject> | undefined
 let server: PreviewServer | undefined
@@ -88,6 +88,10 @@ describe('vite preview runs the build output of every preset', () => {
       body: JSON.stringify({ name: '' }),
     })
     expect(invalid.status).toBe(422)
+
+    // WebSocket：进程型预设经预览服务器转发到产物进程
+    if (['node', 'bun', 'docker', 'deno'].includes(preset))
+      expect(await wsExchange(`${url.replace(/^http/, 'ws')}/api/ws`, 'ping', 2)).toEqual(['{"type":"connected"}', '{"type":"pong"}'])
   })
 
   it('cloudflare + D1: migrations are applied to the local preview database', async () => {

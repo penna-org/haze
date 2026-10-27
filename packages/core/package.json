@@ -10,6 +10,10 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
+    "./cloudflare": {
+      "types": "./dist/adapters/cloudflare.d.mts",
+      "default": "./dist/adapters/cloudflare.mjs"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.mjs",
@@ -42,8 +46,10 @@
     "@standard-schema/spec": "catalog:",
     "consola": "catalog:",
     "croner": "catalog:",
+    "crossws": "catalog:",
     "h3": "catalog:",
-    "jose": "catalog:"
+    "jose": "catalog:",
+    "srvx": "catalog:"
   },
   "devDependencies": {
     "@upstash/redis": "catalog:",

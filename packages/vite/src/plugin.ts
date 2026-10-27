@@ -1,9 +1,12 @@
+import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
 import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
+import { nodeUpgradeHandler } from '@think-h3/core'
 import { toNodeHandler } from 'srvx/node'
 import { normalizePath } from 'vite'
 import { loadThinkConfig } from './config'
@@ -302,6 +305,14 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
         Promise.resolve(handle(req, res)).catch(next)
       })
       server.httpServer?.once('listening', () => void host.start())
+      // WebSocket：后端前缀下的升级请求交给应用（Vite 自己的 HMR 连接带 vite-hmr 协议，互不影响）
+      if (server.httpServer) {
+        const upgrade = nodeUpgradeHandler(host.fetch)
+        server.httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+          if (req.url && matches(req.url) && req.headers['sec-websocket-protocol'] !== 'vite-hmr')
+            upgrade(req, socket, head)
+        })
+      }
 
       // Vite 关闭或重启（如 vite.config.ts / .env 变化）时释放应用
       const close = server.close.bind(server)
@@ -321,6 +332,12 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           return next()
         Promise.resolve(preview.handle(req, res)).catch(next)
       })
+      if (preview.upgrade) {
+        server.httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+          if (req.url && preview.matches(req.url))
+            preview.upgrade!(req, socket, head)
+        })
+      }
       server.httpServer.once('close', () => void preview.close())
     },
 
@@ -418,6 +435,8 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const policies = ${glob('app/policy/*.{ts,mts,js,mjs}')}`,
     `export const jobs = ${glob('app/job/*.{ts,mts,js,mjs}')}`,
     `export const schedules = ${glob('schedule/*.{ts,mts,js,mjs}')}`,
+    `export const events = ${glob('app/event/*.{ts,mts,js,mjs}')}`,
+    `export const listeners = ${glob('app/listener/*.{ts,mts,js,mjs}')}`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
     `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
@@ -456,6 +475,8 @@ export function createApp(options = {}) {
     policies: manifest.policies,
     jobs: manifest.jobs,
     schedules: manifest.schedules,
+    events: manifest.events,
+    listeners: manifest.listeners,
     apps: manifest.apps,
     ...options,
   })
@@ -472,6 +493,7 @@ function presetContext(settings: Settings): PresetContext {
     cloudflare: settings.cloudflare,
     vercel: settings.vercel,
     schedules: hasSources(join(settings.srcDir, 'schedule')),
+    websocket: settings.cloudflare?.websocket ?? usesWebSocket(settings.srcDir),
     outDir: settings.outDir,
     fullstack: settings.fullstack,
     prefixes: settings.prefixes,
@@ -503,6 +525,17 @@ function srcDirFromRoot(settings: Settings): string {
   return rel === '.'
     ? ''
     : rel
+}
+
+/** 路由文件中是否定义了 WebSocket（r.ws(...)） */
+function usesWebSocket(srcDir: string): boolean {
+  const dirs = [
+    join(srcDir, 'route'),
+    ...(existsSync(join(srcDir, 'app'))
+      ? readdirSync(join(srcDir, 'app'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => join(srcDir, 'app', entry.name, 'route'))
+      : []),
+  ]
+  return dirs.some(dir => existsSync(dir) && readdirSync(dir).some(name => SOURCE_RE.test(name) && /\.ws\s*\(/.test(readFileSync(join(dir, name), 'utf8'))))
 }
 
 /** 目录下是否有源码文件（如 schedule/*.ts） */

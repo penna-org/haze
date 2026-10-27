@@ -193,6 +193,38 @@ export default defineSchedule((s) => {
 | aws-lambda | 同一份产物，handler 设为 `index.schedule`，EventBridge `rate(1 minute)` 触发 |
 | vercel | 自动配置 Vercel Cron 调用 `/__think/schedule`（需要设置 `CRON_SECRET`；Hobby 计划只允许每天一次，用 `think.config.ts` 的 `vercel.cron` 调整） |
 
+## 事件与 WebSocket
+
+事件放在 `app/event/*.ts`，监听器在 `app/listener/*.ts`（`npx think-h3 make:event OrderPaid` / `make:listener SendReceipt`），都会自动注册：
+
+```ts
+export default defineEvent<{ userId: number, email: string }>() // app/event/UserRegistered.ts
+export default defineListener(UserRegistered, ({ userId }) => SendWelcomeEmail.dispatch({ userId }))
+export default defineListener(UserRegistered, handler, {
+  queue: { tries: 3 }
+}) // 排队异步执行
+await UserRegistered.emit({ userId: user.id, email: user.email })
+```
+
+- 同步监听器按文件名顺序执行，返回 `false` 时不再执行后续监听器；排队监听器作为队列任务执行（payload 以 JSON 传递）
+- 测试：`const events = Events.fake([UserRegistered])` 后 `events.assertEmitted(UserRegistered, p => p.userId === 1)`
+
+WebSocket 在路由中定义（示例：`route/ws.ts`，`ws://<host>/api/ws`）：
+
+```ts
+r.ws('/api/chat', {
+  open(peer, ctx) { peer.subscribe('chat') },
+  message(peer, message) { peer.publish('chat', message.text()) },
+}).middleware('auth') // 升级请求同样经过中间件
+
+Socket.publish('users', { type: 'user.registered' }) // 在接口、任务、监听器中推送
+```
+
+- 开发：`pnpm dev` 中直接可用，修改后新连接使用新代码；产物：node / bun / deno / docker 直接支持，`pnpm preview` 也可连接
+- 多实例：设置 `WS_BROADCAST=redis`（`config/websocket.ts`），广播经 Redis 到达所有实例
+- Cloudflare：自动生成 Durable Object（`ThinkWebSocket`），所有连接在同一个 DO 中，`Socket.publish` 经 RPC 转发
+- Vercel / Netlify / AWS Lambda：平台不支持 WebSocket（升级请求返回 426）
+
 ## 部署
 
 ```bash

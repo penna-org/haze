@@ -432,7 +432,14 @@ export const config = {
     }),
     entry: context => `${lazyApp(context, `env: false,`)}
 import { QueueManager, Scheduler, setPlatformBindings } from '@think-h3/core'
+${context.websocket
+  ? `import { createWebSocketDurableObject } from '@think-h3/core/cloudflare'
 
+// WebSocket：所有连接在同一个 Durable Object 中，订阅 / 广播全局生效；钩子在 DO 内经应用解析（含中间件）
+const websocket = createWebSocketDurableObject({ fetch: async request => (await getApp()).fetch(request), bind: env => bind(env) })
+export const ThinkWebSocket = websocket.ThinkWebSocket
+`
+  : ''}
 function bind(env) {
   setPlatformBindings(env)
   if (!app) {
@@ -445,9 +452,13 @@ function bind(env) {
 
 /** Cloudflare Workers：静态资源由 Workers Assets 提供，环境变量与 D1 等来自绑定 */
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     bind(env)
-    return (await getApp()).fetch(request)
+${context.websocket
+  ? `    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket')
+      return websocket.handleUpgrade(request, env, ctx)
+`
+  : ''}    return (await getApp()).fetch(request)
   },
   /** Cloudflare Queues 消费：重试映射为 message.retry({ delaySeconds }) */
   async queue(batch, env) {
@@ -495,6 +506,24 @@ export default {
         const source = join(context.srcDir, 'database', 'migrations')
         if (existsSync(source))
           await cp(source, join(context.outDir, 'migrations'), { recursive: true })
+      }
+      // WebSocket：Durable Object 绑定与迁移（SQLite 存储的 DO，免费计划可用）
+      if (context.websocket) {
+        const durable = (config.durable_objects ?? {}) as { bindings?: unknown[] }
+        config.durable_objects = {
+          ...durable,
+          bindings: [
+            ...(durable.bindings ?? []),
+            { name: 'THINK_WEBSOCKET', class_name: 'ThinkWebSocket' },
+          ],
+        }
+        config.migrations = [
+          ...((config.migrations ?? []) as unknown[]),
+          {
+            tag: 'think-websocket-v1',
+            new_sqlite_classes: ['ThinkWebSocket'],
+          },
+        ]
       }
       // 定时任务：每分钟触发 scheduled()，由框架判断哪些任务到期
       if (context.schedules && !config.triggers) {

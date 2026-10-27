@@ -693,6 +693,7 @@ it('获取用户', async () => {
 | M13 | 授权（Gate / Policy、ctx.can / authorize、can: 中间件）与 CSRF 同步令牌 |
 | M14 | 缓存（memory / redis / upstash / kv）、原子锁、响应缓存，限流与 Session 的共享存储，Cloudflare 限流绑定 |
 | M15 | 队列（sync / memory / redis(BullMQ) / Cloudflare Queues，重试、延迟、超时、失败任务）与定时任务（croner，onOneServer / withoutOverlapping） |
+| M16 | 事件 / 监听器（同步与排队）、WebSocket（crossws：开发热替换、各运行时、Redis 多实例广播、Cloudflare Durable Object） |
 
 ### M5 实施记录（2026-10-26）
 
@@ -1165,4 +1166,67 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - memory 队列只在本进程内，进程退出时任务丢失。
 - Vercel / Lambda 的定时触发频率受平台限制；`runDue` 只执行当前这一分钟到期的任务，触发间隔大于 1 分钟时，其余分钟的任务会被跳过。
 - 没有任务批处理（batch）与任务链（chain）。
+
+### M16 实施记录（2026-10-27）：事件与 WebSocket
+
+确认的决策：
+- 事件用 `defineEvent` 常量定义；
+- Cloudflare 上用 Durable Objects；
+- 多实例广播本次用 Redis 实现（在 colima 中用 redis:7 验证）。
+
+**事件**
+- 定义：
+  - `app/event/*.ts`：`defineEvent<P>({ name? })`，文件名即事件名，`Event.emit(payload)` 触发；
+  - `app/listener/*.ts`：`defineListener(event | events[], handler(payload, ctx), { queue? })`，监听多个事件时 payload 为联合类型。
+- 执行：
+  - 同步监听器按文件名顺序执行（与拦截器一致），抛错会传给触发方，返回 `false` 时不再执行后续监听器；
+  - 排队监听器在启动时注册为队列任务 `listener:<名字>`，复用队列的 tries / backoff / timeout / queue / connection 与 `delay`，payload 为 `{ event, payload }` 的 JSON。
+- `EventManager` 为应用单例，`on()` 用于运行时注册。
+- 门面命名为 `Events`，避免与全局的 `Event` 类型重名：`Events.emit / on / fake / restore`。
+- `Events.fake(events?)` 提供 `assertEmitted / assertNotEmitted / assertEmittedTimes`；传入事件时只 fake 这些事件，其余照常执行。
+- 生成器：`make:event`、`make:listener`。
+
+**WebSocket（h3 + crossws 0.4）**
+- 定义：`r.ws(path, handler)` 注册为 GET 路由，钩子 `upgrade / open / message / close / error` 的最后一个参数为升级请求的 ctx，也可以用 `defineWebSocket()` 单独定义。
+- 鉴权：升级请求经过全局与路由中间件，`auth` 等中间件拒绝时以该响应（如 401）拒绝升级。普通 GET 得到 426。
+- 钩子挂在请求对象上（`kWebSocketHooks`），中间件重建响应也不会丢失。`resolveHooks(fetch)` 与 crossws 的默认解析一致：调用应用的 fetch，非 101 / 426 的响应拒绝升级。
+- 各运行时的接入：
+
+| 环境 | 实现 |
+|------|------|
+| node 产物 / 纯后端开发服务器 | srvx 插件：监听 http 服务器的 `upgrade` 事件，交给 crossws 的 Node 适配器；开发时 fetch 指向热替换后的最新应用 |
+| bun / deno 产物 | srvx 插件：Bun 设置 `bun.websocket`，Deno 由中间件处理升级 |
+| Vite 全栈开发 | 在 Vite 的 httpServer 上处理后端前缀下的升级请求，排除 `vite-hmr` 协议 |
+| `vite preview` / `think-h3 preview`（进程型预设） | 把升级请求按原始 TCP 字节转发给产物进程 |
+| cloudflare | 新增 `@think-h3/core/cloudflare` 子路径的 `createWebSocketDurableObject()`；入口导出 `ThinkWebSocket`，Worker 的 fetch 把升级请求交给 DO，钩子在 DO 内经应用解析；wrangler.json 增加 `durable_objects` 与 SQLite DO 的迁移；路由中出现 `.ws(` 时生成，也可用 `cloudflare.websocket` 强制开关；Cloudflare 预览会读取 DO 绑定 |
+| vercel / netlify / aws-lambda | 平台不支持，升级请求返回 426 |
+
+- Node 适配器按需动态导入：crossws 内置的 ws 库在模块顶层调用 `createRequire(import.meta.url)`，在 Workers 中会导致启动失败（已在 workerd 中复现）。
+- `Socket.publish(topic, data)`：发给进程内已注册的所有 crossws 适配器（`globalStore`，因此开发服务器与应用代码中的两个 core 实例共用）；`Socket.connections()` 返回连接数。
+- 多实例：`config/websocket.ts` 的 `broadcast: { driver: 'redis', url, channel }` 使用 crossws 自带的 Redis 同步（`crossws/sync` 的 `redis`），ioredis 延迟加载。Cloudflare 上 `Socket.publish` 经 crossws 的 RPC（`webSocketPublish`）进入 DO。
+
+**模板**
+- `app/event/UserRegistered.ts`；`AuthController.register` 改为触发该事件。
+- 监听器：`QueueWelcomeEmail`（投递欢迎邮件任务）、`BroadcastRegistration`（推送 `users` 主题）。
+- `route/ws.ts`（`/api/ws`：连接后订阅 users，`ping` 回复 `pong`）。
+- `config/websocket.ts`（`WS_BROADCAST=redis`）。
+- 认证测试新增"注册触发事件"（4 个认证用例）。
+
+**验证**
+- core：
+  - `events.test.ts`（5 个）：顺序执行与排队执行、返回 false 停止、运行时注册与错误传递、fake 的各项断言、非法模块；
+  - `websocket.test.ts`（4 个）：回显与 `peer.publish`、HTTP 接口中调用 `Socket.publish`、426 与 auth 拒绝 / 带令牌通过；
+  - 真实 Redis 跨实例：两个应用分别接一个连接，`peer.publish` 与 `Socket.publish` 双向到达。
+- vite `websocket.test.ts`（3 个）：
+  - 开发服务器回显、热替换后的新连接使用新代码、应用代码中的 `Socket.publish`；
+  - node 产物；
+  - workerd 中的 Durable Object：两个连接，Worker 中 HTTP 接口的广播经 RPC 到达。
+- create：React 模板经 Vite 全栈开发服务器连接 `/api/ws`；vue 模板的 node / bun / docker / deno 预览经转发连接成功。
+- 验证结束后 Redis 容器与镜像已删除，colima 已停止。
+
+**限制**
+- 已建立的连接在热替换后仍使用旧的钩子，需重新连接才会使用新代码。
+- 升级完成后请求级容器即被释放：长连接中使用的数据需在 `open` 时读取并保存。
+- Cloudflare 预览（Miniflare）不转发 WebSocket，请用 `wrangler dev`；所有连接集中在同一个 DO 中，连接数很大时需要按房间拆分 DO（`resolveDurableStub`）。
+- 排队监听器的 payload 经 JSON 序列化，模型实例会变成普通对象。
 

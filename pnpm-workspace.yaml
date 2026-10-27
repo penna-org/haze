@@ -37,6 +37,7 @@ catalog:
   citty: ^0.2.2
   consola: ^3.4.2
   croner: ^11.0.0
+  crossws: ^0.4.16
   deno: ^2.9.6
   drizzle-kit: ^0.31.11
   drizzle-orm: ^0.45.4

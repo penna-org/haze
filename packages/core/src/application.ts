@@ -17,6 +17,8 @@ import { CacheManager, setCacheManager } from './cache/manager'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
 import { Container } from './container/container'
+import { setEventManager } from './events/context'
+import { EventManager } from './events/manager'
 import { NotFoundException } from './exception/exceptions'
 import { ExceptionHandler } from './exception/handler'
 import { getHttpContext, HttpContext, setHttpContext } from './http/context'
@@ -33,6 +35,7 @@ import { getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
 import { Scheduler } from './schedule/scheduler'
 import { isClass, isModuleRecord, normalizeModules } from './utils'
+import { webSocketConfig, webSocketPlugin } from './websocket/server'
 
 export type AppMode = 'development' | 'production' | 'test'
 
@@ -58,6 +61,10 @@ export interface ApplicationOptions {
   jobs?: unknown[] | ModuleRecord
   /** 定时任务（schedule/*.ts：defineSchedule） */
   schedules?: unknown[] | ModuleRecord
+  /** 事件（app/event/*.ts：defineEvent，文件名为事件名） */
+  events?: unknown[] | ModuleRecord
+  /** 监听器（app/listener/*.ts：defineListener） */
+  listeners?: unknown[] | ModuleRecord
   /**
    * 多应用模块：`import.meta.glob('/app/*\/{route,config,provider,exception,response}/*')`。
    * 只有在 `config/app.ts` 的 `apps` 中声明的应用才会启用。
@@ -171,6 +178,14 @@ export class Application {
     for (const [, schedule] of normalizeModules<unknown>(options.schedules))
       scheduler.register(schedule)
     this.container.instance(Scheduler, scheduler)
+    // 事件与监听器（排队监听器注册为队列任务）
+    const events = new EventManager(this)
+    this.container.instance(EventManager, events)
+    setEventManager(events, EventManager)
+    for (const [name, event] of normalizeModules<unknown>(options.events))
+      events.registerEvent(event, name)
+    for (const [name, listener] of normalizeModules<unknown>(options.listeners))
+      events.registerListener(listener, name)
 
     // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()
@@ -212,7 +227,16 @@ export class Application {
   /** 启动 HTTP 服务（生产环境入口使用） */
   serve(options: ServeOptions = {}): ReturnType<typeof serve> {
     // 关闭 srvx 自带的信号处理，由下方统一执行：停止监听 → 等待在途请求 → 释放资源
-    const server = serve(this.h3, { port: Number(process.env.PORT) || 3000, gracefulShutdown: false, ...options })
+    // WebSocket（crossws）：升级请求经应用的 fetch 解析到 r.ws() 的钩子
+    const server = serve(this.h3, {
+      port: Number(process.env.PORT) || 3000,
+      gracefulShutdown: false,
+      ...options,
+      plugins: [
+        webSocketPlugin(request => this.fetch(request), webSocketConfig(this.config)),
+        ...(options.plugins ?? []),
+      ],
+    })
     const shutdown = async (): Promise<void> => {
       await server.close()
       await this.dispose({ reason: 'shutdown' })

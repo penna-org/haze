@@ -1,0 +1,12 @@
+import { defineEvent, defineListener } from '@think-h3/core'
+
+// 替换为要监听的事件：import UserRegistered from '~/app/event/UserRegistered'
+const SomeEvent = defineEvent<{ id: number }>()
+
+/**
+ * 监听器（app/listener 下自动注册，按文件名顺序执行）。
+ * 返回 false 时不再执行后续监听器；耗时操作加 { queue: true }（或 { queue: { tries: 3 } }）排队异步执行
+ */
+export default defineListener(SomeEvent, async (payload, ctx) => {
+  ctx.logger.info(`{{name}} handled ${ctx.event} ${payload.id}`)
+})

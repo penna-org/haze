@@ -20,6 +20,8 @@ export interface CloudflareOptions {
    * `d1_databases` 中未设置 `migrations_dir` 的数据库使用产物中的 `migrations`（默认连接的迁移）。
    */
   wrangler?: Record<string, unknown>
+  /** 生成 WebSocket 的 Durable Object（默认在路由中发现 r.ws() 时生成） */
+  websocket?: boolean
 }
 
 /** think.config.ts 的 vercel 选项 */
@@ -48,6 +50,8 @@ export interface PresetContext {
   vercel: VercelOptions | undefined
   /** 存在 schedule/*.ts：生成 Cron Triggers / Vercel Cron 等触发配置 */
   schedules: boolean
+  /** 路由中使用了 r.ws()：Cloudflare 生成 WebSocket 的 Durable Object */
+  websocket: boolean
 }
 
 export interface Layout {

@@ -3,6 +3,7 @@ import type { InlineConfig, ViteDevServer } from 'vite'
 import type { ReloadResult } from './host'
 import { resolve } from 'node:path'
 import process from 'node:process'
+import { webSocketConfig, webSocketPlugin } from '@think-h3/core'
 import { consola } from 'consola'
 import { serve } from 'srvx'
 import { createServer, mergeConfig, normalizePath } from 'vite'
@@ -86,6 +87,12 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
         hostname: options.host ?? config.host,
         silent: true,
         gracefulShutdown: false,
+        // WebSocket：每个新连接从热替换后的最新应用解析钩子
+        plugins: [
+          webSocketPlugin(host.fetch, host.app
+            ? webSocketConfig(host.app.config)
+            : undefined),
+        ],
       })
   await server?.ready()
 

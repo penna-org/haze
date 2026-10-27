@@ -3,7 +3,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBuilder, createServer, preview } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { binOf, createProject, freePort, run } from './utils'
+import { binOf, createProject, freePort, run, wsExchange } from './utils'
 
 let project: ReturnType<typeof createProject> | undefined
 let server: ViteDevServer | PreviewServer | undefined
@@ -59,6 +59,8 @@ describe.each(frameworks)('$name + thinkH3()', (framework) => {
     expect(await (await fetch(`${base}/`)).text()).toContain('<div id="app"></div>')
     expect((await fetch(`${base}${framework.entry}`)).status).toBe(200)
     expect((await (await fetch(`${base}/api/hello`)).json() as any).data).toEqual({ app: 'demo-react', message: 'Hello, think-h3!' })
+    // WebSocket 经 Vite 开发服务器交给后端（与 Vite 的 HMR 连接并存）
+    expect(await wsExchange(`${base.replace(/^http/, 'ws')}/api/ws`, 'ping', 2)).toEqual(['{"type":"connected"}', '{"type":"pong"}'])
   })
 
   it('build + vite preview: runs the built server with the built client', async () => {
@@ -89,7 +91,7 @@ describe('react template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 3
-    expect(tests.output, tests.output).toContain('10 passed')
+    // greeting 3 + users 4 + auth 4
+    expect(tests.output, tests.output).toContain('11 passed')
   })
 })

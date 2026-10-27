@@ -50,8 +50,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 3
-    expect(tests.output, tests.output).toContain('10 passed')
+    // greeting 3 + users 4 + auth 4
+    expect(tests.output, tests.output).toContain('11 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -210,8 +210,8 @@ export { email, enabled, name, productName }
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 3 + 生成的测试 1
-    expect(tests.output, tests.output).toContain('11 passed')
+    // greeting 3 + users 4 + auth 4 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('12 passed')
   })
 })
 
@@ -223,8 +223,8 @@ describe('vue template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 3
-    expect(tests.output, tests.output).toContain('10 passed')
+    // greeting 3 + users 4 + auth 4
+    expect(tests.output, tests.output).toContain('11 passed')
     expect(tests.code).toBe(0)
   })
 

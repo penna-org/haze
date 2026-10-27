@@ -48,6 +48,9 @@ catalogs:
     croner:
       specifier: ^11.0.0
       version: 11.0.0
+    crossws:
+      specifier: ^0.4.16
+      version: 0.4.16
     deno:
       specifier: ^2.9.6
       version: 2.9.6
@@ -180,12 +183,18 @@ importers:
       croner:
         specifier: 'catalog:'
         version: 11.0.0
+      crossws:
+        specifier: 'catalog:'
+        version: 0.4.16(srvx@1.0.7)
       h3:
         specifier: 'catalog:'
-        version: 2.0.8
+        version: 2.0.8(crossws@0.4.16(srvx@1.0.7))
       jose:
         specifier: 'catalog:'
         version: 6.2.13
+      srvx:
+        specifier: 'catalog:'
+        version: 1.0.7
     devDependencies:
       '@upstash/redis':
         specifier: 'catalog:'
@@ -2046,6 +2055,14 @@ packages:
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
+
+  crossws@0.4.16:
+    resolution: {integrity: sha512-gKc2u346c6tZazImz8/4KkRRKW6cEHot3Z3+gzKNSkfHTWkYrXeiidMKYN0JnHqeszIs5++iDaVzP/pWl/efpw==}
+    peerDependencies:
+      srvx: '>=0.11.5'
+    peerDependenciesMeta:
+      srvx:
+        optional: true
 
   cssesc@3.0.0:
     resolution: {integrity: sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg==}
@@ -5018,6 +5035,10 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
+  crossws@0.4.16(srvx@1.0.7):
+    optionalDependencies:
+      srvx: 1.0.7
+
   cssesc@3.0.0: {}
 
   csstype@3.2.3: {}
@@ -5581,10 +5602,12 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  h3@2.0.8:
+  h3@2.0.8(crossws@0.4.16(srvx@1.0.7)):
     dependencies:
       rou3: 1.0.0
       srvx: 1.0.7
+    optionalDependencies:
+      crossws: 0.4.16(srvx@1.0.7)
 
   hashery@1.5.1:
     dependencies:

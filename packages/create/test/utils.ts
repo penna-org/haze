@@ -158,3 +158,19 @@ export async function sqliteRows(file: string, query: string): Promise<Array<Rec
     client.close()
   }
 }
+
+/** 连接、发送一条消息并收集前 count 条回复 */
+export async function wsExchange(url: string, send: string, count: number): Promise<string[]> {
+  const socket = new WebSocket(url)
+  const messages: string[] = []
+  socket.addEventListener('message', event => messages.push(String(event.data)))
+  await new Promise<void>((resolve, reject) => {
+    socket.addEventListener('open', () => resolve())
+    socket.addEventListener('error', () => reject(new Error(`WebSocket ${url} failed`)))
+  })
+  socket.send(send)
+  for (let attempt = 0; attempt < 100 && messages.length < count; attempt++)
+    await new Promise(resolve => setTimeout(resolve, 30))
+  socket.close()
+  return messages
+}

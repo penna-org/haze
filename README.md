@@ -49,6 +49,10 @@ export default defineThinkConfig({ srcDir: 'server' })
 
 `app/job/*.ts` 中 `defineJob({ tries, backoff, timeout, handle, failed })`，`Job.dispatch(payload, { delay })` 投递；驱动 sync / memory / redis（BullMQ）/ cloudflare（Queues）。`schedule/*.ts` 中 `defineSchedule(s => s.call(...).dailyAt('03:00').onOneServer())`（croner 解析 cron、支持时区，锁基于 `Cache.lock`）。命令：`queue:work`、`queue:failed / retry / forget / flush`、`schedule:list / run / work`；构建产物输出 `worker.mjs`，Cloudflare 自动接入 Queues 消费与 Cron Triggers，Lambda 导出 `index.schedule`，Vercel 配置 Cron。
 
+## 事件与 WebSocket
+
+`app/event/*.ts` 中 `defineEvent<Payload>()`，`app/listener/*.ts` 中 `defineListener(Event, handler, { queue? })`，`Event.emit(payload)` 触发；排队监听器复用队列。WebSocket 基于 crossws：路由中 `r.ws(path, { open, message, close })`，升级请求经过中间件；`Socket.publish(topic, data)` 服务端推送，多实例经 Redis 广播；开发服务器（含 Vite 全栈）、node / bun / deno / docker 产物与预览直接可用，Cloudflare 自动使用 Durable Object。
+
 ## 部署
 
 ```bash

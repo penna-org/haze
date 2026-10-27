@@ -12,6 +12,7 @@ import type { MiddlewareConfig } from '../middleware/types'
 import type { QueueConfig } from '../queue/manager'
 import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
+import type { WebSocketConfig } from '../websocket/server'
 import { deepMerge, isPlainObject } from '../utils'
 
 export interface ResponseConfig {
@@ -55,6 +56,7 @@ export interface CoreConfig {
   session?: Partial<SessionConfig>
   cache?: CacheConfig
   queue?: QueueConfig
+  websocket?: WebSocketConfig
   schedule?: ScheduleConfig
   auth?: AuthConfig
 }

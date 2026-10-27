@@ -41,6 +41,8 @@ describe('make', () => {
       provider: 'server/app/provider/admin/UserProfileProvider.ts',
       policy: 'server/app/policy/UserProfilePolicy.ts',
       job: 'server/app/job/UserProfile.ts',
+      event: 'server/app/event/UserProfile.ts',
+      listener: 'server/app/listener/UserProfile.ts',
       validate: 'server/app/validate/admin/user-profile.ts',
       test: 'tests/admin/user-profile.test.ts',
       config: 'server/config/userProfile.ts',
@@ -49,7 +51,7 @@ describe('make', () => {
     }
     for (const kind of Object.keys(KINDS) as KindName[]) {
       // config / route 只按第一层自动发现，不带子目录
-      const name = kind === 'config' || kind === 'route' || kind === 'interceptor' || kind === 'seeder' || kind === 'policy' || kind === 'job'
+      const name = kind === 'config' || kind === 'route' || kind === 'interceptor' || kind === 'seeder' || kind === 'policy' || kind === 'job' || kind === 'event' || kind === 'listener'
         ? 'user-profile'
         : 'admin/user-profile'
       const result = await make({ root, srcDir, kind, name })

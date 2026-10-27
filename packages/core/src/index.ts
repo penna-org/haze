@@ -37,42 +37,46 @@ export type { AppConfig, ConfigInput, ConfigKey, ConfigPath, ConfigPathValue, Co
 export { env, loadEnv } from './config/env'
 export type { LoadEnvOptions } from './config/env'
 export * from './container'
+export { defineEvent, defineListener, isEvent, isListener } from './events/event'
+export type { EventDefinition, ListenerContext, ListenerDefinition, ListenerHandler, ListenerOptions, PayloadOf, QueuedListenerOptions } from './events/event'
+export { EventFake, EventManager, Events } from './events/manager'
+export type { EmittedEvent } from './events/manager'
 export { parseStack, renderErrorPage } from './exception/error-page'
-
 export type { ErrorPageInput, StackFrame } from './exception/error-page'
 export * from './exception/exceptions'
 export { ExceptionHandler } from './exception/handler'
 export type { NormalizedError } from './exception/handler'
+
 export { getHttpContext, HttpContext } from './http/context'
 export type { ContextState, ResponseHook, Validated, ValidationTargets } from './http/context'
 export { serializeCookie } from './http/cookie'
-
 export type { CookieOptions } from './http/cookie'
 export { ResponseFormatter } from './http/formatter'
 export { defineInterceptor } from './http/interceptor'
 export type { Interceptor } from './http/interceptor'
+
 export { isFormattable, isRaw, raw } from './http/response'
 export type { RawValue } from './http/response'
 export { createStaticMiddleware } from './http/static'
 export type { StaticOptions } from './http/static'
 export { formDataToObject, UploadedFile } from './http/upload'
 export { validate } from './http/validation'
-
 export { Logger } from './logger'
 export type { AccessLogEntry, LogContext, LogFormat, LoggerConfig, LogLevel } from './logger'
-
 export { bodyLimit, builtinMiddleware, session } from './middleware/builtin'
 export { cacheResponse } from './middleware/builtin/cache-response'
+
 export { compress, defineCompressConfig, negotiateEncoding } from './middleware/builtin/compress'
 export type { CompressOptions, Encoding } from './middleware/builtin/compress'
 
 export { cors, defineCorsConfig } from './middleware/builtin/cors'
 export type { CorsOptions } from './middleware/builtin/cors'
-
 export { csrf, csrfToken, defineCsrfConfig, regenerateCsrfToken } from './middleware/builtin/csrf'
 export type { CsrfConfig } from './middleware/builtin/csrf'
+
 export { defineSecureHeadersConfig, secureHeaders } from './middleware/builtin/secure-headers'
 export type { SecureHeadersOptions } from './middleware/builtin/secure-headers'
+
 export { cacheRateLimitStore, defineThrottleConfig, memoryRateLimitStore, throttle } from './middleware/builtin/throttle'
 export type { RateLimitStore, ThrottleConfig, ThrottleLimiter } from './middleware/builtin/throttle'
 export { MiddlewareRegistry } from './middleware/registry'
@@ -104,20 +108,24 @@ export { Router } from './routing/router'
 export type { ControllerMiddleware, MountOptions, RouteInfo, RouteName, RouteNames } from './routing/router'
 export { defineSchedule, isScheduleDefinition, Schedule, ScheduledTask } from './schedule/schedule'
 export type { ScheduleDefinition } from './schedule/schedule'
-
 export { defineScheduleConfig, Scheduler } from './schedule/scheduler'
-
 export type { ScheduleConfig, TaskRun } from './schedule/scheduler'
 export { Hash } from './security/hash'
 export type { HashOptions } from './security/hash'
+
 export { appKey, generateKey } from './security/key'
+
 export { defineSessionConfig, Session } from './session/session'
 export type { SessionConfig } from './session/session'
-
 export { cacheSessionStore, memorySessionStore } from './session/store'
-
 export type { SessionData, SessionStore } from './session/store'
 export type { Constructor, MaybePromise } from './utils'
+export { defineWebSocket, toHooks, upgradeResponse } from './websocket/handler'
+
+export type { Message, Peer, WebSocketHandler } from './websocket/handler'
+
+export { defineWebSocketConfig, nodeUpgradeHandler, registerWebSocketAdapter, resolveHooks, Socket, syncFromConfig, webSocketConfig, webSocketPlugin } from './websocket/server'
+export type { WebSocketConfig } from './websocket/server'
 
 // 部署适配（vercel 预设使用）
 export { H3Event, HTTPError, mockEvent, toNodeHandler } from 'h3'
