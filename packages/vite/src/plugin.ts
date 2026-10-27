@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
-import type { Layout, PresetContext, PresetName } from './presets'
+import type { CloudflareOptions, Layout, PresetContext, PresetName } from './presets'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { toNodeHandler } from 'srvx/node'
@@ -8,7 +8,7 @@ import { normalizePath } from 'vite'
 import { loadThinkConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
-import { BUNDLE_ALL_EXCEPT_DRIVERS, projectDrivers, resolvePreset, scanExternals } from './presets'
+import { BUNDLE_ALL_EXCEPT_DRIVERS, DRIVER_PACKAGES, findInstalled, migrateEntryCode, projectDrivers, resolvePreset, scanExternals } from './presets'
 
 export interface ThinkPluginOptions {
   /** 后端源码目录，相对 Vite root 或绝对路径；默认读取 think.config.ts，否则为 `.` */
@@ -26,6 +26,8 @@ export interface ThinkPluginOptions {
   preset?: PresetName
   /** 产物目录（默认读取 think.config.ts） */
   outDir?: string
+  /** cloudflare 预设的 wrangler 配置（默认读取 think.config.ts） */
+  cloudflare?: CloudflareOptions
   /**
    * 不集成 Vite 开发服务器与前端构建（不挂载中间件、不配置 client / ssr 构建）。
    * 由 `think-h3 dev / build` 与 `@think-h3/testing` 使用。
@@ -54,6 +56,8 @@ export interface BuildInfo {
   externals: string[]
   /** 服务端入口 */
   entry: string
+  /** 生产迁移脚本（使用 @think-h3/orm 且为常驻进程型预设时） */
+  migrate?: string
   /** 运行 / 部署提示 */
   hint: string
 }
@@ -68,6 +72,8 @@ interface Settings {
   prefixes: string[]
   fullstack: boolean
   preset: string
+  orm: boolean
+  cloudflare: CloudflareOptions | undefined
 }
 
 const RESOLVED_PREFIX = '\0'
@@ -93,9 +99,13 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
     prefixes: normalizePrefixes(options.prefix),
     fullstack: !options.standalone,
     preset: 'node',
+    orm: false,
+    cloudflare: undefined,
   }
   let lastBuild: BuildInfo | undefined
   let unsupported = new Set<string>()
+  /** 全量打包时，未安装的驱动也替换为空模块（ORM 以字面量导入全部驱动） */
+  let stubMissing = false
   const api: ThinkPluginApi = {
     onReload(listener) {
       listeners.add(listener)
@@ -128,6 +138,8 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       settings.host = options.host ?? think?.host
       settings.typegen = options.typegen ?? think?.typegen ?? true
       settings.preset = options.preset ?? process.env.THINK_PRESET ?? think?.preset ?? 'node'
+      settings.cloudflare = options.cloudflare ?? think?.cloudflare
+      settings.orm = Boolean(findInstalled('@think-h3/orm', base))
 
       const config: UserConfig = {}
       if (options.alias !== false) {
@@ -145,6 +157,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
         const preset = resolvePreset(settings.preset)
         const context = presetContext(settings)
         const layout = preset.layout(context)
+        const migrateScript = Boolean(preset.migrateScript && settings.orm)
         config.environments = {
           ssr: {
             resolve: {
@@ -162,11 +175,15 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
                 ...(preset.platform && { platform: preset.platform }),
                 // 被替换为报错空模块的驱动没有具名导出；空模块在求值时即抛错，这些占位不会被使用
                 ...(preset.unsupported?.length && { shimMissingExports: true }),
-                input: { index: VIRTUAL_MODULES.serverEntry },
+                ...(preset.external && { external: preset.external }),
+                input: {
+                  index: VIRTUAL_MODULES.serverEntry,
+                  ...(migrateScript && { migrate: VIRTUAL_MODULES.migrateEntry }),
+                },
                 output: {
                   entryFileNames: '[name].mjs',
                   chunkFileNames: 'chunks/[name]-[hash].mjs',
-                  ...(preset.singleFile && { inlineDynamicImports: true }),
+                  ...(preset.singleFile && { codeSplitting: false }),
                 },
               },
             },
@@ -178,6 +195,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           }),
         }
         unsupported = new Set(preset.unsupported)
+        stubMissing = preset.bundle === 'all'
         config.builder = {
           async buildApp(builder) {
             // 先构建服务端：部分预设的前端目录位于服务端目录之内（emptyOutDir 不会误删）
@@ -186,7 +204,8 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
               await builder.build(builder.environments.client)
             const externals = [
               ...new Set([
-                ...scanExternals(layout.serverDir),
+                // ORM 引用了全部驱动：只保留项目实际安装的
+                ...scanExternals(layout.serverDir).filter(name => !DRIVER_PACKAGES.includes(name) || findInstalled(name, context.root)),
                 ...(preset.bundle === 'drivers-external'
                   ? projectDrivers(context.root)
                   : []),
@@ -199,6 +218,9 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
               layout,
               externals,
               entry: join(layout.serverDir, 'index.mjs'),
+              ...(migrateScript && {
+                migrate: join(layout.serverDir, 'migrate.mjs'),
+              }),
               hint: preset.hint(finalize),
             }
           },
@@ -241,15 +263,17 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
     resolveId: {
       // 先于 Vite 内置解析执行，才能拦截裸模块导入
       order: 'pre',
-      handler(id) {
+      async handler(id, importer) {
         if (virtualIds.has(id))
           return RESOLVED_PREFIX + id
-        // 当前部署平台不支持的驱动：替换为调用即报错的空模块（仅构建 ssr 环境时）
-        if (this.environment?.name === 'ssr' && unsupported.has(id.split('/').slice(0, id.startsWith('@')
-          ? 2
-          : 1).join('/'))) {
+        if (this.environment?.name !== 'ssr' || isDev)
+          return
+        const name = packageName(id)
+        // 当前部署平台不支持的驱动：替换为调用即报错的空模块
+        if (unsupported.has(name))
           return `${RESOLVED_PREFIX}think-unsupported:${id}`
-        }
+        if (stubMissing && DRIVER_PACKAGES.includes(name) && !(await this.resolve(id, importer, { skipSelf: true })))
+          return `${RESOLVED_PREFIX}think-missing:${id}`
       },
     },
 
@@ -260,6 +284,10 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
         const name = id.slice(`${RESOLVED_PREFIX}think-unsupported:`.length)
         return `throw new Error(${JSON.stringify(`"${name}" is not supported on the "${settings.preset}" deployment preset`)})\nexport default undefined\n`
       }
+      if (id.startsWith(`${RESOLVED_PREFIX}think-missing:`)) {
+        const name = id.slice(`${RESOLVED_PREFIX}think-missing:`.length)
+        return `throw new Error(${JSON.stringify(`"${name}" is not installed`)})\nexport default undefined\n`
+      }
       switch (id.slice(RESOLVED_PREFIX.length)) {
         case VIRTUAL_MODULES.manifest:
           return manifestCode(settings, isDev)
@@ -267,6 +295,10 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           return appCode()
         case VIRTUAL_MODULES.serverEntry:
           return serverEntryCode(settings)
+        case VIRTUAL_MODULES.migrations:
+          return migrationsCode(settings)
+        case VIRTUAL_MODULES.migrateEntry:
+          return migrateEntryCode()
       }
     },
 
@@ -322,6 +354,20 @@ function manifestCode(settings: Settings, dev: boolean): string {
   ].join('\n')
 }
 
+/** database/ 下 drizzle-kit 生成的 SQL 与 journal，键为相对 srcDir 的路径（与 config/database.ts 的 migrations 一致） */
+function migrationsCode(settings: Settings): string {
+  const rel = normalizePath(relative(settings.root, settings.srcDir))
+  const base = rel
+    ? `/${rel}/`
+    : '/'
+  return `const raw = {
+  ...import.meta.glob(${JSON.stringify(`${base}database/**/*.sql`)}, { query: '?raw', import: 'default', eager: true }),
+  ...import.meta.glob(${JSON.stringify(`${base}database/**/meta/_journal.json`)}, { query: '?raw', import: 'default', eager: true }),
+}
+export const files = Object.fromEntries(Object.entries(raw).map(([path, content]) => [path.slice(${base.length}), content]))
+`
+}
+
 function appCode(): string {
   return `
 import { createApplication } from '@think-h3/core'
@@ -348,6 +394,9 @@ export function createApp(options = {}) {
 function presetContext(settings: Settings): PresetContext {
   return {
     root: settings.root,
+    srcDir: settings.srcDir,
+    orm: settings.orm,
+    cloudflare: settings.cloudflare,
     outDir: settings.outDir,
     fullstack: settings.fullstack,
     prefixes: settings.prefixes,
@@ -371,6 +420,12 @@ function normalizePrefixes(prefix: string | string[] | undefined): string[] {
     ? prefix
     : [prefix ?? '/api'])
     .map(item => `/${item.replace(/^\/+|\/+$/g, '')}`)
+}
+
+function packageName(id: string): string {
+  return id.split('/').slice(0, id.startsWith('@')
+    ? 2
+    : 1).join('/')
 }
 
 function escapeRegExp(value: string): string {

@@ -1,7 +1,9 @@
 import process from 'node:process'
+import { setPlatformBindings } from '@think-h3/core'
 import { int as myInt, serial as mySerial, mysqlTable, text as myText, timestamp as myTimestamp, varchar } from 'drizzle-orm/mysql-core'
 import { integer as pgInt, pgTable, text as pgText, timestamp as pgTimestamp, serial } from 'drizzle-orm/pg-core'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { Miniflare } from 'miniflare'
 
 // 三种方言的同构表结构，用同一套用例验证 ORM 行为
 
@@ -99,13 +101,65 @@ const ddl = {
   ],
 }
 
-export const dialects = [
+/** Cloudflare D1：在 workerd 中运行（Miniflare），Node 侧通过绑定代理访问 */
+let miniflare: Miniflare | undefined
+
+async function setupD1(): Promise<void> {
+  miniflare = new Miniflare({
+    modules: true,
+    script: 'export default { fetch: () => new Response() }',
+    d1Databases: ['DB'],
+  })
+  // 与 Cloudflare 部署入口相同：绑定注册到平台上下文，连接按名称取用
+  setPlatformBindings({ DB: await miniflare.getD1Database('DB') })
+}
+
+export interface TestDialect {
+  name: string
+  connection: { driver: 'sqlite' | 'turso' | 'd1' | 'pglite' | 'mysql', url?: string, binding?: string }
+  schema: Schema
+  ddl: string[]
+  setup?: () => Promise<void>
+  dispose?: () => Promise<void>
+}
+
+export const dialects: TestDialect[] = [
   {
     name: 'sqlite',
     connection: { driver: 'sqlite' as const, url: ':memory:' },
     schema: sqlite,
     ddl: ddl.sqlite,
   },
+  {
+    name: 'd1',
+    connection: { driver: 'd1', binding: 'DB' },
+    schema: sqlite,
+    // 绑定的数据库不随连接关闭而丢弃：每个用例先删表
+    ddl: [
+      'drop table if exists users',
+      'drop table if exists posts',
+      'drop table if exists profiles',
+      ...ddl.sqlite,
+    ],
+    setup: setupD1,
+    dispose: async () => miniflare?.dispose(),
+  },
+  // Turso / sqld 的 HTTP 接口：THINK_TEST_TURSO_URL=http://127.0.0.1:8080
+  ...(process.env.THINK_TEST_TURSO_URL
+    ? [
+        {
+          name: 'turso',
+          connection: { driver: 'turso' as const, url: process.env.THINK_TEST_TURSO_URL },
+          schema: sqlite,
+          ddl: [
+            'drop table if exists users',
+            'drop table if exists posts',
+            'drop table if exists profiles',
+            ...ddl.sqlite,
+          ],
+        },
+      ]
+    : []),
   {
     name: 'pglite',
     connection: { driver: 'pglite' as const },

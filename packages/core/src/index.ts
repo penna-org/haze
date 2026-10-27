@@ -40,6 +40,7 @@ export type { Middleware, MiddlewareClass, MiddlewareConfig, MiddlewareHandler, 
 
 export { definePersistent, disposePersistent } from './persistent'
 export type { PersistentOptions } from './persistent'
+export { setPlatformBindings, usePlatformBinding } from './platform'
 
 export { defineProvider } from './provider'
 

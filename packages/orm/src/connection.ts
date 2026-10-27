@@ -4,7 +4,7 @@ import type { AnyDatabase } from './types'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
-import { definePersistent } from '@think-h3/core'
+import { definePersistent, usePlatformBinding } from '@think-h3/core'
 import { dialectOf } from './config'
 import { DatabaseError } from './errors'
 
@@ -114,7 +114,7 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
 
   switch (config.driver) {
     case 'sqlite': {
-      const { createClient } = await importDriver<typeof import('@libsql/client')>('@libsql/client')
+      const { createClient } = await importDriver('@libsql/client', () => import('@libsql/client'))
       const { drizzle } = await import('drizzle-orm/libsql')
       const url = await sqliteUrl(config.url ?? 'file:./data/app.db', options.rootDir)
       const client = createClient({ url, authToken: config.authToken })
@@ -124,10 +124,34 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
         close: async () => client.close(),
       }
     }
+    case 'turso': {
+      // 纯 HTTP 客户端：不加载 libsql 原生模块，Edge / Serverless 均可使用
+      const { createClient } = await importDriver('@libsql/client', () => import('@libsql/client/web'))
+      const { drizzle } = await import('drizzle-orm/libsql/web')
+      if (!config.url)
+        throw new DatabaseError(`Connection "${name}": url is required for turso (libsql:// or https://)`)
+      const client = createClient({ url: config.url, authToken: config.authToken })
+      return {
+        ...base,
+        db: drizzle(client, { logger }),
+        close: async () => client.close(),
+      }
+    }
+    case 'd1': {
+      const { drizzle } = await import('drizzle-orm/d1')
+      const binding = typeof config.binding === 'object'
+        ? config.binding
+        : usePlatformBinding<object>(config.binding ?? 'DB')
+      if (!binding)
+        throw new DatabaseError(`Connection "${name}": D1 binding "${config.binding ?? 'DB'}" not found. D1 is only available on Cloudflare Workers (preset cloudflare); use the sqlite driver locally`)
+      return {
+        ...base,
+        db: drizzle(binding as Parameters<typeof drizzle>[0], { logger }),
+        close: async () => {},
+      }
+    }
     case 'postgres': {
-      // postgres 为 CommonJS 风格导出，兼容默认导入
-      const module = await importDriver<{ default?: typeof import('postgres') } & typeof import('postgres')>('postgres')
-      const postgres = module.default ?? module
+      const { default: postgres } = await importDriver('postgres', () => import('postgres'))
       const { drizzle } = await import('drizzle-orm/postgres-js')
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for postgres`)
@@ -142,7 +166,7 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
       }
     }
     case 'pglite': {
-      const { PGlite } = await importDriver<typeof import('@electric-sql/pglite')>('@electric-sql/pglite')
+      const { PGlite } = await importDriver('@electric-sql/pglite', () => import('@electric-sql/pglite'))
       const { drizzle } = await import('drizzle-orm/pglite')
       const client = new PGlite(config.url)
       return {
@@ -152,7 +176,7 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
       }
     }
     case 'mysql': {
-      const mysql = await importDriver<typeof import('mysql2/promise')>('mysql2/promise')
+      const mysql = await importDriver('mysql2', () => import('mysql2/promise'))
       const { drizzle } = await import('drizzle-orm/mysql2')
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for mysql`)
@@ -164,7 +188,7 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
       }
     }
     case 'mongodb': {
-      const { MongoClient } = await importDriver<typeof import('mongodb')>('mongodb')
+      const { MongoClient } = await importDriver('mongodb', () => import('mongodb'))
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for mongodb`)
       const client = new MongoClient(config.url, { maxPoolSize: config.pool ?? 10 })
@@ -181,12 +205,16 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
   }
 }
 
-async function importDriver<T>(pkg: string): Promise<T> {
+/**
+ * 加载驱动。导入路径须为字面量：打包器（Edge / 全量打包）据此静态解析驱动，
+ * 未安装或该平台不支持的驱动在构建时替换为调用即报错的空模块。
+ */
+async function importDriver<T>(pkg: string, load: () => Promise<T>): Promise<T> {
   try {
-    return await import(/* @vite-ignore */ pkg) as T
+    return await load()
   }
   catch (error) {
-    throw new DatabaseError(`Database driver "${pkg}" is not installed. Run: pnpm add ${pkg.split('/')[0]}`, { cause: error })
+    throw new DatabaseError(`Database driver "${pkg}" could not be loaded. Install it with: pnpm add ${pkg}`, { cause: error })
   }
 }
 

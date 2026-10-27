@@ -11,8 +11,19 @@ export const PRESET_NAMES = [
 
 export type PresetName = (typeof PRESET_NAMES)[number]
 
+/** think.config.ts 的 cloudflare 选项 */
+export interface CloudflareOptions {
+  /**
+   * 合并进生成的 wrangler.json（D1 / KV / R2 绑定、vars、routes 等）。
+   * `d1_databases` 中未设置 `migrations_dir` 的数据库使用产物中的 `migrations`（默认连接的迁移）。
+   */
+  wrangler?: Record<string, unknown>
+}
+
 export interface PresetContext {
   root: string
+  /** 后端源码目录（绝对路径） */
+  srcDir: string
   /** think.config.ts 的 outDir（绝对路径） */
   outDir: string
   /** 是否包含前端（Vue 等）构建 */
@@ -21,6 +32,9 @@ export interface PresetContext {
   prefixes: string[]
   port: number
   host: string | undefined
+  /** 项目使用 @think-h3/orm：生成生产迁移入口 */
+  orm: boolean
+  cloudflare: CloudflareOptions | undefined
 }
 
 export interface Layout {
@@ -58,6 +72,10 @@ export interface Preset {
   unsupported?: string[]
   /** 输出单文件（Workers 要求入口模块只导出处理器，不能被拆分出的 chunk 反向导入） */
   singleFile?: boolean
+  /** 保留为运行时导入的模块（如 Workers 的 `cloudflare:*`） */
+  external?: RegExp[]
+  /** 输出独立的迁移脚本 `migrate.mjs`（常驻进程型运行时，部署前执行） */
+  migrateScript?: boolean
   layout: (context: PresetContext) => Layout
   /** 生产入口（virtual:think/server-entry）源码 */
   entry: (context: PresetContext & { layout: Layout }) => string

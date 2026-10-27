@@ -1,4 +1,4 @@
-import type { Dialect } from './config'
+import type { Dialect, Driver } from './config'
 import type { Connection, DatabaseManager } from './connection'
 import type { AnyDatabase } from './types'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -22,6 +22,7 @@ const transactions = new AsyncLocalStorage<Map<string, AnyDatabase>>()
 
 export interface Session {
   name: string
+  driver: Driver
   dialect: Dialect
   /** 当前可用的 drizzle 实例（处于事务中时为事务对象） */
   db: AnyDatabase
@@ -33,6 +34,7 @@ export async function resolveSession(connection?: string): Promise<Session> {
     throw new DatabaseError(`Connection "${resolved.name}" is MongoDB; use Mongo / MongoModel from @think-h3/orm/mongo`)
   return {
     name: resolved.name,
+    driver: resolved.driver,
     dialect: resolved.dialect,
     db: transactions.getStore()?.get(resolved.name) ?? resolved.db,
   }
@@ -44,6 +46,9 @@ export async function resolveSession(connection?: string): Promise<Session> {
  */
 export async function transaction<R>(callback: (tx: AnyDatabase) => Promise<R>, connection?: string): Promise<R> {
   const session = await resolveSession(connection)
+  // D1 拒绝 BEGIN / SAVEPOINT：原子写入使用 batch
+  if (session.driver === 'd1')
+    throw new DatabaseError(`Connection "${session.name}" is Cloudflare D1, which does not support interactive transactions; use (await Db.drizzle()).batch([...]) for atomic writes`)
   const store = transactions.getStore()
   return session.db.transaction((tx: AnyDatabase) =>
     transactions.run(new Map(store).set(session.name, tx), () => callback(tx)))

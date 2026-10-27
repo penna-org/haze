@@ -10,7 +10,7 @@ import { resolveRoot, rootArg } from '../args'
 import { binOf } from '../resolve'
 
 interface ConnectionConfig {
-  driver: 'sqlite' | 'postgres' | 'pglite' | 'mysql' | 'mongodb'
+  driver: 'sqlite' | 'turso' | 'd1' | 'postgres' | 'pglite' | 'mysql' | 'mongodb'
   url?: string
   schema?: string
   migrations?: string
@@ -55,9 +55,9 @@ function targetOf(database: DatabaseConfig, srcDir: string, name = database.defa
     throw new MongoConnectionError(name)
   const dialect = config.driver === 'mysql'
     ? 'mysql'
-    : config.driver === 'sqlite'
-      ? 'sqlite'
-      : 'postgresql'
+    : ['sqlite', 'turso', 'd1'].includes(config.driver)
+        ? 'sqlite'
+        : 'postgresql'
   return {
     name,
     config,
@@ -119,23 +119,17 @@ export const migrateCommand = defineCommand({
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    await withApp(root, async (server, database, srcDir) => {
+    await withApp(root, async (server, _database, srcDir) => {
+      // 与生产迁移入口（migrate.mjs / Lambda index.migrate）相同的实现，只是从源码目录读取迁移
       const orm = await server.import<typeof import('@think-h3/orm')>('@think-h3/orm')
-      const names = args.all
-        ? Object.keys(database.connections)
-        : [args.connection ?? database.default]
-      for (const name of names) {
-        if (database.connections[name]?.driver === 'mongodb') {
-          consola.info(`[${name}] MongoDB has no migrations, skipped`)
-          continue
-        }
-        const target = targetOf(database, srcDir, name)
-        if (!existsSync(join(target.migrations, 'meta', '_journal.json'))) {
-          consola.warn(`[${name}] no migrations in ${relative(root, target.migrations)}, run think-h3 db:generate first`)
-          continue
-        }
-        await orm.migrate({ connection: name, folder: target.migrations })
-        consola.success(`[${name}] migrated (${relative(root, target.migrations)})`)
+      const results = await orm.runMigrations({ srcDir, connection: args.connection, all: args.all })
+      for (const result of results) {
+        if (result.skipped === 'mongodb')
+          consola.info(`[${result.connection}] MongoDB has no migrations, skipped`)
+        else if (result.skipped)
+          consola.warn(`[${result.connection}] no migrations in ${result.folder}, run think-h3 db:generate first`)
+        else
+          consola.success(`[${result.connection}] migrated: ${result.applied} of ${result.total} applied (${result.folder})`)
       }
     })
   },

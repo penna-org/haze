@@ -100,7 +100,56 @@ npx think-h3 build --preset aws-lambda  # 打包 dist/lambda，handler 为 index
 npx think-h3 build --preset cloudflare  # dist/wrangler.json → wrangler deploy -c dist/wrangler.json
 ```
 
-也可在 `think.config.ts` 中设置 `preset`。数据库：Cloudflare Workers 上 SQL 驱动暂不可用（规划中：D1 / Turso HTTP），其余预设会自动带上 SQLite 等驱动。
+也可在 `think.config.ts` 中设置 `preset`。构建会自动带上项目安装的数据库驱动。
+
+### 生产迁移
+
+迁移文件打包进产物，生产环境不需要源码与 drizzle-kit：
+
+| 预设 | 执行迁移 |
+|------|----------|
+| node / bun / deno | `node dist/migrate.mjs`（deno 预设为 `dist/server/migrate.mjs`；`--connection <name>` / `--all`） |
+| docker | `docker run --rm <镜像> node server/migrate.mjs` |
+| aws-lambda | 同一份产物，handler 设为 `index.migrate` 调用一次（事件 `{ "connection"?, "all"? }`） |
+| vercel / netlify | 在构建命令前执行 `npx think-h3 db:migrate`（使用生产库的 `DATABASE_URL`） |
+| cloudflare（D1） | `npx wrangler d1 migrations apply <库名> --remote -c dist/wrangler.json` |
+| cloudflare（Turso） | 在 CI 中执行 `npx think-h3 db:migrate` |
+
+### Cloudflare：D1 / Turso
+
+Workers 上可用 `d1`（绑定）与 `turso`（纯 HTTP 的 libsql 客户端）两种驱动，二者与 `sqlite` 共用同一套表结构与迁移：
+
+```ts
+// config/database.ts —— 本地用 SQLite 文件，部署到 Workers 时切换为 D1
+export default defineDatabaseConfig(() => ({
+  default: 'main',
+  connections: {
+    main: env('DB_DRIVER', 'sqlite') === 'd1'
+      ? { driver: 'd1', binding: 'DB' }
+      : {
+          driver: 'sqlite',
+          url: env('DATABASE_URL', 'file:./data/app.db')
+        },
+    // Turso：{ driver: 'turso', url: env('DATABASE_URL'), authToken: env('DATABASE_AUTH_TOKEN') }
+  },
+}))
+```
+
+```ts
+// think.config.ts —— 合并进 dist/wrangler.json；D1 默认使用产物中的 migrations/
+export default defineThinkConfig({
+  cloudflare: {
+    wrangler: {
+      vars: { DB_DRIVER: 'd1' },
+      d1_databases: [
+        { binding: 'DB', database_name: 'my-db', database_id: '<id>' }
+      ],
+    },
+  },
+})
+```
+
+D1 不支持交互式事务（`Db.transaction()` 会报错并提示），原子写入请用 `(await Db.drizzle()).batch([...])`。
 
 ## 目录
 

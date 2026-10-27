@@ -1,5 +1,5 @@
 import type { UserConfig } from 'vite'
-import type { PresetName } from './presets/types'
+import type { CloudflareOptions, PresetName } from './presets/types'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { loadConfigFromFile } from 'vite'
@@ -18,6 +18,8 @@ export interface ThinkConfig {
   typegen?: boolean
   /** 部署预设：node（默认）| bun | deno | docker | cloudflare | vercel | netlify | aws-lambda */
   preset?: PresetName
+  /** cloudflare 预设：合并进 wrangler.json 的绑定等配置 */
+  cloudflare?: CloudflareOptions
   /** 透传给 Vite 的配置（插件、别名等） */
   vite?: UserConfig
 }
@@ -30,6 +32,7 @@ export interface ResolvedThinkConfig {
   outDir: string
   typegen: boolean
   preset: PresetName | undefined
+  cloudflare: CloudflareOptions | undefined
   vite: UserConfig
   configFile: string | undefined
 }
@@ -67,6 +70,7 @@ export async function loadThinkConfig(root: string, mode = 'development'): Promi
     outDir: resolve(root, config.outDir ?? 'dist'),
     typegen: config.typegen ?? true,
     preset: config.preset,
+    cloudflare: config.cloudflare,
     vite: config.vite ?? {},
     configFile,
   }

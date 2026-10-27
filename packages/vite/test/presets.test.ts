@@ -5,7 +5,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Miniflare } from 'miniflare'
@@ -231,9 +231,11 @@ describe('deployment presets', () => {
       compatibility_flags: ['nodejs_compat'],
     })
 
+    // 单文件 Worker（驱动以字面量导入，构建时已解析）
+    expect(readdirSync(dist)).toEqual(['index.mjs', 'index.mjs.map', 'wrangler.json'])
     const mf = new Miniflare({
-      modules: workerModules(dist),
-      modulesRoot: dist,
+      modules: true,
+      scriptPath: join(dist, 'index.mjs'),
       compatibilityDate: wrangler.compatibility_date,
       compatibilityFlags: wrangler.compatibility_flags,
       bindings: { APP_NAME: 'from-binding' },
@@ -272,26 +274,4 @@ function which(command: string): string | undefined {
   catch {
     return undefined
   }
-}
-
-/** 把产物中的全部 ESM 模块显式交给 Miniflare（不让它解析导入：ORM 驱动是按变量动态加载的） */
-function workerModules(dist: string) {
-  const files: string[] = []
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name)
-      if (entry.isDirectory() && entry.name !== 'client')
-        walk(path)
-      else if (entry.name.endsWith('.mjs'))
-        files.push(path)
-    }
-  }
-  walk(dist)
-  // 入口必须是第一个模块
-  files.sort((a, b) => Number(b.endsWith('/index.mjs') && dirname(b) === dist) - Number(a.endsWith('/index.mjs') && dirname(a) === dist))
-  return files.map(path => ({
-    type: 'ESModule' as const,
-    path,
-    contents: readFileSync(path, 'utf8'),
-  }))
 }

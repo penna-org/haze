@@ -1,15 +1,15 @@
 import type { FinalizeContext, Layout, Preset, PresetContext, PresetName } from './types'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { cp, mkdir, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { normalizePath } from 'vite'
 import { VIRTUAL_MODULES } from '../constants'
 import { copyDependencies, EDGE_UNSUPPORTED_DRIVERS, writeRuntimePackageJson } from './deps'
 import { PRESET_NAMES } from './types'
 
-export { BUNDLE_ALL_EXCEPT_DRIVERS, copyDependencies, EDGE_UNSUPPORTED_DRIVERS, projectDrivers, scanExternals } from './deps'
+export { BUNDLE_ALL_EXCEPT_DRIVERS, copyDependencies, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, findInstalled, projectDrivers, scanExternals } from './deps'
 export { PRESET_NAMES } from './types'
-export type { FinalizeContext, Layout, Preset, PresetContext, PresetName } from './types'
+export type { CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName } from './types'
 
 const header = `import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +45,41 @@ void fileURLToPath
 `
 }
 
+/**
+ * 生产迁移脚本（migrate.mjs）：迁移文件已打包进产物，不需要源码与开发工具链。
+ * `node migrate.mjs [--connection <name>] [--all]`
+ */
+export function migrateEntryCode(): string {
+  return `import process from 'node:process'
+import { parseArgs } from 'node:util'
+import { runMigrations } from '@think-h3/orm'
+import { createApp } from '${VIRTUAL_MODULES.app}'
+import { files } from '${VIRTUAL_MODULES.migrations}'
+
+const { values } = parseArgs({
+  options: {
+    connection: { type: 'string', short: 'c' },
+    all: { type: 'boolean', default: false },
+  },
+})
+const app = await createApp({ mode: 'production' })
+try {
+  for (const result of await runMigrations({ files, connection: values.connection, all: values.all })) {
+    app.logger.info(result.skipped
+      ? \`[\${result.connection}] skipped (\${result.skipped})\`
+      : \`[\${result.connection}] \${result.applied} of \${result.total} migrations applied (\${result.folder})\`)
+  }
+}
+catch (error) {
+  app.logger.error('Migration failed', error)
+  process.exitCode = 1
+}
+finally {
+  await app.dispose()
+}
+`
+}
+
 function serverLayout(context: PresetContext, dir = 'server'): Layout {
   return {
     serverDir: join(context.outDir, dir),
@@ -65,6 +100,12 @@ function packageName(root: string): string {
 
 const rel = (context: FinalizeContext, path: string): string => normalizePath(relative(context.root, path)) || '.'
 
+function migrateHint(context: FinalizeContext, command: string): string {
+  return context.orm
+    ? `\nMigrate: ${command} ${rel(context, join(context.layout.serverDir, 'migrate.mjs'))}`
+    : ''
+}
+
 export const presets: Record<PresetName, Preset> = {
   'node': {
     name: 'node',
@@ -73,8 +114,9 @@ export const presets: Record<PresetName, Preset> = {
     layout: context => context.fullstack
       ? serverLayout(context)
       : { serverDir: context.outDir, clientDir: undefined, staticFromServer: undefined },
+    migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: node ${rel(context, join(context.layout.serverDir, 'index.mjs'))}  (or think-h3 start)`,
+    hint: context => `Run: node ${rel(context, join(context.layout.serverDir, 'index.mjs'))}  (or think-h3 start)${migrateHint(context, 'node')}`,
   },
 
   'bun': {
@@ -84,8 +126,9 @@ export const presets: Record<PresetName, Preset> = {
     layout: context => context.fullstack
       ? serverLayout(context)
       : { serverDir: context.outDir, clientDir: undefined, staticFromServer: undefined },
+    migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: bun ${rel(context, join(context.layout.serverDir, 'index.mjs'))}`,
+    hint: context => `Run: bun ${rel(context, join(context.layout.serverDir, 'index.mjs'))}${migrateHint(context, 'bun')}`,
   },
 
   'deno': {
@@ -93,14 +136,16 @@ export const presets: Record<PresetName, Preset> = {
     bundle: 'drivers-external',
     conditions: ['deno', 'module', 'node', 'production'],
     layout: serverLayout,
+    migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: deno run -A ${rel(context, join(context.layout.serverDir, 'index.mjs'))}`,
+    hint: context => `Run: deno run -A ${rel(context, join(context.layout.serverDir, 'index.mjs'))}${migrateHint(context, 'deno run -A')}`,
   },
 
   'docker': {
     name: 'docker',
     bundle: 'drivers-external',
     layout: serverLayout,
+    migrateScript: true,
     entry: listenEntry,
     async finalize(context) {
       // 框架与纯 JS 依赖已打包；数据库驱动等在容器内安装（得到 Linux 平台的原生二进制）
@@ -118,7 +163,9 @@ CMD ["node", "server/index.mjs"]
 `)
       await writeFile(join(context.outDir, '.dockerignore'), 'node_modules\nDockerfile\n.dockerignore\n')
     },
-    hint: context => `Build image: docker build -t ${packageName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} ${packageName(context.root)}`,
+    hint: context => `Build image: docker build -t ${packageName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} ${packageName(context.root)}${context.orm
+      ? `\nMigrate: docker run --rm ${packageName(context.root)} node server/migrate.mjs`
+      : ''}`,
   },
 
   'aws-lambda': {
@@ -136,13 +183,26 @@ import { createLambdaHandler } from '@think-h3/core'
 
 /** API Gateway（HTTP API / REST API）、ALB、Function URL 事件 */
 export const handler = createLambdaHandler(async () => (await getApp()).fetch)
-`,
+${context.orm
+  ? `
+import { runMigrations } from '@think-h3/orm'
+import { files } from '${VIRTUAL_MODULES.migrations}'
+
+/** 生产迁移：handler 设为 index.migrate 的函数（或直接调用），事件 { connection?, all? } */
+export async function migrate(event = {}) {
+  await getApp()
+  return runMigrations({ files, connection: event.connection, all: event.all })
+}
+`
+  : ''}`,
     async finalize(context) {
       const dir = context.layout.serverDir
       await writeFile(join(dir, 'package.json'), '{ "type": "module" }\n')
       await copyDependencies(context.externals, context.root, join(dir, 'node_modules'))
     },
-    hint: context => `Zip ${rel(context, context.layout.serverDir)} and set the Lambda handler to index.handler (runtime nodejs22.x)`,
+    hint: context => `Zip ${rel(context, context.layout.serverDir)} and set the Lambda handler to index.handler (runtime nodejs22.x)${context.orm
+      ? '\nMigrate: invoke the same bundle with handler index.migrate (event: { "connection"?: string, "all"?: boolean })'
+      : ''}`,
   },
 
   'vercel': {
@@ -251,8 +311,9 @@ export const config = {
     target: 'es2022',
     platform: 'browser',
     singleFile: true,
-    // libsql（Web 版）与 postgres.js（cloudflare:sockets）可在 Workers 运行；其余驱动替换为报错空模块
+    // D1 与 libsql（Web 版 / turso 驱动）、postgres.js（cloudflare:sockets）可在 Workers 运行；其余驱动替换为报错空模块
     unsupported: EDGE_UNSUPPORTED_DRIVERS,
+    external: [/^cloudflare:/],
     layout: context => ({
       serverDir: context.outDir,
       clientDir: context.fullstack
@@ -261,9 +322,12 @@ export const config = {
       staticFromServer: undefined,
     }),
     entry: context => `${lazyApp(context, `env: false,`)}
-/** Cloudflare Workers：静态资源由 Workers Assets 提供，环境变量来自绑定 */
+import { setPlatformBindings } from '@think-h3/core'
+
+/** Cloudflare Workers：静态资源由 Workers Assets 提供，环境变量与 D1 等来自绑定 */
 export default {
   async fetch(request, env) {
+    setPlatformBindings(env)
     if (!app) {
       for (const [key, value] of Object.entries(env ?? {})) {
         if (typeof value === 'string' && process.env[key] === undefined)
@@ -275,22 +339,48 @@ export default {
 }
 `,
     async finalize(context) {
+      const { compatibility_flags: flags, assets, d1_databases: d1, ...user } = (context.cloudflare?.wrangler ?? {}) as {
+        compatibility_flags?: string[]
+        assets?: Record<string, unknown>
+        d1_databases?: Record<string, unknown>[]
+      }
       const config: Record<string, unknown> = {
         name: packageName(context.root),
         main: 'index.mjs',
         compatibility_date: '2026-01-01',
-        compatibility_flags: ['nodejs_compat'],
+        ...user,
+        compatibility_flags: [
+          ...new Set([
+            'nodejs_compat',
+            ...(flags ?? []),
+          ]),
+        ],
       }
-      if (context.fullstack) {
+      if (context.fullstack || assets) {
         config.assets = {
-          directory: './client',
-          not_found_handling: 'single-page-application',
-          run_worker_first: context.prefixes.map(prefix => `${prefix}/*`),
+          ...(context.fullstack && {
+            directory: './client',
+            not_found_handling: 'single-page-application',
+            run_worker_first: context.prefixes.map(prefix => `${prefix}/*`),
+          }),
+          ...assets,
         }
+      }
+      if (d1?.length) {
+        // wrangler d1 migrations apply 读取 drizzle-kit 生成的 SQL（默认连接在 migrations/，其它连接在 migrations/<name>/）
+        config.d1_databases = d1.map(database => ({ migrations_dir: 'migrations', ...database }))
+        const source = join(context.srcDir, 'database', 'migrations')
+        if (existsSync(source))
+          await cp(source, join(context.outDir, 'migrations'), { recursive: true })
       }
       await writeFile(join(context.outDir, 'wrangler.json'), `${JSON.stringify(config, null, 2)}\n`)
     },
-    hint: context => `Deploy: npx wrangler deploy -c ${rel(context, join(context.outDir, 'wrangler.json'))}`,
+    hint: (context) => {
+      const wrangler = rel(context, join(context.outDir, 'wrangler.json'))
+      const d1 = ((context.cloudflare?.wrangler?.d1_databases ?? []) as { database_name?: string, binding?: string }[])
+        .map(database => `\nApply D1 migrations: npx wrangler d1 migrations apply ${database.database_name ?? database.binding} --remote -c ${wrangler}`)
+      return `Deploy: npx wrangler deploy -c ${wrangler}${d1.join('')}`
+    },
   },
 }
 

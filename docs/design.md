@@ -687,6 +687,7 @@ it('获取用户', async () => {
 | M7 | `@think-h3/orm`：drizzle 之上的 Db + Model（MySQL / PostgreSQL / SQLite），迁移与 make:model |
 | M8 | MongoDB 适配器 |
 | M9 | 部署预设：`think-h3 build --preset node|bun|deno|cloudflare|vercel|netlify|aws-lambda|docker` |
+| M10 | 补齐 M9 的已知限制：生产迁移入口、Cloudflare D1 / Turso HTTP 驱动 |
 
 ### M5 实施记录（2026-10-26）
 
@@ -765,6 +766,45 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 依赖：新增 miniflare、deno（npm 包）作为测试开发依赖；pnpm 11 中 `deno`、`workerd` 的安装脚本被设置为不执行（平台二进制随可选依赖安装）。
 
 **已知限制 / 后续**
-- Cloudflare Workers 上 ORM 的 SQL 驱动不可用（驱动通过变量动态加载，Workers 只接受静态模块）；需要专门的 D1 / Turso HTTP 驱动支持。
+- ~~Cloudflare Workers 上 ORM 的 SQL 驱动不可用~~（M10 已解决：D1 / Turso 驱动）。
 - Vercel / Netlify / AWS Lambda 只在本地按平台约定模拟调用验证，尚未真实部署。
-- Docker / Lambda 等生产环境的数据库迁移需在部署流程中单独执行（`think-h3 db:migrate` 依赖开发工具链）；可考虑提供生产可用的迁移入口。
+- ~~生产环境的数据库迁移依赖开发工具链~~（M10 已解决：迁移随产物打包）。
+
+### M10 实施记录（2026-10-26）：生产迁移与 Edge 数据库
+
+补齐 M9 的已知限制。199 个测试通过，5 个跳过（D1 上的 2 个事务用例、非 D1 方言上的 D1 专属用例，以及按环境变量启用的 Worker + Turso 用例）；Turso 的 20 个 ORM 用例与 Worker 用例在设置 `THINK_TEST_TURSO_URL` 后运行。
+
+**驱动**
+- 新增 `turso`：使用 `@libsql/client/web`（纯 fetch 的 HTTP 客户端，不加载 libsql 原生模块），Edge 与 Serverless 都能用，支持交互式事务与保存点。
+- 新增 `d1`：`drizzle-orm/d1`，`binding` 为 Workers 绑定名（默认 `DB`）或直接传入 D1Database。core 新增 `setPlatformBindings` / `usePlatformBinding`；Cloudflare 入口每次请求前注册 `env`。
+- D1 拒绝 `BEGIN` / `SAVEPOINT`：`transaction()` 直接抛出带 `batch` 提示的 DatabaseError；影响行数读取 D1 的 `meta.changes`。
+- `turso` / `d1` 的方言均为 sqlite，与 `sqlite` 共用表结构、迁移与 `db:generate`。
+- 驱动改为字面量动态导入（`importDriver(name, () => import('pkg'))`），打包器可以静态解析，这是 Workers 能用 ORM 的前提。随之调整：
+  - 全量打包（cloudflare）时，未安装的驱动在构建期替换为“调用即报错”的空模块；
+  - `cloudflare:*` 保留为运行时导入（postgres.js 的 Workers 构建会用到 `cloudflare:sockets`）；
+  - 扫描产物得到的驱动只保留项目实际安装的（Docker 的 package.json、Lambda / Vercel 复制的 node_modules 不会多出未安装的驱动）；
+  - Cloudflare 产物是单个 `index.mjs`，Miniflare 测试直接用 `scriptPath`，不再需要手工列出模块。
+
+**迁移**
+- ORM 自带迁移执行器，不再调用 drizzle 各驱动的 `migrator`（它们用 `node:fs` 读目录）。逻辑与 drizzle 一致：
+  - 同一张 `__drizzle_migrations` 表，哈希相同（SHA-256 改用 Web Crypto 计算），可以和 drizzle-kit migrate 混用；
+  - libsql 走 `session.migrate`，D1 走 `batch`（插入用字面量，与 drizzle 一致），PostgreSQL / MySQL 委托 `dialect.migrate`。
+- `migrate({ folder, files? })` 可读磁盘，也可读内嵌文件；`runMigrations({ connection?, all?, files?, srcDir? })` 按 config/database.ts 解析各连接的迁移目录，跳过 MongoDB，返回 `{ connection, folder, applied, total }`。`think-h3 db:migrate` 改为调用它。
+- Vite 插件新增 `virtual:think/migrations`：用 `import.meta.glob('?raw')` 把 `database/**` 下的 SQL 与 `_journal.json` 打进产物，键为相对 srcDir 的路径。
+- 各预设的生产迁移入口：
+
+| 预设 | 入口 | 验证 |
+|------|------|------|
+| node / bun / deno / docker | 构建额外输出 `migrate.mjs`（`--connection`、`--all`），与 `index.mjs` 共享 chunk | Docker 产物中执行两次（1/1、0/1），再启动服务 CRUD |
+| aws-lambda | 同一 bundle 导出 `migrate(event)`，handler 设为 `index.migrate` | 进程内调用 |
+| cloudflare + D1 | `think.config.ts` 的 `cloudflare.wrangler` 合并进 wrangler.json；`d1_databases` 默认 `migrations_dir: 'migrations'`，构建时复制 `database/migrations`；提示 `wrangler d1 migrations apply` | Miniflare D1 中按 wrangler 方式执行 SQL，再在 Worker 内 CRUD（201 / 409 / 204） |
+| vercel / netlify / cloudflare + Turso | 在 CI 中执行 `think-h3 db:migrate` | `db:migrate` 写入真实 sqld，再在 Worker 内读写 |
+
+**验证**
+- D1：ORM 全部 SQL 用例（查询构造器、唯一约束 → 409、模型、关联、内嵌迁移、框架集成）在 Miniflare 的 workerd D1 上运行，事务用例跳过并改为验证报错。
+- Turso：colima 中运行 `ghcr.io/tursodatabase/libsql-server`，`THINK_TEST_TURSO_URL=http://127.0.0.1:18080` 跑 ORM 全部用例（含 HTTP 上的事务与保存点）与 Worker + Turso 端到端用例，均通过。容器与镜像已删除，colima 已停止。
+
+**仍然存在的限制**
+- 本地开发时 Node 中没有 D1 绑定：开发用 `sqlite` 文件，部署时用环境变量切到 `d1`。如需本地也连 D1，可接入 wrangler 的 `getPlatformProxy`，目前没有做。
+- D1 只支持 `batch` 形式的原子写入，框架的隐式事务传播在 D1 上不可用。
+- Vercel / Netlify / AWS Lambda 仍只在本地按平台约定模拟调用。

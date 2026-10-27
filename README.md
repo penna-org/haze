@@ -42,6 +42,8 @@ npx think-h3 build --preset <node|bun|deno|docker|cloudflare|vercel|netlify|aws-
 
 也可在 `think.config.ts` 中设置 `preset`。纯后端与 Vue 全栈项目均支持，构建结束会提示运行 / 部署方式。
 
+使用 `@think-h3/orm` 时，迁移文件随产物打包：常驻进程型预设输出 `migrate.mjs`（`node dist/server/migrate.mjs`），AWS Lambda 导出 `index.migrate`，Cloudflare D1 生成 `wrangler d1 migrations apply` 所需的 `migrations_dir`。
+
 ## 常用命令
 
 ```bash
@@ -69,7 +71,7 @@ npx think-h3 stub:publish                    # 导出 stub 到 stubs/ 以定制�
 ## 目录
 
 ```
-packages/orm/    @think-h3/orm  基于 drizzle 的 Db 查询构造器 + Model（MySQL / PostgreSQL / SQLite）；
+packages/orm/    @think-h3/orm  基于 drizzle 的 Db 查询构造器 + Model（MySQL / PostgreSQL / SQLite / Turso / Cloudflare D1）；
                  @think-h3/orm/mongo 为同形态的 MongoDB 适配器（Mongo / MongoModel）
 packages/create/ create-think-h3 脚手架与 api / vue 模板
 packages/testing/ @think-h3/testing  useTestApp / createTestApp / defineThinkTestConfig

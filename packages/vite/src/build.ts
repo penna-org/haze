@@ -37,6 +37,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
     port: config.port,
     host: config.host,
     preset: options.preset ?? config.preset,
+    cloudflare: config.cloudflare,
     standalone: true,
   })
 

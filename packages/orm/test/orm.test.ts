@@ -2,8 +2,8 @@ import type { ModelQuery } from '../src'
 import type { Schema } from './schemas'
 import { createApplication, defineRoutes } from '@think-h3/core'
 import { eq, sql } from 'drizzle-orm'
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { DatabaseManager, databaseProvider, Db, Model, ModelNotFoundException, setDatabaseManager, UniqueConstraintException } from '../src'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { DatabaseError, DatabaseManager, databaseProvider, Db, migrate, Model, ModelNotFoundException, runMigrations, setDatabaseManager, UniqueConstraintException } from '../src'
 import { dialects } from './schemas'
 
 function defineModels(schema: Schema, events: string[]) {
@@ -62,6 +62,10 @@ describe.each(dialects)('orm on $name', (dialect) => {
   const { User, Post, Profile } = defineModels(dialect.schema, events)
   let manager: DatabaseManager
 
+  beforeAll(async () => {
+    await dialect.setup?.()
+  })
+
   beforeEach(async () => {
     manager = new DatabaseManager({
       default: 'main',
@@ -75,7 +79,10 @@ describe.each(dialects)('orm on $name', (dialect) => {
     events.length = 0
   })
 
-  afterAll(() => manager.close())
+  afterAll(async () => {
+    await manager.close()
+    await dialect.dispose?.()
+  })
 
   async function seed() {
     await Db.table(users).insert([
@@ -208,7 +215,56 @@ describe.each(dialects)('orm on $name', (dialect) => {
     expect(error.status).toBe(409)
   })
 
-  describe('transactions', () => {
+  it('runs embedded migrations once, recording them like drizzle', async () => {
+    // D1 / MySQL 的库不随连接关闭而重建
+    for (const statement of [
+      'drop table if exists notes',
+      dialect.name === 'pglite'
+        ? 'drop schema if exists drizzle cascade'
+        : 'drop table if exists __drizzle_migrations',
+    ])
+      await Db.execute(sql.raw(statement))
+    const files = (folder: string) => ({
+      [`${folder}/meta/_journal.json`]: JSON.stringify({
+        entries: [
+          { tag: '0000_init', when: 1700000000000, breakpoints: true },
+          { tag: '0001_seed', when: 1700000001000, breakpoints: true },
+        ],
+      }),
+      [`${folder}/0000_init.sql`]: 'create table notes (id integer primary key, body varchar(50));\n--> statement-breakpoint\ncreate index notes_body on notes (body);',
+      [`${folder}/0001_seed.sql`]: `insert into notes (id, body) values (1, 'hi');`,
+    })
+    expect(await migrate({
+      folder: 'db',
+      files: files('db'),
+    })).toEqual({
+      connection: 'main',
+      folder: 'db',
+      applied: 2,
+      total: 2,
+    })
+    expect(await runMigrations({
+      files: files('database/migrations'),
+    })).toEqual([
+      {
+        connection: 'main',
+        folder: 'database/migrations',
+        applied: 0,
+        total: 2,
+      },
+    ])
+    expect(await Db.execute(sql.raw('select body from notes'))).toEqual([
+      { body: 'hi' },
+    ])
+    await expect(runMigrations({ files: {} })).rejects.toThrow('No migrations for connection "main"')
+  })
+
+  it.runIf(dialect.connection.driver === 'd1')('rejects interactive transactions on D1 with a hint', async () => {
+    await expect(Db.transaction(async () => {})).rejects.toThrow(DatabaseError)
+    await expect(Db.transaction(async () => {})).rejects.toThrow('batch')
+  })
+
+  describe.skipIf(dialect.connection.driver === 'd1')('transactions', () => {
     it('commits, rolls back on error and propagates implicitly to models', async () => {
       await Db.transaction(async () => {
         await Db.table(users).insert({ name: 'In tx' })

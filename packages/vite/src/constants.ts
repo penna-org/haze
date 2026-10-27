@@ -10,4 +10,8 @@ export const VIRTUAL_MODULES = {
   app: 'virtual:think/app',
   /** 生产环境入口：创建应用并监听端口 */
   serverEntry: 'virtual:think/server-entry',
+  /** 打包进产物的迁移文件（database/ 下的 drizzle-kit 输出） */
+  migrations: 'virtual:think/migrations',
+  /** 生产迁移脚本入口（migrate.mjs） */
+  migrateEntry: 'virtual:think/migrate-entry',
 } as const

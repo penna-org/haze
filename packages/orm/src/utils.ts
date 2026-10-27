@@ -33,7 +33,7 @@ export function nowFor(column: Column): unknown {
 
 /** 各驱动的“影响行数”字段不同 */
 export function affectedRows(result: any): number {
-  const value = result?.rowsAffected ?? result?.affectedRows ?? result?.[0]?.affectedRows ?? result?.count ?? result?.rowCount ?? 0
+  const value = result?.rowsAffected ?? result?.affectedRows ?? result?.[0]?.affectedRows ?? result?.meta?.changes ?? result?.count ?? result?.rowCount ?? 0
   return Number(value)
 }
 
