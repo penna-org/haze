@@ -728,3 +728,15 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 **模板**：api / vue 模板默认集成 SQLite、User 模型与 CRUD 控制器、初始迁移、数据填充与测试。
 
 **环境说明**：pnpm 11 要求显式决定依赖的安装脚本；drizzle-kit 依赖的 esbuild 安装脚本已设置为不执行（`allowBuilds: esbuild: false`），esbuild 通过平台二进制包正常工作。pnpm 还自动把较新的 `@electric-sql/pglite` 加入了 `minimumReleaseAgeExclude`。
+
+### M8 实施记录（2026-10-26）
+
+新增 `@think-h3/orm/mongo`（独立入口，只有使用时才加载 `mongodb` 驱动），165 个测试通过；MongoDB 用例运行在 mongodb-memory-server 启动的单节点副本集上（首次运行下载 mongod 二进制，之后离线可用），事务真实提交 / 回滚。
+
+- **共享基类**：从 SQL `Model` 中抽出 `ActiveRecord`（属性与脏检查、访问器 / 修改器、hidden / append、事件、关联与预加载、序列化），`Model` 与 `MongoModel` 都继承它；关联 `hasOne / hasMany / belongsTo` 两种模型通用，ObjectId 关联键按字符串比较。重构后 SQL 用例全部通过（MySQL 组本次未重跑，colima 已停止；重构未改动方言相关代码）。
+- **Mongo 查询构造器**：`Mongo.collection<Doc>('users')`，方法与 `Db.table()` 一致（where / orWhere / 分组 / whereIn / whereNull / whereBetween / whereLike → 正则 / order / page / field / paginate / chunk / 聚合 / insert / update / delete / increment），无条件写入同样需要 `{ all: true }`；Mongo 特有：`aggregate(pipeline)`（自动在前面加当前条件的 `$match`）、`where({ age: { $gt: 1 } })` 直接使用查询运算符、`update({ $push: … })` 直接使用更新运算符、`Mongo.db()` 获取原生 Db。
+- **MongoModel**：`class User extends MongoModel.define<UserDoc>('users')`；文档无固定结构，实例以 Proxy 把未声明属性的读写转为 getAttr / setAttr（因此内部不使用 `#私有成员`）；字符串 `_id` 自动转为 ObjectId，JSON 中输出为字符串；软删除、时间戳、作用域、事件与 SQL 模型一致。
+- **事务**：`Mongo.transaction(fn)` 使用会话并通过 AsyncLocalStorage 隐式传播；MongoDB 不支持嵌套事务，嵌套调用复用外层事务。
+- **其它**：`config/database.ts` 新增 `driver: 'mongodb'`（`database` 指定库名）；重复键（11000）同样转换为 409；`refreshDatabase()` 对 MongoDB 清空数据库；`db:generate / db:migrate` 跳过 MongoDB 连接；`make:model --dialect mongodb` 生成带文档接口的模型。
+- **类型实现要点**：模型相关泛型只用品牌属性约束（`ModelLike` / `MongoModelLike`），关联目标不加 `extends ActiveRecord` 约束，避免互相引用的模型在结构比较时无限展开。
+- **依赖**：`mongodb-memory-server-core` 间接依赖的 `semver@6.3.1` 被 trustPolicy 拦截，通过 `overrides: 'make-dir@3>semver': ^7.7.0` 改用 semver 7（make-dir 只调用 `semver.satisfies()`），未放宽安全策略；使用 `-core` 包，没有安装脚本。

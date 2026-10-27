@@ -26,5 +26,7 @@ export async function migrate(options: MigrateOptions): Promise<void> {
       return (await import('drizzle-orm/pglite/migrator')).migrate(connection.db, config)
     case 'mysql':
       return (await import('drizzle-orm/mysql2/migrator')).migrate(connection.db, config)
+    case 'mongodb':
+      throw new Error(`Connection "${connection.name}" is MongoDB, which has no SQL migrations; manage indexes with Mongo.collection().createIndex()`)
   }
 }

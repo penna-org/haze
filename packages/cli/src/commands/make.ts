@@ -82,7 +82,7 @@ export const makeModelCommand = defineCommand({
     name: { type: 'positional', description: '模型名，例如 User 或 OrderItem', required: true },
     ...rootArg,
     table: { type: 'string', description: '表名（默认为复数下划线形式，例如 order_items）' },
-    dialect: { type: 'string', description: 'sqlite | postgres | mysql（默认按已安装的驱动推断）' },
+    dialect: { type: 'string', description: 'sqlite | postgres | mysql | mongodb（默认按已安装的驱动推断）' },
     softDelete: { type: 'boolean', description: '启用软删除', default: false },
     app: { type: 'string', alias: 'a', description: '多应用：模型生成到 app/<app>/model' },
     force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
@@ -90,9 +90,15 @@ export const makeModelCommand = defineCommand({
   async run({ args }) {
     const root = resolveRoot(args.root)
     const { srcDir } = await loadThinkConfig(root)
-    const dialect = (args.dialect ?? detectDialect(root)) as 'sqlite' | 'postgres' | 'mysql'
-    if (!['sqlite', 'postgres', 'mysql'].includes(dialect))
+    const dialect = (args.dialect ?? detectDialect(root)) as 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
+    if (![
+      'sqlite',
+      'postgres',
+      'mysql',
+      'mongodb',
+    ].includes(dialect)) {
       throw new Error(`Unknown dialect "${dialect}"`)
+    }
     const result = await makeModel({
       root,
       srcDir,
@@ -111,6 +117,8 @@ export const makeModelCommand = defineCommand({
 })
 
 function detectDialect(root: string): string {
+  if (usesOnly(root, 'mongodb', '@libsql/client') && usesOnly(root, 'mongodb', 'mysql2') && usesOnly(root, 'mongodb', 'postgres'))
+    return 'mongodb'
   if (usesOnly(root, 'mysql2', '@libsql/client'))
     return 'mysql'
   if (usesOnly(root, 'postgres', '@libsql/client') || usesOnly(root, '@electric-sql/pglite', '@libsql/client'))

@@ -1,0 +1,17 @@
+import { MongoModel } from '@think-h3/orm/mongo'
+
+/** {{name}} 文档结构：MongoDB 没有固定表结构，在这里声明字段类型 */
+export interface {{className}}Doc {
+  name: string
+  createdAt?: Date
+  updatedAt?: Date
+  deletedAt?: Date | null
+}
+
+/**
+ * {{name}} 模型（集合 {{tableName}}），API 与 SQL 模型一致：
+ * {{className}}.findOrFail(id)、{{className}}.where('name', 'Ada').paginate(1, 20)、{{className}}.create(data)
+ */
+export class {{className}} extends MongoModel.define<{{className}}Doc>('{{tableName}}') {
+  static override softDelete = {{softDelete}}
+}

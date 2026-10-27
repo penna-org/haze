@@ -28,7 +28,8 @@ export function translateDatabaseError(error: unknown): unknown {
   for (let current: any = error, depth = 0; current && depth < 5; current = current.cause, depth++) {
     const code = String(current.code ?? '')
     const message = String(current.message ?? '')
-    if (code === '23505' || code === 'ER_DUP_ENTRY' || current.errno === 1062 || code.startsWith('SQLITE_CONSTRAINT_UNIQUE') || code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || /UNIQUE constraint failed/.test(message))
+    // MongoDB 重复键：11000
+    if (code === '11000' || current.code === 11000 || code === '23505' || code === 'ER_DUP_ENTRY' || current.errno === 1062 || code.startsWith('SQLITE_CONSTRAINT_UNIQUE') || code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || /UNIQUE constraint failed/.test(message))
       return new UniqueConstraintException(error)
   }
   return error

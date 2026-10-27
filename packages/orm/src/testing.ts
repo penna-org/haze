@@ -19,7 +19,13 @@ export interface RefreshDatabaseOptions {
  */
 export async function refreshDatabase(options: RefreshDatabaseOptions = {}): Promise<void> {
   const manager = useDatabaseManager()
-  await manager.close(options.connection ?? manager.defaultConnection)
+  const name = options.connection ?? manager.defaultConnection
+  if (manager.connectionConfig(name).driver === 'mongodb') {
+    // MongoDB 无迁移：清空数据库
+    await (await manager.connection(name)).db.dropDatabase()
+    return
+  }
+  await manager.close(name)
   await migrate({
     manager,
     connection: options.connection,

@@ -9,6 +9,11 @@ packages:
   - packages/*
   - playground
 
+# semver@6.3.1（经 mongodb-memory-server-core → find-cache-dir → make-dir 引入）被 trustPolicy 拦截，
+# make-dir 只用到 semver.satisfies()，改用 semver 7 而不放宽安全策略
+overrides:
+  make-dir@3>semver: ^7.7.0
+
 allowBuilds:
   esbuild: false
 
@@ -25,6 +30,8 @@ catalog:
   drizzle-orm: ^0.45.4
   eslint: ^10.13.0
   h3: ^2.0.8
+  mongodb: ^7.7.0
+  mongodb-memory-server-core: ^11.3.0
   mysql2: ^3.24.6
   postgres: ^3.4.9
   srvx: ^1.0.7

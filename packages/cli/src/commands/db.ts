@@ -10,7 +10,7 @@ import { resolveRoot, rootArg } from '../args'
 import { binOf } from '../resolve'
 
 interface ConnectionConfig {
-  driver: 'sqlite' | 'postgres' | 'pglite' | 'mysql'
+  driver: 'sqlite' | 'postgres' | 'pglite' | 'mysql' | 'mongodb'
   url?: string
   schema?: string
   migrations?: string
@@ -51,6 +51,8 @@ function targetOf(database: DatabaseConfig, srcDir: string, name = database.defa
   const config = database.connections[name]
   if (!config)
     throw new Error(`Database connection "${name}" is not defined in config/database.ts`)
+  if (config.driver === 'mongodb')
+    throw new MongoConnectionError(name)
   const dialect = config.driver === 'mysql'
     ? 'mysql'
     : config.driver === 'sqlite'
@@ -64,6 +66,12 @@ function targetOf(database: DatabaseConfig, srcDir: string, name = database.defa
     migrations: resolve(srcDir, config.migrations ?? (name === database.default
       ? 'database/migrations'
       : `database/migrations/${name}`)),
+  }
+}
+
+class MongoConnectionError extends Error {
+  constructor(name: string) {
+    super(`Connection "${name}" is MongoDB, which has no SQL schema or migrations`)
   }
 }
 
@@ -117,6 +125,10 @@ export const migrateCommand = defineCommand({
         ? Object.keys(database.connections)
         : [args.connection ?? database.default]
       for (const name of names) {
+        if (database.connections[name]?.driver === 'mongodb') {
+          consola.info(`[${name}] MongoDB has no migrations, skipped`)
+          continue
+        }
         const target = targetOf(database, srcDir, name)
         if (!existsSync(join(target.migrations, 'meta', '_journal.json'))) {
           consola.warn(`[${name}] no migrations in ${relative(root, target.migrations)}, run think-h3 db:generate first`)

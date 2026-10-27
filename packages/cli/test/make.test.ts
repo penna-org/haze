@@ -158,6 +158,18 @@ describe('make', () => {
       dialect: 'postgres',
     })
     expect(readFileSync(pg.schema!, 'utf8')).toContain(`pgTable('categories'`)
+
+    // MongoDB：只生成模型（含文档接口），没有表结构文件
+    const mongo = await makeModel({
+      root,
+      srcDir,
+      name: 'Article',
+      dialect: 'mongodb',
+    })
+    expect(mongo.schema).toBeUndefined()
+    const source = readFileSync(mongo.model, 'utf8')
+    expect(source).toContain('export interface ArticleDoc')
+    expect(source).toContain(`export class Article extends MongoModel.define<ArticleDoc>('articles')`)
   })
 
   it('refuses to overwrite unless forced', async () => {

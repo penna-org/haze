@@ -1,6 +1,7 @@
 import type { SQL, Table } from 'drizzle-orm'
 import type { Paginated } from '../types'
-import type { Model, ModelClass, RelationName, TableOf } from './model'
+import type { ModelClass, ModelLike, TableOf } from './model'
+import type { ActiveRecord, RelationName } from './record'
 import { isNotNull, isNull } from 'drizzle-orm'
 import { ModelNotFoundException } from '../errors'
 import { andAll, QueryBuilder } from '../query/builder'
@@ -12,7 +13,7 @@ import { loadRelations } from './relations'
 type TrashedMode = 'without' | 'with' | 'only'
 
 /** 模型查询：结果为模型实例，自动应用软删除范围，支持预加载关联与作用域 */
-export class ModelQuery<M extends Model> extends QueryBuilder<TableOf<M> & Table, M> {
+export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & Table, M> {
   readonly model: ModelClass<M>
   protected trashed: TrashedMode = 'without'
   protected eager: string[] = []
@@ -104,7 +105,7 @@ export class ModelQuery<M extends Model> extends QueryBuilder<TableOf<M> & Table
   protected override async transform(rows: Array<Record<string, unknown>>): Promise<M[]> {
     const models = rows.map(row => hydrateModel(this.model, row))
     if (this.eager.length)
-      await loadRelations(models, this.eager)
+      await loadRelations(models as unknown as ActiveRecord[], this.eager)
     return models
   }
 

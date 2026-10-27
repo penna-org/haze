@@ -67,6 +67,8 @@ await Db.transaction(async () => { /* 内部的 Db / Model 操作自动加入事
 
 切换到 PostgreSQL / MySQL：安装 `postgres` 或 `mysql2`，修改 `driver` 与 `url`，表结构改用 `drizzle-orm/pg-core` / `mysql-core`。
 
+MongoDB：安装 `mongodb`，连接配置 `{ driver: 'mongodb', url: 'mongodb://…/app' }`，模型使用 `@think-h3/orm/mongo` 的 `MongoModel`（`npx think-h3 make:model Article --dialect mongodb`），查询 API 与 SQL 一致。
+
 ## 多应用
 
 在 `config/app.ts` 中声明应用，代码放在 `app/<name>/`（controller、route、config、middleware 配置、exception/Handler.ts、response/Formatter.ts）：

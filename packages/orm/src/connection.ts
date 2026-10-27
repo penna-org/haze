@@ -12,8 +12,10 @@ export interface Connection {
   name: string
   driver: Driver
   dialect: Dialect
-  /** drizzle 实例 */
+  /** SQL 为 drizzle 实例，MongoDB 为 mongodb 的 Db */
   db: AnyDatabase
+  /** 底层客户端（MongoDB 事务需要） */
+  client?: unknown
   close: () => Promise<void>
 }
 
@@ -159,6 +161,19 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
         ...base,
         db: drizzle(client, { logger, mode: 'default' }),
         close: () => client.end(),
+      }
+    }
+    case 'mongodb': {
+      const { MongoClient } = await importDriver<typeof import('mongodb')>('mongodb')
+      if (!config.url)
+        throw new DatabaseError(`Connection "${name}": url is required for mongodb`)
+      const client = new MongoClient(config.url, { maxPoolSize: config.pool ?? 10 })
+      await client.connect()
+      return {
+        ...base,
+        db: client.db(config.database),
+        client,
+        close: () => client.close(),
       }
     }
     default:

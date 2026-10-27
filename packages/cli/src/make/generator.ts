@@ -225,7 +225,7 @@ export function readStub(root: string, stubName: string): { content: string, cus
   }
 }
 
-export type Dialect = 'sqlite' | 'postgres' | 'mysql'
+export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
 
 export interface MakeModelOptions {
   root: string
@@ -257,10 +257,12 @@ export async function makeModel(options: MakeModelOptions): Promise<{ model: str
   if (existsSync(model) && !options.force)
     throw new Error(`${model} already exists. Use --force to overwrite.`)
 
+  // MongoDB 没有表结构文件，模型中声明文档类型
+  const mongo = options.dialect === 'mongodb'
   const schema = join(options.srcDir, 'database/schema', `${tableName}.ts`)
-  const writeSchema = !existsSync(schema)
+  const writeSchema = !mongo && !existsSync(schema)
   await mkdir(dirname(model), { recursive: true })
-  await writeFile(model, render(readStub(options.root, 'model').content, vars as unknown as StubVariables))
+  await writeFile(model, render(readStub(options.root, mongo ? 'model.mongodb' : 'model').content, vars as unknown as StubVariables))
   if (writeSchema) {
     await mkdir(dirname(schema), { recursive: true })
     await writeFile(schema, render(readStub(options.root, `schema.${options.dialect ?? 'sqlite'}`).content, vars as unknown as StubVariables))
@@ -268,7 +270,9 @@ export async function makeModel(options: MakeModelOptions): Promise<{ model: str
   return {
     model,
     schema: writeSchema ? schema : undefined,
-    hint: '修改表结构后运行：think-h3 db:generate && think-h3 db:migrate',
+    hint: mongo
+      ? 'MongoDB 无需迁移；索引可通过 (await Mongo.db()).collection(...).createIndex() 管理'
+      : '修改表结构后运行：think-h3 db:generate && think-h3 db:migrate',
   }
 }
 
