@@ -1,4 +1,5 @@
 import type { UserConfig } from 'vite'
+import type { ExternalsOptions } from './presets/deps'
 import type { CloudflareOptions, PresetName } from './presets/types'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -20,6 +21,8 @@ export interface ThinkConfig {
   preset?: PresetName
   /** cloudflare 预设：合并进 wrangler.json 的绑定等配置 */
   cloudflare?: CloudflareOptions
+  /** 依赖处理：默认能打包的都打包，驱动 / 原生模块追踪复制进产物的 node_modules */
+  externals?: ExternalsOptions
   /** 透传给 Vite 的配置（插件、别名等） */
   vite?: UserConfig
 }
@@ -33,6 +36,7 @@ export interface ResolvedThinkConfig {
   typegen: boolean
   preset: PresetName | undefined
   cloudflare: CloudflareOptions | undefined
+  externals: ExternalsOptions | undefined
   vite: UserConfig
   configFile: string | undefined
 }
@@ -71,6 +75,7 @@ export async function loadThinkConfig(root: string, mode = 'development'): Promi
     typegen: config.typegen ?? true,
     preset: config.preset,
     cloudflare: config.cloudflare,
+    externals: config.externals,
     vite: config.vite ?? {},
     configFile,
   }

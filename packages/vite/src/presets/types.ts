@@ -1,3 +1,5 @@
+import type { ExternalsOptions, TraceResult } from './deps'
+
 export const PRESET_NAMES = [
   'node',
   'bun',
@@ -22,6 +24,8 @@ export interface CloudflareOptions {
 
 export interface PresetContext {
   root: string
+  /** think.config.ts 的 externals 选项 */
+  externalsOptions: ExternalsOptions
   /** 后端源码目录（绝对路径） */
   srcDir: string
   /** think.config.ts 的 outDir（绝对路径） */
@@ -53,6 +57,8 @@ export interface FinalizeContext extends PresetContext {
   layout: Layout
   /** 服务端产物中仍需从 node_modules 加载的依赖 */
   externals: string[]
+  /** 追踪复制进产物的依赖（未追踪时为 undefined） */
+  traced: TraceResult | undefined
 }
 
 export interface Preset {
@@ -63,6 +69,14 @@ export interface Preset {
    * - all：全部打包（Edge 运行时没有 node_modules，驱动按 workerd 等条件使用其 Web 版本）
    */
   bundle: 'external' | 'drivers-external' | 'all'
+  /**
+   * 构建后把 external 依赖追踪复制进 `<serverDir>/node_modules`：
+   * - default：默认开启，`externals.trace: false` 时关闭（node / bun 改为依赖全部 external）
+   * - always：产物必须自带依赖（Serverless 函数）
+   */
+  trace?: 'default' | 'always'
+  /** 产物的运行平台（与构建机不同时检查追踪到的原生包） */
+  runtimePlatform?: NodeJS.Platform
   /** 构建时的 package.json exports 条件 */
   conditions?: string[]
   target?: string

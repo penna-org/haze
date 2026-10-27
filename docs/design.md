@@ -688,6 +688,7 @@ it('获取用户', async () => {
 | M8 | MongoDB 适配器 |
 | M9 | 部署预设：`think-h3 build --preset node|bun|deno|cloudflare|vercel|netlify|aws-lambda|docker` |
 | M10 | 补齐 M9 的已知限制：生产迁移入口、Cloudflare D1 / Turso HTTP 驱动 |
+| M11 | 参考 Nitro：依赖追踪进产物（nf3）、`vite preview` / `think-h3 preview` 运行产物、React 模板与多框架验证 |
 
 ### M5 实施记录（2026-10-26）
 
@@ -808,3 +809,63 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 本地开发时 Node 中没有 D1 绑定：开发用 `sqlite` 文件，部署时用环境变量切到 `d1`。如需本地也连 D1，可接入 wrangler 的 `getPlatformProxy`，目前没有做。
 - D1 只支持 `batch` 形式的原子写入，框架的隐式事务传播在 D1 上不可用。
 - Vercel / Netlify / AWS Lambda 仍只在本地按平台约定模拟调用。
+
+### M11 实施记录（2026-10-26）：依赖追踪、预览与多框架
+
+参考 Nitro v3 的两项能力：产物自带依赖，以及 `vite preview` 运行构建产物。确认的决策：
+- 依赖追踪用 nf3；
+- node / bun 默认改为打包加追踪；
+- Docker 保持在镜像内安装依赖；
+- SSR 入口（entry-server）放到后续。
+
+**依赖追踪（nf3）**
+- 新增依赖 `nf3`（MIT，零依赖，Nitro v3 同款，内部打包了 @vercel/nft），替换原来按 package.json 整包复制的 `copyDependencies`。
+- 打包策略：除下面这些包外全部打包，它们保持 external：
+  - 数据库驱动；
+  - nf3 的 `NodeNativePackages`、`NonBundleablePackages`；
+  - `externals.traceDeps` 中列出的包。
+- 构建后从产物入口出发追踪实际加载的文件，复制为 `<serverDir>/node_modules`。同名多版本放在 `node_modules/.nf3/<name>@<version>`，并链接到依赖方。
+- 各预设的处理：
+
+| 预设 | 打包 | 追踪 |
+|------|------|------|
+| node / bun | 打包（原为全部 external） | 默认开启；`externals.trace: false` 时退回全部 external、使用项目的 node_modules |
+| deno | 打包（驱动除外） | 默认开启 |
+| aws-lambda / vercel | 打包（驱动除外） | 始终开启 |
+| docker | 打包（驱动除外） | 不追踪：驱动在镜像内 `npm install`，保证 Linux 原生二进制 |
+| netlify / cloudflare | 不变 | 不追踪 |
+
+- 实测：vue 模板的 node 产物 `dist/` 拷到项目之外，可以直接执行迁移、启动并读写 SQLite。追踪到的有 `@libsql/client`、`libsql` 及其平台二进制、`ws` 等，约 9 MB。
+- 跨平台检查：aws-lambda / vercel 的目标平台为 linux。在其它系统上构建且追踪到平台二进制（如 `@libsql/darwin-x64`）或 nf3 已知的原生包时，构建期会警告，提示在 Linux 上构建。这个问题在原来的整包复制方案中同样存在，只是之前没有提示。
+- `think.config.ts` 新增 `externals: { trace?, traceDeps?, inline? }`，`traceDeps` 中的 `pkg*` 表示整包复制。
+
+**预览**
+- 构建结束写入 `.think/build.json`，记录预设、产物布局、入口、是否全栈与后端前缀。
+- 插件实现 `configurePreviewServer`：在 Vite 内置静态中间件之前挂载产物。`vite preview` 预览时，`environments.client.build.outDir` 取自构建记录。
+- 新增 `think-h3 preview` / `previewServer()`：全栈项目使用项目的 vite.config.ts，纯后端项目使用内置配置（`appType: 'custom'`），默认端口 4173。
+- 各预设的运行方式：
+
+| 预设 | 方式 | 静态文件 |
+|------|------|----------|
+| node / docker | 在随机端口启动产物进程（cwd 为项目根，加载 .env），用 fetch 转发全部请求（去掉逐跳头与 content-encoding） | 产物托管 |
+| bun / deno | 同上，需要对应运行时（产物按 bun / deno 导出条件构建，不能用 Node 运行）；deno 也可使用 npm 的 deno 包 | 产物托管 |
+| aws-lambda | 进程内调用 `handler`；core 新增 `requestToLambdaEvent` / `lambdaResultToResponse` | 产物托管 |
+| vercel | 进程内调用 Node handler | Vite 托管 `.vercel/output/static`，后端前缀交给函数 |
+| netlify | 进程内调用 Functions v2 handler | Vite 托管 publish 目录 |
+| cloudflare | 用项目安装的 Miniflare 运行 `dist/index.mjs`：`vars`、D1、KV 绑定读取自 wrangler.json，数据持久化在 `.think/preview`；D1 迁移按 wrangler 的方式自动应用（`d1_migrations` 表记录） | Vite 托管 `dist/client` |
+
+**多框架**
+- 插件本身不依赖任何前端框架，前端框架插件与 `thinkH3()` 并列使用即可。
+- 新增 `react` 模板：React 19、`@vitejs/plugin-react`；后端与 vue 模板相同，类型检查用 `tsc --build`。
+- 新增 frameworks 测试：React 与纯 Vite（无框架）项目各自跑开发、构建、`vite preview` 三个环节，React 模板另跑类型检查和自带测试。三个模板都加了 `pnpm preview` 脚本。
+
+**验证**
+- preview 测试：vue 模板在 node、bun、docker、deno、aws-lambda、vercel、netlify、cloudflare 八个预设下预览，检查接口、SPA 回退、静态资源和 422 校验错误。
+- Cloudflare + D1：本地预览自动迁移，再次预览时数据仍在、迁移不重复执行。
+- 纯后端项目的预览，以及没有构建时的报错，都有用例。
+- vite 包的 node 用例改为验证追踪结果，以及产物拷到 tmp 目录后仍能运行；`trace: false` 有单独用例。
+
+**仍然存在的限制**
+- 预览不转发 WebSocket（框架目前也没有 WebSocket 支持）。
+- 在 macOS 上构建的 Lambda / Vercel 产物仍然带着 macOS 的原生二进制，构建只给警告，不会自动下载 Linux 版本。
+

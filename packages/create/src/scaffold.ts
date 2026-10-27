@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 export const TEMPLATES = {
   api: '纯后端 API 服务',
   vue: 'Vue 3 全栈（同仓库、同端口、一次构建）',
+  react: 'React 19 全栈（同仓库、同端口、一次构建）',
 } as const
 
 export type TemplateName = keyof typeof TEMPLATES

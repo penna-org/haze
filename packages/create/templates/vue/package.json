@@ -7,6 +7,7 @@
     "dev": "think-h3 dev",
     "build": "think-h3 build",
     "start": "think-h3 start",
+    "preview": "think-h3 preview",
     "test": "think-h3 test",
     "routes": "think-h3 route:list",
     "typecheck": "vue-tsc --build",

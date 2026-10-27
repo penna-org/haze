@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
-import type { CloudflareOptions, Layout, PresetContext, PresetName } from './presets'
+import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult } from './presets'
+import { existsSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { toNodeHandler } from 'srvx/node'
@@ -8,7 +9,8 @@ import { normalizePath } from 'vite'
 import { loadThinkConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
-import { BUNDLE_ALL_EXCEPT_DRIVERS, DRIVER_PACKAGES, findInstalled, migrateEntryCode, projectDrivers, resolvePreset, scanExternals } from './presets'
+import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies } from './presets'
+import { manifestFile, readBuildManifest, startPreview, staticDirOf, writeBuildManifest } from './preview'
 
 export interface ThinkPluginOptions {
   /** 后端源码目录，相对 Vite root 或绝对路径；默认读取 think.config.ts，否则为 `.` */
@@ -28,6 +30,8 @@ export interface ThinkPluginOptions {
   outDir?: string
   /** cloudflare 预设的 wrangler 配置（默认读取 think.config.ts） */
   cloudflare?: CloudflareOptions
+  /** 依赖的打包 / 追踪方式（默认读取 think.config.ts） */
+  externals?: ExternalsOptions
   /**
    * 不集成 Vite 开发服务器与前端构建（不挂载中间件、不配置 client / ssr 构建）。
    * 由 `think-h3 dev / build` 与 `@think-h3/testing` 使用。
@@ -54,6 +58,8 @@ export interface BuildInfo {
   layout: Layout
   /** 运行时仍需从 node_modules 加载的依赖 */
   externals: string[]
+  /** 追踪复制进产物 node_modules 的依赖 */
+  traced: TraceResult | undefined
   /** 服务端入口 */
   entry: string
   /** 生产迁移脚本（使用 @think-h3/orm 且为常驻进程型预设时） */
@@ -74,6 +80,7 @@ interface Settings {
   preset: string
   orm: boolean
   cloudflare: CloudflareOptions | undefined
+  externals: ExternalsOptions
 }
 
 const RESOLVED_PREFIX = '\0'
@@ -101,6 +108,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
     preset: 'node',
     orm: false,
     cloudflare: undefined,
+    externals: {},
   }
   let lastBuild: BuildInfo | undefined
   let unsupported = new Set<string>()
@@ -139,6 +147,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       settings.typegen = options.typegen ?? think?.typegen ?? true
       settings.preset = options.preset ?? process.env.THINK_PRESET ?? think?.preset ?? 'node'
       settings.cloudflare = options.cloudflare ?? think?.cloudflare
+      settings.externals = options.externals ?? think?.externals ?? {}
       settings.orm = Boolean(findInstalled('@think-h3/orm', base))
 
       const config: UserConfig = {}
@@ -152,19 +161,39 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           ],
         }
       }
+      // 预览：前端静态目录取自最近一次构建（CDN 托管静态资源的预设由 Vite 托管，其余由产物自己托管）
+      if (env.isPreview) {
+        const manifest = existsSync(manifestFile(base))
+          ? readBuildManifest(base)
+          : undefined
+        if (manifest) {
+          config.environments = {
+            client: {
+              build: { outDir: staticDirOf(manifest) ?? manifest.layout.clientDir ?? manifest.layout.serverDir },
+            },
+          }
+        }
+      }
       // 构建时按部署预设决定产物布局、打包策略与入口；开发时不受影响
       if (env.command === 'build') {
         const preset = resolvePreset(settings.preset)
         const context = presetContext(settings)
         const layout = preset.layout(context)
         const migrateScript = Boolean(preset.migrateScript && settings.orm)
+        const trace = preset.trace === 'always' || (preset.trace === 'default' && settings.externals.trace !== false)
+        // 关闭追踪时 node / bun 退回依赖全部 external（运行时使用项目的 node_modules）
+        const bundle = !trace && preset.trace === 'default' && preset.name !== 'deno'
+          ? 'external'
+          : preset.bundle
         config.environments = {
           ssr: {
             resolve: {
               ...(preset.conditions && { conditions: preset.conditions }),
               // 打包依赖：产物不依赖项目的 node_modules（框架包也无需发布）
-              ...(preset.bundle === 'drivers-external' && { noExternal: BUNDLE_ALL_EXCEPT_DRIVERS }),
-              ...(preset.bundle === 'all' && { noExternal: true }),
+              ...(bundle === 'drivers-external' && {
+                noExternal: bundleAllExcept(externalPackages(settings.externals)),
+              }),
+              ...(bundle === 'all' && { noExternal: true }),
             },
             build: {
               outDir: layout.serverDir,
@@ -195,28 +224,44 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           }),
         }
         unsupported = new Set(preset.unsupported)
-        stubMissing = preset.bundle === 'all'
+        stubMissing = bundle === 'all'
         config.builder = {
           async buildApp(builder) {
             // 先构建服务端：部分预设的前端目录位于服务端目录之内（emptyOutDir 不会误删）
             await builder.build(builder.environments.ssr)
             if (settings.fullstack)
               await builder.build(builder.environments.client)
-            const externals = [
-              ...new Set([
-                // ORM 引用了全部驱动：只保留项目实际安装的
-                ...scanExternals(layout.serverDir).filter(name => !DRIVER_PACKAGES.includes(name) || findInstalled(name, context.root)),
-                ...(preset.bundle === 'drivers-external'
-                  ? projectDrivers(context.root)
-                  : []),
-              ]),
-            ].sort()
-            const finalize = { ...context, layout, externals }
+            // ORM 引用了全部驱动：只保留项目实际安装的
+            const externals = scanExternals(layout.serverDir).filter(name => !DRIVER_PACKAGES.includes(name) || findInstalled(name, context.root))
+            const traced = trace
+              ? await traceDependencies(layout.serverDir, context.root, {
+                  conditions: preset.conditions,
+                  traceDeps: settings.externals.traceDeps,
+                  platform: preset.runtimePlatform,
+                })
+              : undefined
+            if (traced?.foreignNative.length) {
+              builder.config.logger.warn(`[think-h3] ${preset.name} runs on ${preset.runtimePlatform}, but these native packages were traced from this ${process.platform} machine: ${traced.foreignNative.join(', ')}. Build on ${preset.runtimePlatform} (CI or Docker) so the right binaries are copied.`)
+            }
+            const finalize = {
+              ...context,
+              layout,
+              externals,
+              traced,
+            }
             await preset.finalize?.(finalize)
+            writeBuildManifest(settings.root, {
+              preset: preset.name,
+              layout,
+              entry: join(layout.serverDir, 'index.mjs'),
+              fullstack: settings.fullstack,
+              prefixes: settings.prefixes,
+            })
             lastBuild = {
               preset: preset.name,
               layout,
               externals,
+              traced,
               entry: join(layout.serverDir, 'index.mjs'),
               ...(migrateScript && {
                 migrate: join(layout.serverDir, 'migrate.mjs'),
@@ -258,6 +303,19 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
         await host.close()
         return close()
       }
+    },
+
+    async configurePreviewServer(server) {
+      const manifest = readBuildManifest(settings.root)
+      const preview = await startPreview(settings.root, manifest, server.config.logger)
+      server.config.logger.info(`  [think-h3] previewing the ${manifest.preset} build`)
+      // 在 Vite 内置的静态资源中间件之前注册
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !preview.matches(req.url))
+          return next()
+        Promise.resolve(preview.handle(req, res)).catch(next)
+      })
+      server.httpServer.once('close', () => void preview.close())
     },
 
     resolveId: {
@@ -394,6 +452,7 @@ export function createApp(options = {}) {
 function presetContext(settings: Settings): PresetContext {
   return {
     root: settings.root,
+    externalsOptions: settings.externals,
     srcDir: settings.srcDir,
     orm: settings.orm,
     cloudflare: settings.cloudflare,

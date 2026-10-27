@@ -4,10 +4,11 @@ import { cp, mkdir, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { normalizePath } from 'vite'
 import { VIRTUAL_MODULES } from '../constants'
-import { copyDependencies, EDGE_UNSUPPORTED_DRIVERS, writeRuntimePackageJson } from './deps'
+import { EDGE_UNSUPPORTED_DRIVERS, writeRuntimePackageJson } from './deps'
 import { PRESET_NAMES } from './types'
 
-export { BUNDLE_ALL_EXCEPT_DRIVERS, copyDependencies, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, findInstalled, projectDrivers, scanExternals } from './deps'
+export { bundleAllExcept, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, externalPackages, findInstalled, scanExternals, traceDependencies } from './deps'
+export type { ExternalsOptions, TraceResult } from './deps'
 export { PRESET_NAMES } from './types'
 export type { CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName } from './types'
 
@@ -109,7 +110,9 @@ function migrateHint(context: FinalizeContext, command: string): string {
 export const presets: Record<PresetName, Preset> = {
   'node': {
     name: 'node',
-    bundle: 'external',
+    // 与 Nitro 一致：能打包的都打包，驱动与原生模块追踪进产物的 node_modules，dist 可整体拷走运行
+    bundle: 'drivers-external',
+    trace: 'default',
     // 纯后端沿用 dist/index.mjs，全栈为 dist/server + dist/client
     layout: context => context.fullstack
       ? serverLayout(context)
@@ -121,7 +124,8 @@ export const presets: Record<PresetName, Preset> = {
 
   'bun': {
     name: 'bun',
-    bundle: 'external',
+    bundle: 'drivers-external',
+    trace: 'default',
     conditions: ['bun', 'module', 'node', 'production'],
     layout: context => context.fullstack
       ? serverLayout(context)
@@ -134,6 +138,7 @@ export const presets: Record<PresetName, Preset> = {
   'deno': {
     name: 'deno',
     bundle: 'drivers-external',
+    trace: 'default',
     conditions: ['deno', 'module', 'node', 'production'],
     layout: serverLayout,
     migrateScript: true,
@@ -171,6 +176,8 @@ CMD ["node", "server/index.mjs"]
   'aws-lambda': {
     name: 'aws-lambda',
     bundle: 'drivers-external',
+    trace: 'always',
+    runtimePlatform: 'linux',
     layout: context => ({
       serverDir: join(context.outDir, 'lambda'),
       clientDir: context.fullstack
@@ -198,7 +205,6 @@ export async function migrate(event = {}) {
     async finalize(context) {
       const dir = context.layout.serverDir
       await writeFile(join(dir, 'package.json'), '{ "type": "module" }\n')
-      await copyDependencies(context.externals, context.root, join(dir, 'node_modules'))
     },
     hint: context => `Zip ${rel(context, context.layout.serverDir)} and set the Lambda handler to index.handler (runtime nodejs22.x)${context.orm
       ? '\nMigrate: invoke the same bundle with handler index.migrate (event: { "connection"?: string, "all"?: boolean })'
@@ -208,6 +214,8 @@ export async function migrate(event = {}) {
   'vercel': {
     name: 'vercel',
     bundle: 'drivers-external',
+    trace: 'always',
+    runtimePlatform: 'linux',
     layout: context => ({
       serverDir: join(context.root, '.vercel', 'output', 'functions', '__server.func'),
       clientDir: join(context.root, '.vercel', 'output', 'static'),
@@ -234,7 +242,6 @@ export default async function vercelHandler(req, res) {
         supportsResponseStreaming: true,
       }, null, 2)}\n`)
       await writeFile(join(dir, 'package.json'), '{ "type": "module" }\n')
-      await copyDependencies(context.externals, context.root, join(dir, 'node_modules'))
       // 静态文件优先，其余交给函数；全栈时非后端路径回退到 index.html（前端路由）
       const routes = context.fullstack
         ? [

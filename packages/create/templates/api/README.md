@@ -10,7 +10,8 @@ pnpm routes     # 查看路由表
 pnpm typegen    # 生成配置键 / 路由名类型（dev 时自动执行）
 pnpm test       # 运行测试
 pnpm build      # 构建到 dist/
-pnpm start      # 运行构建产物
+pnpm start      # 运行构建产物（产物自带依赖，dist/ 可整体拷走）
+pnpm preview    # 按构建时的部署预设本地运行产物（Lambda / Vercel / Workers 等也可预览）
 ```
 
 ## 代码生成
@@ -90,7 +91,7 @@ export default defineConfig(() => ({
 ## 部署
 
 ```bash
-npx think-h3 build --preset node        # 默认：node dist/index.mjs（依赖使用 node_modules）
+npx think-h3 build --preset node        # 默认：node dist/index.mjs（依赖已打包或追踪进产物，可整体拷走）
 npx think-h3 build --preset docker      # dist/ 即构建上下文：docker build -t app dist
 npx think-h3 build --preset bun         # bun dist/index.mjs
 npx think-h3 build --preset deno        # deno run -A dist/server/index.mjs
@@ -101,6 +102,22 @@ npx think-h3 build --preset cloudflare  # dist/wrangler.json → wrangler deploy
 ```
 
 也可在 `think.config.ts` 中设置 `preset`。构建会自动带上项目安装的数据库驱动。
+
+依赖处理与 Nitro 一致：能打包的依赖都打进产物，数据库驱动、原生模块等保持 external，并按实际引用的文件追踪复制到产物的 `node_modules`（node / bun / deno / aws-lambda / vercel）。可在 `think.config.ts` 中调整：
+
+```ts
+export default defineThinkConfig({
+  externals: {
+    traceDeps: ['sharp', 'some-pkg*'], // 保持 external 并追踪（* 表示整包复制）
+    inline: ['postgres'], // 强制打包
+    // trace: false,                  // node / bun 退回依赖项目的 node_modules
+  },
+})
+```
+
+在 macOS / Windows 上构建 aws-lambda、vercel 产物时，如果追踪到了原生二进制，构建会给出警告：请在 Linux（CI / Docker）上构建。
+
+`pnpm preview`（`think-h3 preview`，全栈项目也可直接 `vite preview`）按构建时的预设运行产物本身：node / bun / deno / docker 启动产物进程，aws-lambda / vercel / netlify 在进程内调用函数，cloudflare 用 Miniflare 运行 Worker（D1 迁移自动应用到本地预览库）。
 
 ### 生产迁移
 

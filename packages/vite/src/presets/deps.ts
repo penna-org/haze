@@ -1,9 +1,12 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
-import { cp, mkdir, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { dirname, join } from 'node:path'
+import process from 'node:process'
+import { traceNodeModules } from 'nf3'
+import { NodeNativePackages, NonBundleablePackages } from 'nf3/db'
 
-/** 数据库驱动：含原生二进制 / WASM / 可选原生依赖，不打包，运行时从 node_modules 加载 */
+/** 数据库驱动：含原生二进制 / WASM / 可选原生依赖，不打包，运行时从 node_modules 加载（或追踪进产物） */
 export const DRIVER_PACKAGES = [
   '@libsql/client',
   'libsql',
@@ -21,8 +24,79 @@ export const EDGE_UNSUPPORTED_DRIVERS = [
   'libsql',
 ]
 
-/** 匹配“除数据库驱动外的全部依赖”，用作 ssr.noExternal */
-export const BUNDLE_ALL_EXCEPT_DRIVERS = new RegExp(`^(?!(?:${DRIVER_PACKAGES.map(name => name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?:/|$))`)
+/** 匹配“除给定包外的全部依赖”，用作 ssr.noExternal */
+export function bundleAllExcept(names: string[]): RegExp {
+  return new RegExp(`^(?!(?:${names.map(name => name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?:/|$))`)
+}
+
+/** 依赖处理选项（think.config.ts 的 externals） */
+export interface ExternalsOptions {
+  /**
+   * 构建后把仍为 external 的依赖按实际引用的文件追踪复制到产物的 node_modules（node / bun / deno），默认 true。
+   * false 时 node / bun 不打包依赖，运行时从项目的 node_modules 加载。aws-lambda / vercel 始终追踪。
+   */
+  trace?: boolean
+  /**
+   * 保持 external 并追踪进产物的包（默认已包含数据库驱动与已知的原生 / 无法打包的包）。
+   * `pkg*` 表示整包复制（运行时动态读取文件、静态分析不到时）。
+   */
+  traceDeps?: string[]
+  /** 强制打包进产物的包（覆盖默认的 external 列表） */
+  inline?: string[]
+}
+
+/** 不打包、运行时从 node_modules 加载的包：数据库驱动、原生模块、已知无法打包的包与 traceDeps */
+export function externalPackages(options: ExternalsOptions = {}): string[] {
+  const inline = new Set(options.inline)
+  return [
+    ...new Set([
+      ...DRIVER_PACKAGES,
+      ...NodeNativePackages,
+      ...NonBundleablePackages,
+      ...(options.traceDeps ?? []).map(name => name.replace(/\*$/, '')),
+    ]),
+  ].filter(name => !inline.has(name))
+}
+
+/** 按平台发布的原生二进制包，如 @libsql/darwin-arm64、@rollup/rollup-linux-x64-gnu */
+const PLATFORM_PACKAGE_RE = /(?:^|[-/])(?:darwin|win32|linux|freebsd)-(?:x64|arm64|ia32|arm)/
+
+export interface TraceResult {
+  /** 复制进产物的包（含传递依赖） */
+  packages: string[]
+  /** 构建机与目标平台不一致的原生包 */
+  foreignNative: string[]
+}
+
+/**
+ * 用 nf3（@vercel/nft）从产物入口追踪运行时实际加载的文件，复制为 `<serverDir>/node_modules`。
+ * 同名多版本放在 `node_modules/.nf3/<name>@<version>` 并链接到依赖方。
+ */
+export async function traceDependencies(serverDir: string, root: string, options: {
+  conditions?: string[]
+  traceDeps?: string[]
+  /** 目标运行平台（Lambda / Vercel 为 linux），用于检查原生包 */
+  platform?: NodeJS.Platform
+}): Promise<TraceResult> {
+  const inputs = walk(serverDir).filter(file => /\.m?js$/.test(file) && !file.startsWith(join(serverDir, 'client')))
+  const names = options.traceDeps ?? []
+  const layout = await traceNodeModules(inputs, {
+    rootDir: root,
+    outDir: serverDir,
+    ...(options.conditions && {
+      conditions: [...options.conditions, 'import', 'default'],
+    }),
+    traceInclude: names.filter(name => !name.endsWith('*')),
+    fullTraceInclude: names.filter(name => name.endsWith('*')).map(name => name.slice(0, -1)),
+    chmod: true,
+  })
+  const packages = Object.keys(layout.packages).sort()
+  const platform = options.platform ?? process.platform
+  const foreign = platform === process.platform
+    ? []
+    : packages.filter(name => PLATFORM_PACKAGE_RE.test(name) || NodeNativePackages.includes(name))
+  return { packages, foreignNative: foreign }
+}
 
 const builtins = new Set(builtinModules)
 /** 产物中的 import / export ... from / import() 语句（Rolldown 输出的规范格式） */
@@ -46,15 +120,6 @@ export function scanExternals(dir: string): string[] {
   return [...names].sort()
 }
 
-/** 项目依赖中的数据库驱动（ORM 通过动态 import 按需加载，扫描不到，需要显式带上） */
-export function projectDrivers(root: string): string[] {
-  const file = join(root, 'package.json')
-  if (!existsSync(file))
-    return []
-  const pkg = JSON.parse(readFileSync(file, 'utf8')) as { dependencies?: Record<string, string> }
-  return DRIVER_PACKAGES.filter(name => name in (pkg.dependencies ?? {}))
-}
-
 export interface InstalledPackage {
   name: string
   version: string
@@ -73,50 +138,6 @@ export function findInstalled(name: string, from: string): InstalledPackage | un
     if (dirname(dir) === dir)
       return undefined
   }
-}
-
-/**
- * 把依赖（含传递依赖与已安装的可选依赖）复制为扁平的 node_modules，
- * 用于需要自带依赖的产物（AWS Lambda、Vercel 函数）。同名不同版本时嵌套到依赖方目录下。
- */
-export async function copyDependencies(names: string[], from: string, target: string): Promise<InstalledPackage[]> {
-  const copied = new Map<string, InstalledPackage>()
-
-  async function copy(name: string, resolveFrom: string, into: string): Promise<void> {
-    const found = findInstalled(name, resolveFrom)
-    if (!found)
-      return
-    const existing = copied.get(name)
-    if (existing && existing.version === found.version)
-      return
-    const destination = existing
-      ? join(into, 'node_modules', name)
-      : join(target, name)
-    if (!existing)
-      copied.set(name, found)
-    await mkdir(dirname(destination), { recursive: true })
-    await cp(found.dir, destination, {
-      recursive: true,
-      dereference: true,
-      filter: source => !source.includes(`${found.dir}/node_modules`),
-    })
-
-    const pkg = JSON.parse(readFileSync(join(found.dir, 'package.json'), 'utf8')) as {
-      dependencies?: Record<string, string>
-      optionalDependencies?: Record<string, string>
-    }
-    for (const dependency of Object.keys({
-      ...pkg.dependencies,
-      ...pkg.optionalDependencies,
-    }))
-      await copy(dependency, found.dir, destination)
-  }
-
-  for (const name of names)
-    await copy(name, from, target)
-  return [
-    ...copied.values(),
-  ]
 }
 
 /** 生成只包含运行时依赖的 package.json（Docker 中 npm install 使用） */

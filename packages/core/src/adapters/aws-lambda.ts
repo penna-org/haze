@@ -142,3 +142,54 @@ export async function responseToLambdaResult(response: Response, v2: boolean): P
     isBase64Encoded: !isText,
   }
 }
+
+/**
+ * Web Request → API Gateway HTTP API（v2）事件：本地预览 / 测试中调用 Lambda handler
+ */
+export async function requestToLambdaEvent(request: Request): Promise<LambdaEvent> {
+  const url = new URL(request.url)
+  const headers: Record<string, string> = {}
+  request.headers.forEach((value, key) => {
+    if (key !== 'cookie')
+      headers[key] = value
+  })
+  headers.host ??= url.host
+  const cookie = request.headers.get('cookie')
+  const body = request.body
+    ? Buffer.from(await request.arrayBuffer())
+    : undefined
+  return {
+    version: '2.0',
+    rawPath: url.pathname,
+    rawQueryString: url.search.slice(1),
+    ...(cookie && {
+      cookies: cookie.split(/;\s*/),
+    }),
+    headers,
+    requestContext: {
+      http: { method: request.method, sourceIp: '127.0.0.1' },
+      domainName: url.host,
+    },
+    ...(body?.length && {
+      body: body.toString('base64'),
+      isBase64Encoded: true,
+    }),
+  }
+}
+
+/** Lambda 返回结果（v1 / v2）→ Web Response */
+export function lambdaResultToResponse(result: LambdaResult): Response {
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(result.headers ?? {}))
+    headers.set(key, value)
+  for (const [key, values] of Object.entries(result.multiValueHeaders ?? {}))
+    values.forEach(value => headers.append(key, value))
+  result.cookies?.forEach(cookie => headers.append('set-cookie', cookie))
+  const empty = result.statusCode === 204 || result.statusCode === 304
+  const body = empty
+    ? null
+    : result.isBase64Encoded
+      ? new Uint8Array(Buffer.from(result.body, 'base64'))
+      : result.body
+  return new Response(body, { status: result.statusCode, headers })
+}

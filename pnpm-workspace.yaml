@@ -25,6 +25,9 @@ catalog:
   '@libsql/client': ^0.18.0
   '@standard-schema/spec': ^1.0.0
   '@types/node': ^24.0.0
+  '@types/react': ^19.3.0
+  '@types/react-dom': ^19.3.0
+  '@vitejs/plugin-react': ^6.1.2
   '@vitejs/plugin-vue': ^6.0.10
   citty: ^0.2.2
   consola: ^3.4.2
@@ -37,7 +40,10 @@ catalog:
   mongodb: ^7.7.0
   mongodb-memory-server-core: ^11.3.0
   mysql2: ^3.24.6
+  nf3: ^0.4.2
   postgres: ^3.4.9
+  react: ^19.3.1
+  react-dom: ^19.3.1
   srvx: ^1.0.7
   tsdown: ^0.23.2
   typescript: ~6.0.3

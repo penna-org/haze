@@ -2,9 +2,10 @@ import type { ChildProcess } from 'node:child_process'
 import type { PresetName } from '../src'
 import { Buffer } from 'node:buffer'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -26,8 +27,10 @@ afterEach(async () => {
 })
 
 /** 基础 fixture + 一个回显请求的路由（验证方法、请求体、查询参数、Cookie 的转换） */
-async function build(preset: PresetName) {
+async function build(preset: PresetName, thinkConfig?: string) {
   fixture = copyFixture('basic')
+  if (thinkConfig)
+    fixture.write('think.config.ts', thinkConfig)
   fixture.write('route/echo.ts', `
 import { defineRoutes } from '@think-h3/core'
 export default defineRoutes(r => r.post('/echo', async ctx => ({
@@ -95,11 +98,31 @@ async function expectServes(command: string, args: string[], cwd: string, env: R
 const echoBody = { name: 'Ada' }
 
 describe('deployment presets', () => {
-  it('node: external dependencies, dist/index.mjs', async () => {
-    const result = await build('node')
+  it('node: bundles dependencies and traces externals into dist/node_modules', async () => {
+    // consola 改为 external：验证追踪复制（数据库驱动等默认 external 的包同理）
+    const result = await build('node', `export default { externals: { traceDeps: ['consola'] } }\n`)
     expect(result.entry).toBe(join(result.root, 'dist/index.mjs'))
-    // 依赖保持 external（运行时从 node_modules 加载）
-    expect(result.externals.length).toBeGreaterThan(0)
+    expect(result.externals).toEqual(['consola'])
+    expect(result.traced?.packages).toEqual(['consola'])
+    expect(existsSync(join(result.root, 'dist/node_modules/consola/package.json'))).toBe(true)
+    // 产物自包含：拷到项目之外仍可运行
+    const elsewhere = mkdtempSync(join(tmpdir(), 'think-h3-node-'))
+    try {
+      cpSync(join(result.root, 'dist'), elsewhere, { recursive: true })
+      await expectServes(process.execPath, [
+        join(elsewhere, 'index.mjs'),
+      ], elsewhere, { APP_NAME: 'basic' })
+    }
+    finally {
+      rmSync(elsewhere, { recursive: true, force: true })
+    }
+  })
+
+  it('node: externals.trace false keeps dependencies in the project node_modules', async () => {
+    const result = await build('node', `export default { externals: { trace: false } }\n`)
+    expect(result.externals).toEqual(expect.arrayContaining(['srvx']))
+    expect(result.traced).toBeUndefined()
+    expect(existsSync(join(result.root, 'dist/node_modules'))).toBe(false)
     await expectServes(process.execPath, [result.entry], result.root)
   })
 

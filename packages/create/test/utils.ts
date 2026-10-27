@@ -1,6 +1,6 @@
 import type { ScaffoldResult, TemplateName } from '../src/scaffold'
 import { spawn } from 'node:child_process'
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -15,6 +15,7 @@ let counter = 0
 /** 生成到 test/.tmp 下，依赖沿目录向上解析到 packages/create/node_modules */
 export function createProject(template: TemplateName): ScaffoldResult & {
   edit: (file: string, from: string, to: string) => void
+  write: (file: string, content: string) => void
   read: (file: string) => string
   cleanup: () => void
 } {
@@ -28,6 +29,10 @@ export function createProject(template: TemplateName): ScaffoldResult & {
   return {
     ...result,
     read: file => readFileSync(join(result.root, file), 'utf8'),
+    write(file, content) {
+      mkdirSync(dirname(join(result.root, file)), { recursive: true })
+      writeFileSync(join(result.root, file), content)
+    },
     edit(file, from, to) {
       const path = join(result.root, file)
       const source = readFileSync(path, 'utf8')

@@ -92,6 +92,9 @@ describe('full-stack deployment presets (vue template)', () => {
   it('aws-lambda: exports a migrate handler running the bundled migrations', async () => {
     const { root, output } = await buildVue('aws-lambda')
     expect(output).toContain('handler index.migrate')
+    // 依赖由追踪复制进产物；在非 Linux 机器上构建时提示原生二进制平台不符
+    if (process.platform !== 'linux')
+      expect(output).toMatch(/native packages were traced from this \w+ machine: .*@libsql\/(?:darwin|win32)-/)
     const lambda = join(root, 'dist/lambda')
     // 进程内调用：数据库写到产物目录（真实环境变量优先于 .env）
     process.env.DATABASE_URL = `file:${join(lambda, 'data/app.db')}`

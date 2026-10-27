@@ -1,4 +1,4 @@
-export { createLambdaHandler, lambdaEventToRequest, responseToLambdaResult } from './adapters/aws-lambda'
+export { createLambdaHandler, lambdaEventToRequest, lambdaResultToResponse, requestToLambdaEvent, responseToLambdaResult } from './adapters/aws-lambda'
 export type { LambdaEvent, LambdaResult } from './adapters/aws-lambda'
 export { Application, config, createApplication, useApp } from './application'
 export type { ApplicationOptions, AppMode, DisposeOptions } from './application'

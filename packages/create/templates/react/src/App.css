@@ -1,0 +1,22 @@
+.page {
+  max-width: 560px;
+  margin: 64px auto;
+  padding: 0 16px;
+  font-family: system-ui, sans-serif;
+}
+.form {
+  display: flex;
+  gap: 8px;
+}
+.form input {
+  flex: 1;
+  padding: 6px 10px;
+}
+.error {
+  color: #c0392b;
+}
+.tip {
+  margin-top: 32px;
+  color: #666;
+  font-size: 14px;
+}
