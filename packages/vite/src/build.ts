@@ -38,7 +38,12 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
     envDir: false,
     logLevel: 'warn',
     plugins: [
-      thinkH3({ srcDir: config.srcDir, port: config.port, host: config.host }),
+      thinkH3({
+        srcDir: config.srcDir,
+        port: config.port,
+        host: config.host,
+        standalone: true,
+      }),
     ],
     build: {
       ssr: true,

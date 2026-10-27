@@ -1,0 +1,30 @@
+{
+  "name": "{{name}}",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "think-h3 dev",
+    "build": "think-h3 build",
+    "start": "think-h3 start",
+    "test": "think-h3 test",
+    "routes": "think-h3 route:list",
+    "typecheck": "vue-tsc --build"
+  },
+  "dependencies": {
+    "@think-h3/core": "{{version}}",
+    "valibot": "^1.1.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@think-h3/cli": "{{version}}",
+    "@think-h3/testing": "{{version}}",
+    "@think-h3/vite": "{{version}}",
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "vue-tsc": "^3.3.0"
+  }
+}

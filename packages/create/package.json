@@ -1,0 +1,40 @@
+{
+  "name": "create-think-h3",
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Scaffold a think-h3 project (API or Vue full-stack)",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/scaffold.d.mts",
+      "default": "./dist/scaffold.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "create-think-h3": "./bin/create-think-h3.mjs"
+  },
+  "files": ["bin", "dist", "templates"],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "citty": "catalog:",
+    "consola": "catalog:"
+  },
+  "devDependencies": {
+    "@think-h3/cli": "workspace:*",
+    "@think-h3/core": "workspace:*",
+    "@think-h3/testing": "workspace:*",
+    "@think-h3/vite": "workspace:*",
+    "@vitejs/plugin-vue": "catalog:",
+    "valibot": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vue": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

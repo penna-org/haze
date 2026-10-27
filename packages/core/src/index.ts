@@ -15,6 +15,8 @@ export type { NormalizedError } from './exception/handler'
 export { getHttpContext, HttpContext } from './http/context'
 export type { ContextState, Validated, ValidationTargets } from './http/context'
 export { envelope } from './http/response'
+export { createStaticMiddleware } from './http/static'
+export type { StaticOptions } from './http/static'
 export { validate } from './http/validation'
 
 export { Logger } from './logger'

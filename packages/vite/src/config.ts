@@ -33,6 +33,13 @@ export function defineThinkConfig(config: ThinkConfig): ThinkConfig {
 
 const EXTENSIONS = ['ts', 'mts', 'js', 'mjs']
 
+/** 存在 vite.config.* 视为全栈项目：由用户的 Vite 配置（含 thinkH3() 插件）驱动 */
+export function findViteConfig(root: string): string | undefined {
+  return EXTENSIONS
+    .map(ext => resolve(root, `vite.config.${ext}`))
+    .find(file => existsSync(file))
+}
+
 /** 读取项目根目录下的 `think.config.ts`（可选） */
 export async function loadThinkConfig(root: string, mode = 'development'): Promise<ResolvedThinkConfig> {
   const configFile = EXTENSIONS

@@ -10,6 +10,9 @@
       ],
       "@think-h3/vite": [
         "./packages/vite/src/index.ts"
+      ],
+      "@think-h3/testing": [
+        "./packages/testing/src/index.ts"
       ]
     }
   },
@@ -21,7 +24,8 @@
     "*.ts"
   ],
   "exclude": [
-    "packages/vite/test/fixtures",
-    "packages/vite/test/.tmp"
+    "packages/*/test/fixtures",
+    "packages/*/test/.tmp",
+    "packages/create/templates"
   ]
 }

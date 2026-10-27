@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@think-h3/cli": "workspace:*",
+    "@think-h3/testing": "workspace:*",
     "@think-h3/vite": "workspace:*",
     "vite": "catalog:"
   }

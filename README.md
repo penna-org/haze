@@ -2,12 +2,34 @@
 
 基于 [h3 v2](https://h3.dev) 的 Node 服务端框架：IoC 容器、集中路由、分层中间件、统一异常处理，设计参考 ThinkPHP。完整设计见 [docs/design.md](docs/design.md)。
 
-> 当前进度：M0（monorepo）、M1（运行时内核）、M2（Vite 插件 + 热更新 + CLI）。Vue 集成与脚手架属于 M3。
+> 当前进度：M0（monorepo）、M1（运行时内核）、M2（Vite 插件 + 热更新 + CLI）、M3（Vue 全栈集成、脚手架、测试工具）。
 
 ## 环境
 
 - Node `>=22.12`（仓库 `.nvmrc` 为 22.18.0，执行 `nvm use`）
 - pnpm 11
+
+## 创建项目
+
+```bash
+pnpm create think-h3 my-app            # 交互选择模板
+pnpm create think-h3 my-app -t api     # 纯后端 API
+pnpm create think-h3 my-app -t vue     # Vue 3 全栈（同仓库、同端口、一次构建）
+```
+
+> 包尚未发布到 npm，仓库内可用 `node packages/create/bin/create-think-h3.mjs <dir> -t vue` 体验。
+
+在已有的 Vue 项目中使用：
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [vue(), thinkH3()], // 开发时 /api/** 交给 server/ 下的后端；vite build 产出 dist/client + dist/server
+})
+
+// think.config.ts
+export default defineThinkConfig({ srcDir: 'server' })
+```
 
 ## 常用命令
 
@@ -33,6 +55,8 @@ pnpm test         # think-h3 test（vitest）
 ## 目录
 
 ```
+packages/create/ create-think-h3 脚手架与 api / vue 模板
+packages/testing/ @think-h3/testing  useTestApp / createTestApp / defineThinkTestConfig
 packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / test / route:list）
 packages/vite/   @think-h3/vite Vite 插件（virtual:think/*）、热替换开发服务器、生产构建
 packages/core/   @think-h3/core 运行时内核

@@ -15,9 +15,13 @@ export default defineCommand({
   async run({ args }) {
     const root = resolveRoot(args.root)
     const { outDir } = await loadThinkConfig(root, 'production')
-    const entry = join(outDir, 'index.mjs')
-    if (!existsSync(entry))
-      throw new Error(`${relative(process.cwd(), entry)} not found. Run \`think-h3 build\` first.`)
+    // 纯后端：dist/index.mjs；全栈：dist/server/index.mjs
+    const entry = [
+      join(outDir, 'index.mjs'),
+      join(outDir, 'server', 'index.mjs'),
+    ].find(file => existsSync(file))
+    if (!entry)
+      throw new Error(`No build output found in ${relative(process.cwd(), outDir) || '.'}. Run \`think-h3 build\` first.`)
 
     process.env.NODE_ENV = 'production'
     if (args.port)

@@ -600,3 +600,32 @@ it('获取用户', async () => {
 - 当前每次变化都重新执行全部应用代码（毫秒级）；细粒度 HMR（只重建路由等）暂无必要。
 
 下一步：M3（Vue 项目集成：dev 挂载 `/api/**`、client + server 一次构建、`create-think-h3` 模板、`@think-h3/testing`）。
+
+### M3（2026-10-26）
+
+新增 `@think-h3/testing` 与 `create-think-h3`，`thinkH3()` 支持 Vue 全栈模式；77 个测试通过（含模板端到端：生成 → 类型检查 → 模板自带测试 → dev 热更新 → 构建 → 生产运行）。并用真实 CLI + 浏览器验证了 Vue 模板的开发与生产流程。
+
+**Vue 全栈模式**（`vite.config.ts` 中 `plugins: [vue(), thinkH3()]`）
+
+- 开发：插件在 Vite 内置中间件之前挂载 `/api/**`（`prefix` 可配），经 srvx `toNodeHandler` 交给热替换的应用；前后端同端口，无需代理。后端文件变化走 `hotUpdate`（ssr 环境）整体重载，前端 HMR 不受影响。
+- `.env`：全栈模式保留 Vite 的 `envDir`（前端需要 `VITE_*`），`.env` 变化时 Vite 自行重启，插件通过包装 `server.close()` 释放旧应用，实测新值立即生效。纯后端模式仍为 `envDir: false`。
+- 构建：插件配置 `builder.buildApp`，`vite build` 依次构建 `client → dist/client`、`ssr → dist/server`；生产入口通过 core 新增的 `static` 选项托管 `dist/client`（`/assets/` 长期缓存、HTML 请求回退 index.html、`/api` 排除在外返回 JSON 404）。
+- `srcDir` / `outDir` 统一从 `think.config.ts` 读取，`vite.config.ts` 与 `think-h3` 命令共用。
+- `think-h3 dev / build` 检测到 `vite.config.*` 时交给用户的 Vite 配置；`start` 自动查找 `dist/index.mjs` 或 `dist/server/index.mjs`。
+
+**@think-h3/testing**
+
+- `useTestApp(options)`：每个用例前创建全新应用、用例后释放；`createTestApp()` 手动管理。
+- 客户端：`get / post / put / patch / delete` 自动 JSON 编解码，`withHeaders()` 派生带默认头的客户端；`override: c => c.instance(...)` 替换绑定。
+- `defineThinkTestConfig()`：注册 `thinkH3({ standalone: true })` 并内联 `@think-h3/testing`（它需要导入 `virtual:think/app`）。
+
+**create-think-h3**
+
+- 模板放在 `packages/create/templates/{api,vue}`（与原方案的仓库根 `templates/` 不同，便于随包发布）；`_gitignore` → `.gitignore`，`{{name}}` / `{{version}}` 占位替换。
+- Vue 模板的 TypeScript 拆分为 `tsconfig.app.json`（DOM + Vue）与 `tsconfig.server.json`（Node + 虚拟模块类型），`vue-tsc --build` 统一检查。
+
+**已知限制 / 后续**
+
+- 包尚未发布，模板依赖的 `^0.0.0` 在仓库外无法安装；发布前需确定 npm 仓库（公共 / gitea 私有）。
+- 前端调用 API 仍是手写 `fetch`，路由与控制器返回类型尚未生成前端类型（计划中的类型安全 API 客户端）。
+- M4：`make:*` 代码生成器、`typegen`、日志增强、错误页；M5：ORM、缓存、Session/Auth、队列、OpenAPI。

@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "@think-h3/vite/client"]
+  },
+  "include": ["src"]
+}

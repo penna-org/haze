@@ -1,5 +1,6 @@
 import type { ConfigInput } from './config/config'
 import type { InjectionKey } from './container/token'
+import type { StaticOptions } from './http/static'
 import type { MiddlewareConfig } from './middleware/types'
 import type { ProviderInput, ServiceProvider } from './provider'
 import type { RouteModule, RouteRegistrar } from './routing/builder'
@@ -12,6 +13,7 @@ import { Container } from './container/container'
 import { NotFoundException } from './exception/exceptions'
 import { ExceptionHandler } from './exception/handler'
 import { getHttpContext, HttpContext, setHttpContext } from './http/context'
+import { createStaticMiddleware } from './http/static'
 import { Logger } from './logger'
 import { MiddlewareRegistry } from './middleware/registry'
 import { disposePersistent } from './persistent'
@@ -33,6 +35,8 @@ export interface ApplicationOptions {
   routes?: Array<RouteModule | RouteRegistrar> | ModuleRecord
   providers?: ProviderInput[] | ModuleRecord
   exceptionHandler?: Constructor<ExceptionHandler>
+  /** 托管静态资源（全栈项目的前端构建产物） */
+  static?: StaticOptions
   /** 在提供者 register 之后、boot 之前执行，常用于测试中替换绑定 */
   setup?: (app: Application) => MaybePromise<void>
 }
@@ -222,6 +226,10 @@ export class Application {
         return handleError(error, ctx)
       }
     })
+
+    // 静态资源：在业务中间件之前，避免鉴权等逻辑作用于前端资源
+    if (this.#options.static)
+      h3.use(createStaticMiddleware(this.#options.static))
 
     const registry = new MiddlewareRegistry(this.config.get('middleware') as MiddlewareConfig)
     for (const item of registry.resolve(this.config.get('middleware.global') ?? []))

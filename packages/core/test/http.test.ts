@@ -497,3 +497,58 @@ describe('application lifecycle', () => {
     }
   })
 })
+
+describe('static files', () => {
+  async function bootStatic(spaFallback = true) {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'think-static-'))
+    mkdirSync(join(dir, 'assets'))
+    writeFileSync(join(dir, 'index.html'), '<div id="app"></div>')
+    writeFileSync(join(dir, 'assets', 'main-abc123.js'), 'console.log(1)')
+    writeFileSync(join(dir, 'robots.txt'), 'User-agent: *')
+    return boot(r => r.get('/api/ping', () => 'pong'), {
+      static: {
+        dir,
+        spaFallback,
+        exclude: ['/api'],
+      },
+    })
+  }
+  const html = {
+    headers: { accept: 'text/html' },
+  }
+
+  it('serves files with long-term caching for hashed assets', async () => {
+    const app = await bootStatic()
+    const asset = await app.request('/assets/main-abc123.js')
+    expect(asset.status).toBe(200)
+    expect(asset.headers.get('cache-control')).toContain('immutable')
+    expect(await asset.text()).toBe('console.log(1)')
+
+    const robots = await app.request('/robots.txt')
+    expect(robots.headers.get('cache-control')).toBeNull()
+    expect(await (await app.request('/', html)).text()).toBe('<div id="app"></div>')
+  })
+
+  it('falls back to index.html for client-side routes only', async () => {
+    const app = await bootStatic()
+    const page = await app.request('/users/42', html)
+    expect([page.status, await page.text()]).toEqual([200, '<div id="app"></div>'])
+
+    const api = await app.request('/api/missing', html)
+    expect(api.status).toBe(404)
+    expect((await json(api)).code).toBe(404)
+
+    expect((await app.request('/missing.js')).status).toBe(404)
+    expect(await (await app.request('/api/ping')).text()).toBe('pong')
+  })
+
+  it('rejects path traversal and can disable the fallback', async () => {
+    const app = await bootStatic(false)
+    expect((await app.request('/../package.json')).status).toBe(404)
+    expect((await app.request('/%2e%2e/%2e%2e/etc/passwd')).status).toBe(404)
+    expect((await app.request('/users/42', html)).status).toBe(404)
+  })
+})
