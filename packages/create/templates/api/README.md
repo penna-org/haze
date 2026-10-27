@@ -47,6 +47,24 @@ router.url('api.hello') // 路由名有补全，参数按路径检查
 - `app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`think-h3 make:interceptor`）
 - 单个路由跳过：`.meta({ envelope: false })` 或 `return raw(value)`
 
+## 多应用
+
+在 `config/app.ts` 中声明应用，代码放在 `app/<name>/`（controller、route、config、middleware 配置、exception/Handler.ts、response/Formatter.ts）：
+
+```ts
+export default defineConfig(() => ({
+  name: env('APP_NAME', 'my-app'),
+  apps: {
+    admin: { prefix: '/admin' }, // /admin/** → app/admin
+    api: { domain: 'api.example.com' }, // 按域名分发，支持 *.example.com
+  },
+}))
+```
+
+- 应用配置 `app/<name>/config/*.ts` 与全局配置深合并，请求内 `config()`、`ctx.config` 读取应用配置
+- 路由名自动带应用前缀：`router.url('admin.users.index')`
+- 生成代码：`npx think-h3 make:controller User --app admin`
+
 ## 目录
 
 ```

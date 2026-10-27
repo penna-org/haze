@@ -50,10 +50,10 @@ export class ExceptionHandler {
   }
 
   render(error: unknown, ctx: HttpContext): MaybePromise<unknown> {
-    const normalized = this.normalize(error)
+    const normalized = this.normalize(error, ctx)
     ctx.status(normalized.status)
     normalized.headers?.forEach((value, key) => ctx.setHeader(key, value))
-    if (this.debug && this.wantsHtml(ctx))
+    if (this.isDebug(ctx) && this.wantsHtml(ctx))
       return this.renderDebugPage(error, normalized, ctx)
     return this.format(normalized, ctx)
   }
@@ -82,12 +82,13 @@ export class ExceptionHandler {
     })
   }
 
-  protected get debug(): boolean {
-    return this.config.get('app.debug')
+  /** 读取当前请求生效的配置（多应用时为应用级配置） */
+  protected isDebug(ctx: HttpContext): boolean {
+    return ctx.config.get('app.debug')
   }
 
-  protected normalize(error: unknown): NormalizedError {
-    const debug = this.debug
+  protected normalize(error: unknown, ctx: HttpContext): NormalizedError {
+    const debug = this.isDebug(ctx)
     const stack = debug && error instanceof Error && error.stack
       ? error.stack.split('\n').map(line => line.trim())
       : undefined

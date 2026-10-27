@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import type { AppMatcher, SubAppConfig, SubAppModules } from './apps'
 import type { ConfigInput, ConfigPath, ConfigPathValue } from './config/config'
 import type { InjectionKey } from './container/token'
 import type { Interceptor } from './http/interceptor'
@@ -10,6 +11,7 @@ import type { RouteMeta } from './routing/route'
 import type { Constructor, MaybePromise, ModuleRecord } from './utils'
 import process from 'node:process'
 import { H3, serve, toResponse } from 'h3'
+import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
 import { Container } from './container/container'
@@ -44,6 +46,11 @@ export interface ApplicationOptions {
   responseFormatter?: Constructor<ResponseFormatter>
   /** 出站拦截器（`app/interceptor/*.ts`），按顺序处理最终 Response */
   interceptors?: Interceptor[] | ModuleRecord
+  /**
+   * 多应用模块：`import.meta.glob('/app/*\/{route,config,provider,exception,response}/*')`。
+   * 只有在 `config/app.ts` 的 `apps` 中声明的应用才会启用。
+   */
+  apps?: ModuleRecord
   /** 托管静态资源（全栈项目的前端构建产物） */
   static?: StaticOptions
   /** 在提供者 register 之后、boot 之前执行，常用于测试中替换绑定 */
@@ -72,6 +79,8 @@ export class Application {
   readonly #options: ApplicationOptions
   readonly #providers: ServiceProvider[] = []
   readonly #interceptors: Interceptor[] = []
+  readonly #apps: SubApp[] = []
+  #appModules = new Map<string, EnabledApp>()
   #h3: H3 | undefined
   #booted = false
 
@@ -132,8 +141,15 @@ export class Application {
     for (const [, interceptor] of normalizeModules<Interceptor>(options.interceptors))
       this.intercept(interceptor)
 
-    // 4. 提供者 register → setup → boot
-    for (const [, Provider] of normalizeModules<ProviderInput>(options.providers)) {
+    // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
+    this.#appModules = this.#enabledApps()
+    const providers = [
+      ...normalizeModules<ProviderInput>(options.providers).map(([, provider]) => provider),
+      ...[
+        ...this.#appModules.values(),
+      ].flatMap(({ modules }) => modules.providers),
+    ]
+    for (const Provider of providers) {
       const provider = isClass(Provider)
         ? new Provider()
         : Provider
@@ -213,7 +229,8 @@ export class Application {
 
   #createH3(): H3 {
     const handleError = async (error: unknown, ctx: HttpContext): Promise<unknown> => {
-      const handler = this.container.make(ExceptionHandler)
+      // 从请求容器解析：多应用时为应用自己的异常处理器
+      const handler = ctx.make(ExceptionHandler)
       try {
         await handler.report(error, ctx)
       }
@@ -229,7 +246,7 @@ export class Application {
       const requestId = resolveRequestId(event, requestIdHeader)
       // 从容器取 Logger，测试中替换的日志器同样生效
       const logger = this.container.make(Logger).child({ requestId })
-      return new HttpContext(event, container, { requestId, logger })
+      return new HttpContext(event, container, { requestId, logger, config: this.config })
     }
 
     // 出站：处理器 / 中间件返回的数据交给 ResponseFormatter 统一格式
@@ -309,6 +326,35 @@ export class Application {
     for (const item of registry.resolve(this.config.get('middleware.global') ?? []))
       h3.use(registry.toH3(item))
 
+    // 多应用分发：按域名 / 前缀进入应用自己的路由表（在全局中间件之后、全局路由之前）
+    this.#apps.push(...this.#createApps(this.#appModules, registry))
+    if (this.#apps.length) {
+      h3.use(async (event, next) => {
+        const app = matchApp(this.#apps, event.url.hostname, event.url.pathname)
+        if (!app)
+          return next()
+        const ctx = getHttpContext(event)!
+        ctx.appName = app.name
+        ctx.config = app.config
+        ctx.logger = ctx.logger.child({ app: app.name })
+        ctx.container.instance(Config, app.config)
+        if (app.handler)
+          ctx.container.instance(ExceptionHandler, app.handler)
+        if (app.formatter)
+          ctx.container.instance(ResponseFormatter, app.formatter)
+
+        const original = event.url.pathname
+        if (app.prefix !== '/')
+          event.url.pathname = original.slice(app.prefix.length) || '/'
+        try {
+          return await app.h3.handler(event)
+        }
+        finally {
+          event.url.pathname = original
+        }
+      })
+    }
+
     for (const [, module] of normalizeModules<RouteModule | RouteRegistrar>(this.#options.routes))
       this.router.load(module)
     this.router.compile({
@@ -316,8 +362,74 @@ export class Application {
       container: this.container,
       middleware: registry,
     })
+    for (const app of this.#apps) {
+      this.router.mount(app.router, {
+        app: app.name,
+        prefix: app.prefix,
+        domain: app.domains.length ? app.domains : undefined,
+      })
+    }
 
     return h3
+  }
+
+  /** 已在 config/app.ts 的 apps 中声明的应用及其目录模块 */
+  #enabledApps(): Map<string, EnabledApp> {
+    const declared = this.config.get<Record<string, SubAppConfig>>('app.apps', {})
+    const discovered = groupAppModules(this.#options.apps)
+    const enabled = new Map<string, EnabledApp>()
+    for (const [name, config] of Object.entries(declared)) {
+      enabled.set(name, {
+        matcher: normalizeAppConfig(name, config),
+        modules: discovered.get(name) ?? { routes: [], config: [], providers: [] },
+      })
+    }
+    assertNoConflicts([
+      ...enabled.values(),
+    ].map(({ matcher }) => matcher))
+    return enabled
+  }
+
+  #createApps(apps: Map<string, EnabledApp>, globalRegistry: MiddlewareRegistry): SubApp[] {
+    return [
+      ...apps.values(),
+    ].map(({ matcher, modules }) => {
+      // 应用配置 = 全局配置 + app/<name>/config/*.ts（深合并，不影响全局）
+      const config = new Config({
+        ...this.config.all(),
+      })
+      const own: Record<string, any> = {}
+      for (const [name, value] of modules.config) {
+        own[name] = resolveConfigInput(value)
+        config.merge(name, own[name])
+      }
+
+      // 应用中间件：可引用全局别名，全局中间件已在分发前执行，这里只注册应用自己的 global
+      const registry = own.middleware
+        ? new MiddlewareRegistry(config.get('middleware') as MiddlewareConfig)
+        : globalRegistry
+      const h3 = new H3()
+      for (const item of registry.resolve(own.middleware?.global ?? []))
+        h3.use(registry.toH3(item))
+
+      const router = new Router()
+      for (const module of modules.routes)
+        router.load(module, { as: `${matcher.name}.` })
+      router.compile({ h3, container: this.container, middleware: registry })
+
+      const make = <T>(Ctor: Constructor<T> | undefined): T | undefined =>
+        Ctor
+          ? this.container.call(() => new Ctor())
+          : undefined
+      return {
+        ...matcher,
+        config,
+        h3,
+        router,
+        handler: make(modules.exceptionHandler),
+        formatter: make(modules.responseFormatter),
+      }
+    })
   }
 }
 
@@ -338,13 +450,28 @@ export function useApp(): Application {
 export function config<P extends ConfigPath>(key: P): ConfigPathValue<P>
 export function config<T>(key: string, defaultValue: T): T
 export function config(key: string, defaultValue?: unknown): unknown {
-  return useApp().config.get(key, defaultValue)
+  // 请求内读取当前应用的配置（多应用时为应用级配置）
+  const config = getRequestStore()?.ctx.config ?? useApp().config
+  return config.get(key, defaultValue)
 }
 
 function resolveMode(nodeEnv: string | undefined): AppMode {
   if (nodeEnv === 'production' || nodeEnv === 'test')
     return nodeEnv
   return 'development'
+}
+
+interface EnabledApp {
+  matcher: AppMatcher
+  modules: SubAppModules
+}
+
+interface SubApp extends AppMatcher {
+  config: Config
+  h3: H3
+  router: Router
+  handler?: ExceptionHandler
+  formatter?: ResponseFormatter
 }
 
 const REQUEST_ID_RE = /^[\w.:-]{1,128}$/

@@ -139,6 +139,8 @@ export interface MakeOptions {
   force?: boolean
   /** 使用的 stub 变体，例如 controller.resource */
   variant?: string
+  /** 多应用：生成到 app/<app>/ 下 */
+  app?: string
 }
 
 export interface MakeResult {
@@ -173,7 +175,11 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
   const base = kind.base === 'root'
     ? options.root
     : options.srcDir
-  const file = join(base, kind.dir, dir, fileName + (kind.ext ?? '.ts'))
+  // 多应用：app/controller → app/<app>/controller，config → app/<app>/config
+  const kindDir = options.app && kind.base === 'src'
+    ? `app/${kebabCase(options.app)}/${kind.dir.replace(/^app\//, '')}`
+    : kind.dir
+  const file = join(base, kindDir, dir, fileName + (kind.ext ?? '.ts'))
   if (existsSync(file) && !options.force)
     throw new Error(`${file} already exists. Use --force to overwrite.`)
 
@@ -185,7 +191,9 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
     file,
     stub: stubName,
     custom,
-    hint: kind.hint?.(vars),
+    hint: options.app
+      ? kind.hint?.(vars)?.replace('route/*.ts', `app/${kebabCase(options.app)}/route/*.ts`)
+      : kind.hint?.(vars),
   }
 }
 

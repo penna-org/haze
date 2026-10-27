@@ -26,6 +26,7 @@ import { isFormattable } from './response'
  * 单个路由可用 `.meta({ envelope: false })` 或在处理器中 `return raw(value)` 跳过格式化。
  */
 export class ResponseFormatter {
+  /** 全局配置；格式化时请优先读取 ctx.config（多应用时为应用级配置） */
   protected readonly config = inject(Config)
 
   /** 是否需要格式化该返回值（默认只处理普通对象、数组、数字、布尔、null） */
@@ -33,15 +34,15 @@ export class ResponseFormatter {
     return isFormattable(value)
   }
 
-  success(data: unknown, _ctx: HttpContext): unknown {
-    const { envelope, successCode, successMessage } = this.config.get('app.response')
+  success(data: unknown, ctx: HttpContext): unknown {
+    const { envelope, successCode, successMessage } = ctx.config.get('app.response')
     if (!envelope)
       return data
     return { code: successCode, message: successMessage, data: data ?? null }
   }
 
-  error(error: NormalizedError, _ctx: HttpContext): unknown {
-    const envelope = this.config.get('app.response.envelope')
+  error(error: NormalizedError, ctx: HttpContext): unknown {
+    const envelope = ctx.config.get('app.response.envelope')
     return {
       ...(envelope
         ? { code: error.code, message: error.message, data: error.data ?? null }

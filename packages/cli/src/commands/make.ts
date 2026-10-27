@@ -17,6 +17,7 @@ function makeCommand(kind: KindName): CommandDef<any> {
       name: { type: 'positional', description: '名称，可带子目录，例如 admin/User', required: true },
       ...rootArg,
       force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
+      app: { type: 'string', alias: 'a', description: '多应用：生成到 app/<app>/ 下' },
       ...(kind === 'controller' && {
         resource: {
           type: 'boolean',
@@ -36,6 +37,7 @@ function makeCommand(kind: KindName): CommandDef<any> {
         name: args.name,
         force: args.force,
         variant: variantOf(kind, root, args),
+        app: args.app,
       })
       consola.success(`Created ${colors.cyan(relative(process.cwd(), result.file))}${result.custom
         ? colors.dim(` (stubs/${result.stub}.stub)`)

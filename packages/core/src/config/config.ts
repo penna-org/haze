@@ -1,3 +1,4 @@
+import type { SubAppConfig } from '../apps'
 import type { LoggerConfig } from '../logger'
 import type { MiddlewareConfig } from '../middleware/types'
 import { deepMerge, isPlainObject } from '../utils'
@@ -16,6 +17,8 @@ export interface AppConfig {
   response: ResponseConfig
   /** 读取 / 回写请求 ID 的请求头，false 关闭（仍会生成 ID 用于日志） */
   requestIdHeader: string | false
+  /** 多应用：`{ admin: { prefix: '/admin' }, api: { domain: 'api.example.com' } }`，目录为 app/<name>/ */
+  apps?: Record<string, SubAppConfig>
 }
 
 /** 框架内置的配置项 */

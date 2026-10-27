@@ -238,6 +238,8 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `const formatters = ${glob('app/response/Formatter.{ts,mts,js,mjs}', ', import: \'default\'')}`,
     `export const responseFormatter = Object.values(formatters)[0]`,
     `export const interceptors = ${glob('app/interceptor/*.{ts,mts,js,mjs}')}`,
+    // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
+    `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
 }
 
@@ -257,6 +259,7 @@ export function createApp(options = {}) {
     exceptionHandler: manifest.exceptionHandler,
     responseFormatter: manifest.responseFormatter,
     interceptors: manifest.interceptors,
+    apps: manifest.apps,
     ...options,
   })
 }

@@ -23,8 +23,13 @@ export default defineCommand({
         consola.log(JSON.stringify(routes, null, 2))
         return
       }
+      // 多应用时额外显示所属应用与域名
+      const multiApp = routes.some(route => route.app)
       const rows = [
         [
+          ...(multiApp
+            ? ['APP', 'DOMAIN']
+            : []),
           'METHOD',
           'PATH',
           'NAME',
@@ -32,6 +37,9 @@ export default defineCommand({
           'MIDDLEWARE',
         ],
         ...routes.map(route => [
+          ...(multiApp
+            ? [route.app ?? '-', route.domain ?? '']
+            : []),
           route.method,
           route.path,
           route.name ?? '',

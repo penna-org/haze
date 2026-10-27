@@ -85,6 +85,45 @@ describe('make', () => {
     })).rejects.toThrow(/不能包含子目录/)
   })
 
+  it('generates into an app directory with --app', async () => {
+    const results = [
+      await make({
+        root,
+        srcDir,
+        kind: 'controller',
+        name: 'User',
+        app: 'admin',
+      }),
+      await make({
+        root,
+        srcDir,
+        kind: 'route',
+        name: 'web',
+        app: 'admin',
+      }),
+      await make({
+        root,
+        srcDir,
+        kind: 'config',
+        name: 'app',
+        app: 'admin',
+      }),
+      await make({
+        root,
+        srcDir,
+        kind: 'test',
+        name: 'admin-user',
+        app: 'admin',
+      }),
+    ]
+    expect(results.map(result => rel(result.file))).toEqual([
+      'server/app/admin/controller/UserController.ts',
+      'server/app/admin/route/web.ts',
+      'server/app/admin/config/app.ts',
+      'tests/admin-user.test.ts',
+    ])
+  })
+
   it('refuses to overwrite unless forced', async () => {
     await make({
       root,

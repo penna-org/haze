@@ -1,4 +1,6 @@
 import type { DevServer } from '../src'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createDevServer } from '../src'
 import { copyFixture, getJson, nextReload, settle } from './utils'
@@ -53,13 +55,52 @@ export default defineInterceptor(response => void response.headers.set('x-powere
     await settle()
 
     const res = await getJson(dev, '/hello')
-    expect(res.body).toEqual({ ok: true, result: { message: 'hello v1' } })
+    expect(res.body).toEqual({
+      ok: true,
+      result: { message: 'hello v1' },
+    })
     expect(res.headers.get('x-powered-by')).toBe('think-h3')
 
     const reloaded = nextReload(dev)
     fixture.edit('app/response/Formatter.ts', 'ok: true', 'success: true')
     expect((await reloaded).ok).toBe(true)
-    expect((await getJson(dev, '/hello')).body).toEqual({ success: true, result: { message: 'hello v1' } })
+    expect((await getJson(dev, '/hello')).body).toEqual({
+      success: true,
+      result: { message: 'hello v1' },
+    })
+  })
+
+  it('discovers app directories in multi-app mode and hot-reloads them', async () => {
+    fixture = copyFixture('basic')
+    fixture.write('config/app.ts', `
+import { defineConfig } from '@think-h3/core'
+export default defineConfig({ name: 'Global', apps: { admin: { prefix: '/admin' } } })
+`)
+    fixture.write('app/admin/config/app.ts', `export default { name: 'Admin' }`)
+    fixture.write('app/admin/route/web.ts', `
+import { config, defineRoutes } from '@think-h3/core'
+export default defineRoutes(r => r.get('/hi', ctx => ({ app: ctx.appName, name: config('app.name'), v: 1 })).name('hi'))
+`)
+    dev = await createDevServer({ root: fixture.root, port: 0, debounce: 10 })
+    await settle()
+
+    expect((await getJson(dev, '/admin/hi')).body.data).toEqual({ app: 'admin', name: 'Admin', v: 1 })
+    expect((await getJson(dev, '/hello')).body.data).toEqual({ message: 'hello v1' })
+    expect(dev.app!.router.url('admin.hi')).toBe('/admin/hi')
+
+    let reloaded = nextReload(dev)
+    fixture.edit('app/admin/route/web.ts', 'v: 1', 'v: 2')
+    await reloaded
+    expect((await getJson(dev, '/admin/hi')).body.data.v).toBe(2)
+
+    reloaded = nextReload(dev)
+    fixture.write('app/admin/route/extra.ts', `
+import { defineRoutes } from '@think-h3/core'
+export default defineRoutes(r => r.get('/extra', () => 'extra').name('extra'))
+`)
+    await reloaded
+    expect(await (await fetch(new URL('/admin/extra', dev.url))).text()).toBe('extra')
+    expect(readFileSync(join(fixture.root, '.think/types/think.d.ts'), 'utf8')).toContain('"admin.extra"')
   })
 
   it('hot-swaps service changes without restarting the server', async () => {

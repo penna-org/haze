@@ -1,5 +1,7 @@
 export { Application, config, createApplication, useApp } from './application'
 export type { ApplicationOptions, AppMode, DisposeOptions } from './application'
+export { matchApp, matchDomain } from './apps'
+export type { SubAppConfig } from './apps'
 
 export { Config, defineConfig } from './config/config'
 export type { AppConfig, ConfigInput, ConfigKey, ConfigPath, ConfigPathValue, ConfigSchema, ConfigValue, CoreConfig, GeneratedConfig, PathValue, ResolvedConfigSchema, ResponseConfig } from './config/config'
@@ -46,7 +48,7 @@ export type { GroupOptions, ResourceAction, ResourceOptions, RouteModule, RouteR
 export { Route } from './routing/route'
 export type { ControllerAction, HandlerFn, HttpMethod, RouteDefinition, RouteHandler, RouteMeta, RouteMethod } from './routing/route'
 export { Router } from './routing/router'
-export type { ControllerMiddleware, RouteInfo, RouteName, RouteNames } from './routing/router'
+export type { ControllerMiddleware, MountOptions, RouteInfo, RouteName, RouteNames } from './routing/router'
 
 export type { Constructor, MaybePromise } from './utils'
 

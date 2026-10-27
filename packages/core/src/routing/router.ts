@@ -8,7 +8,7 @@ import type { Route, RouteDefinition, RouteHandler } from './route'
 import { Scope, scopeOf } from '../container/container'
 import { getHttpContext } from '../http/context'
 import { validateRequest } from '../http/validation'
-import { isPlainObject } from '../utils'
+import { isPlainObject, joinPath } from '../utils'
 import { isRouteModule, RouteBuilder } from './builder'
 import { isControllerAction } from './route'
 
@@ -38,6 +38,10 @@ type UrlArgs<N> = N extends KnownRoute
 export interface RouteInfo {
   method: string
   path: string
+  /** 所属应用（多应用模式） */
+  app?: string
+  /** 绑定的域名（多应用模式） */
+  domain?: string
   name?: string
   handler: string
   middleware: string[]
@@ -49,15 +53,24 @@ export interface CompileOptions {
   middleware: MiddlewareRegistry
 }
 
+export interface MountOptions {
+  app: string
+  /** URL 前缀，例如 `/admin`；仅绑定域名时为 `/` */
+  prefix: string
+  domain?: string[]
+}
+
 export class Router {
   readonly #routes: Route[] = []
+  readonly #mounts: Array<{ router: Router } & MountOptions> = []
   #compiled: RouteInfo[] = []
 
-  load(module: RouteModule | RouteRegistrar): this {
+  /** 加载路由模块；`as` 为路由名前缀（多应用时为 `<app>.`） */
+  load(module: RouteModule | RouteRegistrar, options: { as?: string } = {}): this {
     const register = isRouteModule(module)
       ? module.register
       : module
-    register(new RouteBuilder(this.#routes))
+    register(new RouteBuilder(this.#routes, { prefix: '', middleware: [], as: options.as ?? '' }))
     return this
   }
 
@@ -65,19 +78,39 @@ export class Router {
     return this.#routes.map(route => route.definition)
   }
 
-  /** 已编译的路由表（含展开后的中间件），用于 `route:list` */
+  /** 挂载子应用的路由表，使 list() / url() 覆盖所有应用 */
+  mount(router: Router, options: MountOptions): this {
+    const own = new Set(this.list().map(route => route.name).filter(Boolean))
+    const duplicate = router.list().find(route => route.name && own.has(route.name))
+    if (duplicate)
+      throw new Error(`Duplicate route name "${duplicate.name}" in app "${options.app}"`)
+    this.#mounts.push({ router, ...options })
+    return this
+  }
+
+  /** 已编译的路由表（含展开后的中间件与所有子应用），用于 `route:list` */
   list(): readonly RouteInfo[] {
-    return this.#compiled
+    return [
+      ...this.#compiled,
+      ...this.#mounts.flatMap(({ router, app, prefix, domain }) => router.list().map(route => ({
+        ...route,
+        path: joinPath(prefix, route.path),
+        app,
+        ...(domain && {
+          domain: domain.join(', '),
+        }),
+      }))),
+    ]
   }
 
   /** 根据路由名生成 URL：`router.url('users.show', { id: 1 })` */
   url<N extends RouteName>(name: N, ...args: UrlArgs<N>): string
   url(name: string, params: Record<string, string | number> = {}, query?: Query): string {
-    const definition = this.definitions().find(def => def.name === name)
-    if (!definition)
+    const template = this.#pathOf(name)
+    if (template === undefined)
       throw new Error(`Route "${name}" is not defined`)
 
-    const path = definition.path.replace(/:(\w+)/g, (_, key: string) => {
+    const path = template.replace(/:(\w+)/g, (_, key: string) => {
       if (params[key] === undefined)
         throw new Error(`Missing param "${key}" for route "${name}"`)
       return encodeURIComponent(String(params[key]))
@@ -91,6 +124,18 @@ export class Router {
     return search
       ? `${path}?${search}`
       : path
+  }
+
+  #pathOf(name: string): string | undefined {
+    const own = this.definitions().find(def => def.name === name)
+    if (own)
+      return own.path
+    for (const mount of this.#mounts) {
+      const path = mount.router.#pathOf(name)
+      if (path !== undefined)
+        return joinPath(mount.prefix, path)
+    }
+    return undefined
   }
 
   compile({ h3, container, middleware }: CompileOptions): void {

@@ -694,3 +694,11 @@ it('获取用户', async () => {
 - **自定义**：`app/response/Formatter.ts` 继承 `ResponseFormatter` 覆盖 `success / error / shouldFormat`（自动发现，支持热更新）；跳过格式化用 `.meta({ envelope: false })` 或 `return raw(value)`。
 - **出站拦截器**：`app/interceptor/*.ts`（`defineInterceptor`，按文件名顺序）或在提供者中 `app.intercept(fn)`；拿到最终 Response（格式化、异常渲染之后），可改头或返回新 Response。仅在注册了拦截器时才提前把返回值转成 Response，不影响默认性能；访问日志仍只记录一次。
 - `make:interceptor`；模板新增 `app/response/Formatter.ts` 作为可直接修改的入口。
+
+### M6 实施记录（2026-10-26）
+
+- **声明**：`config/app.ts` 的 `apps`（`prefix` / `domain`，域名支持 `*.example.com`），目录 `app/<name>/{route,config,provider,exception,response}`；未声明的目录（如 `app/common`）不会启用。
+- **分发**：每个应用一个独立的 H3 子实例（应用中间件 + 路由），因此不同域名的应用可以有相同路径。主应用在全局中间件之后、全局路由之前按“域名优先、前缀最长”匹配，剥离前缀后交给子实例；错误、格式化、拦截器、访问日志仍走主应用的统一管线。
+- **应用级能力**：配置 = 全局 + 应用配置深合并（`ctx.config`、`config()`、请求作用域内的 `inject(Config)` 读取应用配置；单例服务注入的仍是全局配置）；应用中间件只作用于本应用，可覆盖全局别名；应用自己的 `exception/Handler.ts`、`response/Formatter.ts` 绑定到请求容器。
+- **路由**：路由名自动加 `<app>.` 前缀，`router.url()` / `route:list` / typegen 覆盖所有应用，`route:list` 显示 APP / DOMAIN 列；启动时检查重名与前缀 / 域名冲突。
+- **生成器**：`make:* --app <name>`。
