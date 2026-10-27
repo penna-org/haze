@@ -692,6 +692,7 @@ it('获取用户', async () => {
 | M12 | 内置中间件（CORS、限流、安全头、压缩、请求体上限）、文件上传、Cookie / Session、认证（JWT / Session Guard） |
 | M13 | 授权（Gate / Policy、ctx.can / authorize、can: 中间件）与 CSRF 同步令牌 |
 | M14 | 缓存（memory / redis / upstash / kv）、原子锁、响应缓存，限流与 Session 的共享存储，Cloudflare 限流绑定 |
+| M15 | 队列（sync / memory / redis(BullMQ) / Cloudflare Queues，重试、延迟、超时、失败任务）与定时任务（croner，onOneServer / withoutOverlapping） |
 
 ### M5 实施记录（2026-10-26）
 
@@ -1089,4 +1090,79 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 **限制**
 - KV 非原子、最终一致，不适合精确计数与锁（构建与运行时都有提示）。
 - 没有缓存标签（tags）与防击穿：`remember` 并发未命中时会重复计算，可以配合 `lock` 使用。
+
+### M15 实施记录（2026-10-27）：队列与定时任务
+
+确认的决策：
+- Redis 队列基于 BullMQ，cron 用 croner；
+- Cloudflare Queues + Cron Triggers、Lambda 定时入口、Vercel Cron 都做；
+- 用 colima 中的 redis:7 做真实验证。
+
+**和方案不一致的地方**：Lambda 只提供 `index.schedule`，没有做 `index.queue`。消费 SQS 需要另写一个基于 AWS SDK 的 SQS 投递驱动，否则这个入口无任务可消费。Lambda 上的队列请用 redis 驱动加独立的 worker 进程。
+
+**任务与投递**
+- `app/job/*.ts`：`defineJob({ name?, tries, backoff, timeout, queue, connection, handle(payload, job), failed(payload, error, job) })`。
+  - 自动发现，文件名即任务名；
+  - `job` 上下文包含 `id / attempt / queue / logger / app / signal`，超时时 signal 会中止。
+- 投递：`Job.dispatch(payload, { delay, queue, connection })`，或 `Queue.dispatch('Name', payload)`；payload 以 JSON 传递。
+- `backoff` 的写法：秒数、`'5m'`、按重试次数取的数组（不足取最后一个），或 `'exponential'`（2^n 秒）。
+- `QueueManager.process(message, attempt)` 统一执行：成功返回 ok；还有次数时返回 retry 与退避秒数；最后一次失败时调用 `failed()` 并返回 failed。各驱动只负责把结果映射到自己的重试机制。
+
+| 驱动 | 实现 |
+|------|------|
+| sync | 投递时立即执行，失败直接抛给调用方（不重试） |
+| memory | 进程内队列，第一次使用即在本进程消费（`concurrency` 可配）；计时器处理延迟与退避；失败任务保存在内存中；`Queue.idle()` 等待清空，测试中使用 |
+| redis | BullMQ：attempts 等于 tries，自定义 backoffStrategy 按任务定义计算；`removeOnFail: false` 保留失败任务，`queue:retry` 重试时重置已执行次数；Worker 使用 `maxRetriesPerRequest: null`；应用关闭时关闭 Queue / Worker |
+| cloudflare | 投递到 Queues 绑定（延迟上限 12h）；Worker 导出的 `queue()` 调用 `handleBatch`：成功 ack，可重试时 `retry({ delaySeconds })`，最终失败调用 `failed()` 后 ack |
+
+- 失败任务：`QueueManager.failed / retry / forget / flush`。
+- 测试：`Queue.fake()` 提供 `assertDispatched(job, predicate?)`、`assertNotDispatched`、`assertCount`，`drain()` 按顺序执行已记录的任务。
+- bullmq 是 core 的可选 peer 依赖，纳入驱动包处理（Workers 上替换为报错空模块，Node 类产物追踪进产物）；msgpackr-extract 的安装脚本设为不执行，使用预编译二进制。
+
+**定时任务**
+- `schedule/*.ts`：`defineSchedule(s => ...)`。
+- 定义方式：`s.call(name, fn)` / `s.cron(expr, name, fn)` / `s.job(Job, payload, options)`（到期时投递，任务名为 `job:<Name>`）。
+- 频率：`everyMinute … everyThirtyMinutes / hourly / hourlyAt / daily / dailyAt / twiceDaily / weekly / weeklyOn / monthly / monthlyOn / at / weekdays / weekends / cron()`。
+- 其它选项：`timezone()`（默认 `config/schedule.ts` 的 timezone，否则 UTC）、`when / skip`、`onSuccess / onFailure`。
+- 到期判断用 croner 的 `match()`，按分钟取整；`nextRun()` 用于 `schedule:list`。
+- 锁基于 `Cache.lock`，要求原子缓存存储，用 KV 时直接报错：
+  - `onOneServer`：按"任务 + 分钟"加锁，不主动释放，1 小时后过期；
+  - `withoutOverlapping`：执行期间持有锁，结束后释放，ttl 默认 24h。
+- `Scheduler.runDue(date)` 返回每个任务的 `{ status: ok | failed | skipped, reason: filter | overlapping | other-server }`；`work(signal)` 在每分钟整点执行。
+
+**命令与生产入口**
+- CLI：`queue:work [--queue a,b] [--concurrency n] [--connection]`、`queue:failed / retry / forget / flush`、`schedule:list / run / work`。
+  - 在开发服务器的模块图中运行；`queue:work` 每条消息从最新的应用取任务定义，`schedule:work` 每分钟换用最新的应用，代码修改后无需重启。
+- `make:job` 生成器。
+- node / bun / deno / docker 产物输出 `worker.mjs`：`queue [--queue] [--concurrency] [--connection]`、`schedule`、`schedule:run`；收到 SIGTERM 后等待执行中的任务完成。
+- cloudflare：Worker 导出 `queue()` 与 `scheduled()`；有 `schedule/*.ts` 时 wrangler.json 自动加 `triggers.crons: ['* * * * *']`。
+- aws-lambda：导出 `schedule(event)`，按 `event.time` 执行到期任务。
+- vercel：函数拦截 `/__think/schedule`，要求 `Authorization: Bearer $CRON_SECRET`；config.json 增加路由与 `crons`，频率可用 `think.config.ts` 的 `vercel.cron` 调整，Hobby 计划只允许每天一次。
+
+**顺带修复**
+- 后端源码目录就是项目根时（api 模板），`normalizePath('')` 返回 `'.'`，导致内嵌迁移的路径被多截掉字符，`migrate.mjs` 找不到迁移（M10 遗留，M10 只用 vue 模板验证过）。已修复，并补了 api 模板的回归用例。
+
+**模板**
+- `config/queue.ts`：`QUEUE_CONNECTION` 切换连接，默认 memory。
+- `app/job/SendWelcomeEmail.ts`：注册后投递，只写日志。
+- `schedule/app.ts`：每天 03:00 执行、带 onOneServer 的示例。
+- 认证测试用 `Queue.fake()` 断言注册后投递了任务。
+- `package.json` 增加 `queue`、`schedule` 脚本；README 新增"队列与定时任务"一节。
+
+**验证**
+- `queue.test.ts`（9 个）：
+  - memory：按文件名注册、重试与 failed()、失败任务的重试 / 删除 / 清空、退避与延迟的实际耗时、超时与中止信号；
+  - sync：失败时抛出；
+  - fake 的各项断言与 drain；
+  - 真实 Redis（BullMQ）：两个应用各起一个 Worker（并发 3）消费 30 个任务，每个只执行一次；重试与退避、失败保留、重试失败任务、延迟任务、多个队列。
+- `schedule.test.ts`（9 个）：表达式构造、按时区判断到期、过滤 / 投递 / 失败钩子、withoutOverlapping、onOneServer（同进程共用内存缓存，以及 3 个实例共用真实 Redis 时只执行一次）、非原子存储报错、work 中止。
+- workerd：Cloudflare Queues 的真实生产者与消费者（第一次失败后经 `message.retry()` 在第二次成功）、`scheduled()` 写入 KV。
+- Vercel Cron 的 401 / 200 与 config.json，Lambda `index.schedule` 的到期判断。
+- 产物端到端（真实 Redis）：api 模板产物拷到项目外，执行 `migrate.mjs`，启动 web 进程；注册用户后，独立的 `worker.mjs queue` 进程输出欢迎邮件日志；`worker.mjs schedule:run` 正常退出。bullmq 已追踪进 `dist/node_modules`。
+- Redis 用例按 `THINK_TEST_REDIS_URL` 启用；验证后已删除容器与镜像，colima 已停止。
+
+**限制**
+- memory 队列只在本进程内，进程退出时任务丢失。
+- Vercel / Lambda 的定时触发频率受平台限制；`runDue` 只执行当前这一分钟到期的任务，触发间隔大于 1 分钟时，其余分钟的任务会被跳过。
+- 没有任务批处理（batch）与任务链（chain）。
 

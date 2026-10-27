@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { defineCommand, runMain } from 'citty'
 import { generateCommand, migrateCommand, seedCommand } from './commands/db'
 import { makeCommands, makeModelCommand } from './commands/make'
+import { queueFailedCommand, queueFlushCommand, queueForgetCommand, queueRetryCommand, queueWorkCommand, scheduleListCommand, scheduleRunCommand, scheduleWorkCommand } from './commands/worker'
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
@@ -26,6 +27,14 @@ const main = defineCommand({
     'db:generate': generateCommand,
     'db:migrate': migrateCommand,
     'db:seed': seedCommand,
+    'queue:work': queueWorkCommand,
+    'queue:failed': queueFailedCommand,
+    'queue:retry': queueRetryCommand,
+    'queue:forget': queueForgetCommand,
+    'queue:flush': queueFlushCommand,
+    'schedule:list': scheduleListCommand,
+    'schedule:run': scheduleRunCommand,
+    'schedule:work': scheduleWorkCommand,
   },
 })
 

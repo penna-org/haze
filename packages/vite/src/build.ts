@@ -38,6 +38,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
     host: config.host,
     preset: options.preset ?? config.preset,
     cloudflare: config.cloudflare,
+    vercel: config.vercel,
     externals: config.externals,
     standalone: true,
   })

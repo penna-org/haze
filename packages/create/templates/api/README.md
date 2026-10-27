@@ -161,6 +161,38 @@ await Cache.store('redis').get('key') // 指定存储
 - Workers 上的限流：限流规则配置 `binding: 'API_RATE_LIMITER'`，使用 Cloudflare Rate Limiting 绑定（原子、全局）
 - 响应缓存：`.middleware('cacheResponse:60')` 缓存 GET 响应（`X-Cache: HIT / MISS`），`cacheResponse:60,user` 按用户区分
 
+## 队列与定时任务
+
+任务放在 `app/job/*.ts`（`npx think-h3 make:job SendInvoice` 生成），配置在 `config/queue.ts`：
+
+```ts
+await SendWelcomeEmail.dispatch({ userId: 1 }) // 默认 memory：在本进程消费
+await SendWelcomeEmail.dispatch({ userId: 1 }, { delay: '10m' }) // 延迟
+```
+
+- 重试：`defineJob({ tries: 3, backoff: [10, 60], timeout: '30s', failed(payload, error) { ... } })`
+- 多实例：设置 `QUEUE_CONNECTION=redis`（需要 `pnpm add bullmq ioredis`），单独运行消费进程 `pnpm queue`（`think-h3 queue:work`，构建后为 `node dist/worker.mjs queue`）
+- 失败任务：`think-h3 queue:failed` / `queue:retry [id]` / `queue:forget <id>` / `queue:flush`
+- 测试：`const fake = Queue.fake()` 后 `fake.assertDispatched(SendWelcomeEmail, p => p.userId === 1)`
+
+定时任务在 `schedule/*.ts`：
+
+```ts
+export default defineSchedule((s) => {
+  s.call('report', () => sendReport()).weekdays().at('09:00').timezone('Asia/Shanghai')
+  s.job(PruneTokens, { days: 30 }).daily().onOneServer() // 多实例时只执行一次
+  s.cron('*/5 * * * *', 'sync', () => sync()).withoutOverlapping() // 上次未结束则跳过
+})
+```
+
+| 环境 | 运行方式 |
+|------|----------|
+| 开发 | `pnpm schedule`（`think-h3 schedule:work`），`think-h3 schedule:list` 查看下次执行时间 |
+| node / bun / deno / docker | `node dist/worker.mjs schedule`（常驻），或系统 cron 每分钟执行 `node dist/worker.mjs schedule:run` |
+| cloudflare | 自动生成 Cron Triggers（每分钟）；队列用 Cloudflare Queues（`driver: 'cloudflare'`，Worker 导出 queue()） |
+| aws-lambda | 同一份产物，handler 设为 `index.schedule`，EventBridge `rate(1 minute)` 触发 |
+| vercel | 自动配置 Vercel Cron 调用 `/__think/schedule`（需要设置 `CRON_SECRET`；Hobby 计划只允许每天一次，用 `think.config.ts` 的 `vercel.cron` 调整） |
+
 ## 部署
 
 ```bash

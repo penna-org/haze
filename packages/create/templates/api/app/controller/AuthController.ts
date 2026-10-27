@@ -1,5 +1,6 @@
 import type { HttpContext } from '@think-h3/core'
 import { Hash, UnauthorizedException, validate } from '@think-h3/core'
+import SendWelcomeEmail from '~/app/job/SendWelcomeEmail'
 import { User } from '~/app/model/User'
 import { LoginSchema, RegisterSchema } from '~/app/validate/auth'
 
@@ -11,6 +12,8 @@ export class AuthController {
   async register(ctx: HttpContext) {
     const { password, ...input } = await validate(RegisterSchema, await ctx.body())
     const user = await User.create({ ...input, password: await Hash.make(password) })
+    // 异步任务：不阻塞注册响应
+    await SendWelcomeEmail.dispatch({ userId: user.id })
     return ctx.created({
       user,
       ...await ctx.auth.jwt().login(user),

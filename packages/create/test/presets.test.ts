@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -45,9 +46,9 @@ describe('full-stack deployment presets (vue template)', () => {
     expect(output).toContain('docker build -t demo-vue dist')
     expect(existsSync(join(root, 'dist/client/index.html'))).toBe(true)
     expect(existsSync(join(root, 'dist/server/index.mjs'))).toBe(true)
-    // 项目安装的驱动在镜像里安装（测试环境另装了 ioredis）；未安装的驱动不会列入
+    // 项目安装的驱动在镜像里安装（测试环境另装了 bullmq、ioredis）；未安装的驱动不会列入
     const dependencies = Object.keys(JSON.parse(readFileSync(join(root, 'dist/package.json'), 'utf8')).dependencies)
-    expect(dependencies).toEqual(['@libsql/client', 'ioredis'])
+    expect(dependencies).toEqual(['@libsql/client', 'bullmq', 'ioredis'])
     expect(output).toContain('docker run --rm demo-vue node server/migrate.mjs')
 
     // 生产迁移脚本：迁移已打包进产物，不需要源码与 drizzle-kit
@@ -107,6 +108,7 @@ describe('full-stack deployment presets (vue template)', () => {
   it('aws-lambda: exports a migrate handler running the bundled migrations', async () => {
     const { root, output } = await buildVue('aws-lambda')
     expect(output).toContain('handler index.migrate')
+    expect(output).toContain('handler index.schedule')
     // 依赖由追踪复制进产物；在非 Linux 机器上构建时提示原生二进制平台不符
     if (process.platform !== 'linux')
       expect(output).toMatch(/native packages were traced from this \w+ machine: .*@libsql\/(?:darwin|win32)-/)
@@ -124,6 +126,13 @@ describe('full-stack deployment presets (vue template)', () => {
         },
       ])
       expect((await migrate({ all: true }))[0]).toMatchObject({ applied: 0 })
+
+      // 定时任务：EventBridge 每分钟调用 index.schedule（schedule/app.ts 的 heartbeat 每天 03:00）
+      const { schedule } = await import(pathToFileURL(join(lambda, 'index.mjs')).href)
+      expect(await schedule({ time: '2026-10-27T03:00:00Z' })).toEqual([
+        { name: 'heartbeat', status: 'ok' },
+      ])
+      expect(await schedule({ time: '2026-10-27T03:01:00Z' })).toEqual([])
     }
     finally {
       delete process.env.DATABASE_URL
@@ -135,10 +144,16 @@ describe('full-stack deployment presets (vue template)', () => {
     const output = join(root, '.vercel/output')
     expect(existsSync(join(output, 'static/index.html'))).toBe(true)
     expect(readdirSync(join(output, 'static/assets')).some(file => file.endsWith('.js'))).toBe(true)
-    expect(JSON.parse(readFileSync(join(output, 'config.json'), 'utf8')).routes).toEqual([
+    const config = JSON.parse(readFileSync(join(output, 'config.json'), 'utf8'))
+    expect(config.routes).toEqual([
       { handle: 'filesystem' },
+      // 定时任务（schedule/app.ts）：Vercel Cron 调用的内部路由
+      { src: '^/__think/schedule$', dest: '/__server' },
       { src: '^/api(?:/.*)?$', dest: '/__server' },
       { src: '/(.*)', dest: '/index.html' },
+    ])
+    expect(config.crons).toEqual([
+      { path: '/__think/schedule', schedule: '* * * * *' },
     ])
     const fn = join(output, 'functions/__server.func')
     expect(existsSync(join(fn, 'node_modules/@libsql/client'))).toBe(true)
@@ -146,10 +161,21 @@ describe('full-stack deployment presets (vue template)', () => {
     const server = createServer(handler)
     await new Promise<void>(resolve => server.listen(0, resolve))
     try {
-      const res = await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/api/hello`)
+      const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+      const res = await fetch(`${base}/api/hello`)
       expect((await res.json() as any).data).toMatchObject({ app: 'demo-vue' })
+
+      // Vercel Cron：需要 CRON_SECRET
+      process.env.CRON_SECRET = 'cron-secret'
+      expect((await fetch(`${base}/__think/schedule`)).status).toBe(401)
+      const cron = await fetch(`${base}/__think/schedule`, {
+        headers: { authorization: 'Bearer cron-secret' },
+      })
+      expect(cron.status).toBe(200)
+      expect(Array.isArray(await cron.json())).toBe(true)
     }
     finally {
+      delete process.env.CRON_SECRET
       server.close()
     }
   })
@@ -380,5 +406,73 @@ export default defineThinkConfig({
       await Promise.all(servers.map(server => server.stop()))
       rmSync(elsewhere, { recursive: true, force: true })
     }
+  })
+
+  // 真实 Redis：web 进程投递，独立的 worker.mjs 进程消费（BullMQ 追踪进产物）
+  it.runIf(process.env.THINK_TEST_REDIS_URL)('node: worker.mjs consumes jobs dispatched by the web process through Redis', async () => {
+    project = createProject('api')
+    const cli = binOf('@think-h3/cli', 'think-h3')
+    const build = await run(cli, ['build', '--root', project.root], project.root, {})
+    expect(build.code, build.output).toBe(0)
+    expect(build.output).toContain('worker.mjs queue')
+    expect(existsSync(join(project.root, 'dist/node_modules/bullmq/package.json'))).toBe(true)
+
+    const elsewhere = mkdtempSync(join(tmpdir(), 'think-h3-worker-'))
+    cpSync(join(project.root, 'dist'), elsewhere, { recursive: true })
+    const env = {
+      APP_KEY: 'k'.repeat(32),
+      QUEUE_CONNECTION: 'redis',
+      REDIS_URL: process.env.THINK_TEST_REDIS_URL!,
+      DATABASE_URL: `file:${join(elsewhere, 'data/app.db')}`,
+    }
+    const migrated = await run(join(elsewhere, 'migrate.mjs'), [], elsewhere, { ...env, NODE_ENV: 'production' })
+    expect(migrated.code, migrated.output).toBe(0)
+    const web = await startProduction(join(elsewhere, 'index.mjs'), elsewhere, env)
+    const worker = spawn(process.execPath, [
+      join(elsewhere, 'worker.mjs'),
+      'queue',
+      '--concurrency',
+      '2',
+    ], {
+      cwd: elsewhere,
+      env: {
+        ...process.env,
+        ...env,
+        NODE_ENV: 'production',
+      },
+    })
+    let output = ''
+    worker.stdout.on('data', chunk => (output += chunk))
+    worker.stderr.on('data', chunk => (output += chunk))
+    try {
+      const email = `${crypto.randomUUID()}@example.com`
+      const registered = await fetch(`${web.url}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ada', email, password: 'correct horse' }),
+      })
+      expect(registered.status).toBe(201)
+      for (let attempt = 0; attempt < 100 && !output.includes(`Welcome email sent to ${email}`); attempt++)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      expect(output).toContain(`Welcome email sent to ${email}`)
+
+      const schedule = await run(join(elsewhere, 'worker.mjs'), ['schedule:run'], elsewhere, { ...env, NODE_ENV: 'production' })
+      expect(schedule.code, schedule.output).toBe(0)
+    }
+    finally {
+      worker.kill('SIGTERM')
+      await new Promise(resolve => worker.once('exit', resolve))
+      await web.stop()
+      rmSync(elsewhere, { recursive: true, force: true })
+    }
+  })
+
+  it('node (api template): migrate.mjs finds migrations when the source dir is the project root', async () => {
+    project = createProject('api')
+    const build = await run(binOf('@think-h3/cli', 'think-h3'), ['build', '--root', project.root], project.root, {})
+    expect(build.code, build.output).toBe(0)
+    const dist = join(project.root, 'dist')
+    const migrated = await run(join(dist, 'migrate.mjs'), [], dist, { NODE_ENV: 'production', DATABASE_URL: `file:${join(dist, 'data/app.db')}` })
+    expect(migrated.output, migrated.output).toContain('[main] 3 of 3 migrations applied (database/migrations)')
   })
 })

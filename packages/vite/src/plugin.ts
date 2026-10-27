@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
-import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult } from './presets'
-import { existsSync } from 'node:fs'
+import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
+import { existsSync, readdirSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { toNodeHandler } from 'srvx/node'
@@ -9,7 +9,7 @@ import { normalizePath } from 'vite'
 import { loadThinkConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
-import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies } from './presets'
+import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
 import { manifestFile, readBuildManifest, startPreview, staticDirOf, writeBuildManifest } from './preview'
 
 export interface ThinkPluginOptions {
@@ -30,6 +30,8 @@ export interface ThinkPluginOptions {
   outDir?: string
   /** cloudflare 预设的 wrangler 配置（默认读取 think.config.ts） */
   cloudflare?: CloudflareOptions
+  /** vercel 预设的选项（默认读取 think.config.ts） */
+  vercel?: VercelOptions
   /** 依赖的打包 / 追踪方式（默认读取 think.config.ts） */
   externals?: ExternalsOptions
   /**
@@ -80,6 +82,7 @@ interface Settings {
   preset: string
   orm: boolean
   cloudflare: CloudflareOptions | undefined
+  vercel: VercelOptions | undefined
   externals: ExternalsOptions
 }
 
@@ -108,6 +111,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
     preset: 'node',
     orm: false,
     cloudflare: undefined,
+    vercel: undefined,
     externals: {},
   }
   let lastBuild: BuildInfo | undefined
@@ -147,6 +151,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       settings.typegen = options.typegen ?? think?.typegen ?? true
       settings.preset = options.preset ?? process.env.THINK_PRESET ?? think?.preset ?? 'node'
       settings.cloudflare = options.cloudflare ?? think?.cloudflare
+      settings.vercel = options.vercel ?? think?.vercel
       settings.externals = options.externals ?? think?.externals ?? {}
       settings.orm = Boolean(findInstalled('@think-h3/orm', base))
 
@@ -208,6 +213,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
                 input: {
                   index: VIRTUAL_MODULES.serverEntry,
                   ...(migrateScript && { migrate: VIRTUAL_MODULES.migrateEntry }),
+                  ...(preset.migrateScript && { worker: VIRTUAL_MODULES.workerEntry }),
                 },
                 output: {
                   entryFileNames: '[name].mjs',
@@ -357,6 +363,8 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           return migrationsCode(settings)
         case VIRTUAL_MODULES.migrateEntry:
           return migrateEntryCode()
+        case VIRTUAL_MODULES.workerEntry:
+          return workerEntryCode()
       }
     },
 
@@ -387,7 +395,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
 }
 
 function manifestCode(settings: Settings, dev: boolean): string {
-  const rel = normalizePath(relative(settings.root, settings.srcDir))
+  const rel = srcDirFromRoot(settings)
   const base = rel
     ? `/${rel}`
     : ''
@@ -408,6 +416,8 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const responseFormatter = Object.values(formatters)[0]`,
     `export const interceptors = ${glob('app/interceptor/*.{ts,mts,js,mjs}')}`,
     `export const policies = ${glob('app/policy/*.{ts,mts,js,mjs}')}`,
+    `export const jobs = ${glob('app/job/*.{ts,mts,js,mjs}')}`,
+    `export const schedules = ${glob('schedule/*.{ts,mts,js,mjs}')}`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
     `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
@@ -415,7 +425,7 @@ function manifestCode(settings: Settings, dev: boolean): string {
 
 /** database/ 下 drizzle-kit 生成的 SQL 与 journal，键为相对 srcDir 的路径（与 config/database.ts 的 migrations 一致） */
 function migrationsCode(settings: Settings): string {
-  const rel = normalizePath(relative(settings.root, settings.srcDir))
+  const rel = srcDirFromRoot(settings)
   const base = rel
     ? `/${rel}/`
     : '/'
@@ -444,6 +454,8 @@ export function createApp(options = {}) {
     responseFormatter: manifest.responseFormatter,
     interceptors: manifest.interceptors,
     policies: manifest.policies,
+    jobs: manifest.jobs,
+    schedules: manifest.schedules,
     apps: manifest.apps,
     ...options,
   })
@@ -458,6 +470,8 @@ function presetContext(settings: Settings): PresetContext {
     srcDir: settings.srcDir,
     orm: settings.orm,
     cloudflare: settings.cloudflare,
+    vercel: settings.vercel,
+    schedules: hasSources(join(settings.srcDir, 'schedule')),
     outDir: settings.outDir,
     fullstack: settings.fullstack,
     prefixes: settings.prefixes,
@@ -481,6 +495,19 @@ function normalizePrefixes(prefix: string | string[] | undefined): string[] {
     ? prefix
     : [prefix ?? '/api'])
     .map(item => `/${item.replace(/^\/+|\/+$/g, '')}`)
+}
+
+/** 后端源码目录相对项目根的路径（相同时为空字符串；normalizePath('') 会得到 '.'） */
+function srcDirFromRoot(settings: Settings): string {
+  const rel = normalizePath(relative(settings.root, settings.srcDir))
+  return rel === '.'
+    ? ''
+    : rel
+}
+
+/** 目录下是否有源码文件（如 schedule/*.ts） */
+function hasSources(dir: string): boolean {
+  return existsSync(dir) && readdirSync(dir).some(name => SOURCE_RE.test(name) && !name.endsWith('.d.ts'))
 }
 
 function packageName(id: string): string {

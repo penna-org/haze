@@ -324,6 +324,81 @@ export default defineRoutes(r => r.get('/kv', async () => ({
       await mf.dispose()
     }
   })
+
+  it('cloudflare: Queues consumer with retries and Cron Triggers run in workerd', async () => {
+    fixture = copyFixture('basic')
+    fixture.write('config/cache.ts', `export default { default: 'kv', stores: { kv: { driver: 'kv', binding: 'CACHE' } } }\n`)
+    fixture.write('config/queue.ts', `export default { default: 'cf', connections: { cf: { driver: 'cloudflare', binding: 'QUEUE' } } }\n`)
+    fixture.write('app/job/Record.ts', `
+import { Cache, defineJob } from '@think-h3/core'
+export default defineJob({
+  tries: 2,
+  async handle(payload: { id: number, fail?: boolean }, job) {
+    if (payload.fail && job.attempt === 1)
+      throw new Error('first attempt fails')
+    await Cache.set('job:' + payload.id, job.attempt)
+  },
+})
+`)
+    fixture.write('route/enqueue.ts', `
+import { defineRoutes } from '@think-h3/core'
+import Record from '../app/job/Record'
+export default defineRoutes(r => r.get('/enqueue/:id', async ctx => ({ id: await Record.dispatch({ id: Number(ctx.param('id')), fail: ctx.query('fail') === '1' }) })))
+`)
+    fixture.write('schedule/app.ts', `
+import { Cache, defineSchedule } from '@think-h3/core'
+export default defineSchedule(s => void s.call('tick', () => Cache.set('tick', new Date().toISOString())).everyMinute())
+`)
+    const result = await build('cloudflare', undefined, fixture)
+    const dist = join(result.root, 'dist')
+    const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))
+    // 有定时任务时每分钟触发 scheduled()
+    expect(wrangler.triggers).toEqual({
+      crons: ['* * * * *'],
+    })
+
+    const mf = new Miniflare({
+      modules: true,
+      scriptPath: join(dist, 'index.mjs'),
+      compatibilityDate: wrangler.compatibility_date,
+      compatibilityFlags: wrangler.compatibility_flags,
+      bindings: {
+        APP_KEY: 'k'.repeat(32),
+      },
+      kvNamespaces: ['CACHE'],
+      queueProducers: { QUEUE: 'jobs' },
+      queueConsumers: {
+        jobs: { maxBatchTimeout: 0.1, maxRetries: 3 },
+      },
+    })
+    try {
+      const kv = await mf.getKVNamespace('CACHE') as unknown as { get: (key: string) => Promise<string | null> }
+      const waitFor = async (key: string) => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const value = await kv.get(key)
+          if (value !== null)
+            return value
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        throw new Error(`${key} was not written`)
+      }
+      expect((await mf.dispatchFetch('http://localhost/enqueue/1')).status).toBe(200)
+      expect(await waitFor('think:job:1')).toBe('1')
+      // 第一次失败 → message.retry() → 第二次成功
+      await mf.dispatchFetch('http://localhost/enqueue/2?fail=1')
+      expect(await waitFor('think:job:2')).toBe('2')
+
+      const worker = await mf.getWorker() as unknown as { scheduled: (options: { scheduledTime: Date, cron: string }) => Promise<unknown> }
+      await worker.scheduled({
+        scheduledTime: new Date('2026-10-27T03:00:00Z'),
+        cron: '* * * * *',
+      })
+      expect(await waitFor('think:tick')).toMatch(/^"20/)
+    }
+    finally {
+      await mf.dispose()
+    }
+  })
 })
 
 function which(command: string): string | undefined {

@@ -9,6 +9,8 @@ import type { CsrfConfig } from '../middleware/builtin/csrf'
 import type { SecureHeadersOptions } from '../middleware/builtin/secure-headers'
 import type { ThrottleConfig } from '../middleware/builtin/throttle'
 import type { MiddlewareConfig } from '../middleware/types'
+import type { QueueConfig } from '../queue/manager'
+import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
 import { deepMerge, isPlainObject } from '../utils'
 
@@ -52,6 +54,8 @@ export interface CoreConfig {
   compress?: CompressOptions
   session?: Partial<SessionConfig>
   cache?: CacheConfig
+  queue?: QueueConfig
+  schedule?: ScheduleConfig
   auth?: AuthConfig
 }
 

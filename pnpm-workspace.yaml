@@ -1,6 +1,8 @@
 minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeExclude:
   - '@electric-sql/pglite@0.5.12'
+  - bullmq@6.5.0
+  - croner@11.0.0
 
 trustPolicy: no-downgrade
 shellEmulator: true
@@ -17,6 +19,7 @@ overrides:
 allowBuilds:
   deno: false
   esbuild: false
+  msgpackr-extract: false
   workerd: false
 
 catalog:
@@ -30,8 +33,10 @@ catalog:
   '@upstash/redis': ^1.40.0
   '@vitejs/plugin-react': ^6.1.2
   '@vitejs/plugin-vue': ^6.0.10
+  bullmq: ^6.5.0
   citty: ^0.2.2
   consola: ^3.4.2
+  croner: ^11.0.0
   deno: ^2.9.6
   drizzle-kit: ^0.31.11
   drizzle-orm: ^0.45.4

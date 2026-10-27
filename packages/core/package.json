@@ -24,10 +24,14 @@
   },
   "peerDependencies": {
     "@upstash/redis": "^1.40.0",
+    "bullmq": "^6.5.0",
     "ioredis": "^6.0.0"
   },
   "peerDependenciesMeta": {
     "@upstash/redis": {
+      "optional": true
+    },
+    "bullmq": {
       "optional": true
     },
     "ioredis": {
@@ -37,11 +41,13 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:",
     "consola": "catalog:",
+    "croner": "catalog:",
     "h3": "catalog:",
     "jose": "catalog:"
   },
   "devDependencies": {
     "@upstash/redis": "catalog:",
+    "bullmq": "catalog:",
     "ioredis": "catalog:",
     "miniflare": "catalog:",
     "valibot": "catalog:"

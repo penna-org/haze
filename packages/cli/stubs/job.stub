@@ -1,0 +1,25 @@
+import { defineJob } from '@think-h3/core'
+
+export interface {{name}}Payload {
+  id: number
+}
+
+/**
+ * 队列任务（app/job 下自动注册，文件名即任务名）：
+ * 投递 await {{name}}.dispatch({ id: 1 }, { delay: '10m' })；消费 think-h3 queue:work
+ */
+const {{name}} = defineJob({
+  // 最多执行次数与重试前的等待（秒 / '5m'）
+  tries: 3,
+  backoff: [10, 60],
+  timeout: '1m',
+  async handle(payload: {{name}}Payload, job) {
+    job.logger.info(`{{name}} ${payload.id}`)
+  },
+  // 全部重试失败后调用
+  async failed(payload, error, job) {
+    job.logger.error(`{{name}} ${payload.id} failed`, error)
+  },
+})
+
+export default {{name}}

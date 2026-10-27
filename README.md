@@ -45,6 +45,10 @@ export default defineThinkConfig({ srcDir: 'server' })
 
 `Cache.remember / get / set / increment / lock`，驱动：memory、redis（ioredis）、upstash（HTTP，Edge 可用）、kv（Cloudflare KV）。限流与 Session 可直接引用缓存存储实现多实例共享（`throttle: { store: 'redis' }`、`session: { driver: 'cache', store: 'redis' }`）；Workers 上限流可用 Cloudflare Rate Limiting 绑定；`cacheResponse:60` 中间件缓存 GET 响应。
 
+## 队列与定时任务
+
+`app/job/*.ts` 中 `defineJob({ tries, backoff, timeout, handle, failed })`，`Job.dispatch(payload, { delay })` 投递；驱动 sync / memory / redis（BullMQ）/ cloudflare（Queues）。`schedule/*.ts` 中 `defineSchedule(s => s.call(...).dailyAt('03:00').onOneServer())`（croner 解析 cron、支持时区，锁基于 `Cache.lock`）。命令：`queue:work`、`queue:failed / retry / forget / flush`、`schedule:list / run / work`；构建产物输出 `worker.mjs`，Cloudflare 自动接入 Queues 消费与 Cron Triggers，Lambda 导出 `index.schedule`，Vercel 配置 Cron。
+
 ## 部署
 
 ```bash
@@ -90,7 +94,7 @@ packages/orm/    @think-h3/orm  基于 drizzle 的 Db 查询构造器 + Model（
                  @think-h3/orm/mongo 为同形态的 MongoDB 适配器（Mongo / MongoModel）
 packages/create/ create-think-h3 脚手架与 api / vue / react 模板
 packages/testing/ @think-h3/testing  useTestApp / createTestApp / defineThinkTestConfig
-packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / preview / test / route:list / typegen / make:* / db:* / key:generate）
+packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / preview / test / route:list / typegen / make:* / db:* / queue:* / schedule:* / key:generate）
 packages/vite/   @think-h3/vite Vite 插件（virtual:think/*）、热替换开发服务器、生产构建
 packages/core/   @think-h3/core 运行时内核
   src/container/   依赖注入（inject()、Singleton / Request / Transient 作用域）

@@ -8,6 +8,8 @@
     "build": "think-h3 build",
     "start": "think-h3 start",
     "preview": "think-h3 preview",
+    "queue": "think-h3 queue:work",
+    "schedule": "think-h3 schedule:work",
     "test": "think-h3 test",
     "routes": "think-h3 route:list",
     "typecheck": "vue-tsc --build",

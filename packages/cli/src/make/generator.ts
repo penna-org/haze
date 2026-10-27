@@ -81,6 +81,16 @@ export const KINDS = {
     stub: 'provider',
     hint: () => 'app/provider 下的提供者会被自动加载',
   },
+  job: {
+    description: '队列任务',
+    suffix: '',
+    dir: 'app/job',
+    base: 'src',
+    file: 'class',
+    flat: true,
+    stub: 'job',
+    hint: v => `投递：await ${v.className}.dispatch({ ... })；消费：think-h3 queue:work`,
+  },
   policy: {
     description: '授权策略',
     suffix: 'Policy',

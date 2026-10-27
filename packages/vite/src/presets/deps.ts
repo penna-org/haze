@@ -10,6 +10,7 @@ import { NodeNativePackages, NonBundleablePackages } from 'nf3/db'
 export const DRIVER_PACKAGES = [
   '@libsql/client',
   '@upstash/redis',
+  'bullmq',
   'ioredis',
   'libsql',
   '@electric-sql/pglite',
@@ -21,7 +22,8 @@ export const DRIVER_PACKAGES = [
 /** Edge（Workers）上无法运行的驱动：构建时替换为调用即报错的空模块 */
 export const EDGE_UNSUPPORTED_DRIVERS = [
   '@electric-sql/pglite',
-  // TCP 长连接；Workers 上请用 upstash（HTTP）或 KV
+  // TCP 长连接；Workers 上请用 upstash（HTTP）或 KV，队列用 Cloudflare Queues
+  'bullmq',
   'ioredis',
   'mysql2',
   'mongodb',

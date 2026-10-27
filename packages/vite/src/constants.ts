@@ -14,4 +14,6 @@ export const VIRTUAL_MODULES = {
   migrations: 'virtual:think/migrations',
   /** 生产迁移脚本入口（migrate.mjs） */
   migrateEntry: 'virtual:think/migrate-entry',
+  /** 队列 worker 与定时任务入口（worker.mjs） */
+  workerEntry: 'virtual:think/worker-entry',
 } as const

@@ -22,6 +22,12 @@ export interface CloudflareOptions {
   wrangler?: Record<string, unknown>
 }
 
+/** think.config.ts 的 vercel 选项 */
+export interface VercelOptions {
+  /** 定时任务的触发频率（Vercel Cron 表达式），默认每分钟；Hobby 计划只允许每天一次 */
+  cron?: string
+}
+
 export interface PresetContext {
   root: string
   /** think.config.ts 的 externals 选项 */
@@ -39,6 +45,9 @@ export interface PresetContext {
   /** 项目使用 @think-h3/orm：生成生产迁移入口 */
   orm: boolean
   cloudflare: CloudflareOptions | undefined
+  vercel: VercelOptions | undefined
+  /** 存在 schedule/*.ts：生成 Cron Triggers / Vercel Cron 等触发配置 */
+  schedules: boolean
 }
 
 export interface Layout {

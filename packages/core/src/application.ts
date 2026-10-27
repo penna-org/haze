@@ -27,8 +27,11 @@ import { createStaticMiddleware } from './http/static'
 import { Logger } from './logger'
 import { MiddlewareRegistry } from './middleware/registry'
 import { disposePersistent } from './persistent'
+import { setQueueManager } from './queue/context'
+import { QueueManager } from './queue/manager'
 import { getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
+import { Scheduler } from './schedule/scheduler'
 import { isClass, isModuleRecord, normalizeModules } from './utils'
 
 export type AppMode = 'development' | 'production' | 'test'
@@ -51,6 +54,10 @@ export interface ApplicationOptions {
   interceptors?: Interceptor[] | ModuleRecord
   /** 授权策略与能力（app/policy/*.ts：definePolicy / defineAbilities） */
   policies?: unknown[] | ModuleRecord
+  /** 队列任务（app/job/*.ts：defineJob，文件名为任务名） */
+  jobs?: unknown[] | ModuleRecord
+  /** 定时任务（schedule/*.ts：defineSchedule） */
+  schedules?: unknown[] | ModuleRecord
   /**
    * 多应用模块：`import.meta.glob('/app/*\/{route,config,provider,exception,response}/*')`。
    * 只有在 `config/app.ts` 的 `apps` 中声明的应用才会启用。
@@ -154,6 +161,16 @@ export class Application {
     const cache = new CacheManager(this.config)
     this.container.instance(CacheManager, cache)
     setCacheManager(cache)
+    // 队列与定时任务
+    const queue = new QueueManager(this)
+    for (const [name, job] of normalizeModules<unknown>(options.jobs))
+      queue.register(job as never, name)
+    this.container.instance(QueueManager, queue)
+    setQueueManager(queue, QueueManager)
+    const scheduler = new Scheduler(this)
+    for (const [, schedule] of normalizeModules<unknown>(options.schedules))
+      scheduler.register(schedule)
+    this.container.instance(Scheduler, scheduler)
 
     // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()
@@ -209,6 +226,9 @@ export class Application {
   async dispose(options: DisposeOptions = {}): Promise<void> {
     for (const provider of [...this.#providers].reverse())
       await provider.shutdown?.(this)
+    // 队列连接（BullMQ 的 Queue / Worker）随应用关闭
+    if (this.container.has(QueueManager))
+      await this.container.make(QueueManager).close().catch(error => this.logger.error('Failed to close queue connections', error))
     await this.container.dispose()
     if (options.reason !== 'hmr')
       await disposePersistent()

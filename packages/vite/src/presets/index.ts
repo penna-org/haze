@@ -10,7 +10,7 @@ import { PRESET_NAMES } from './types'
 export { bundleAllExcept, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, externalPackages, findInstalled, scanExternals, traceDependencies } from './deps'
 export type { ExternalsOptions, TraceResult } from './deps'
 export { PRESET_NAMES } from './types'
-export type { CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName } from './types'
+export type { CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName, VercelOptions } from './types'
 
 const header = `import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -101,6 +101,69 @@ function packageName(root: string): string {
 
 const rel = (context: FinalizeContext, path: string): string => normalizePath(relative(context.root, path)) || '.'
 
+/**
+ * 队列 worker 与定时任务（worker.mjs）：
+ * `node worker.mjs queue [--queue a,b] [--concurrency 5] [--connection redis]`、
+ * `node worker.mjs schedule`（常驻）、`node worker.mjs schedule:run`（执行一次到期任务）
+ */
+export function workerEntryCode(): string {
+  return `import process from 'node:process'
+import { parseArgs } from 'node:util'
+import { QueueManager, Scheduler } from '@think-h3/core'
+import { createApp } from '${VIRTUAL_MODULES.app}'
+
+const { positionals, values } = parseArgs({
+  allowPositionals: true,
+  options: {
+    queue: { type: 'string', short: 'q' },
+    concurrency: { type: 'string', short: 'c' },
+    connection: { type: 'string' },
+  },
+})
+const command = positionals[0] ?? 'queue'
+const app = await createApp({ mode: 'production' })
+const controller = new AbortController()
+let stopQueue
+const shutdown = async () => {
+  controller.abort()
+  // 等待执行中的任务完成
+  await stopQueue?.()
+  await app.dispose()
+  process.exit(0)
+}
+process.once('SIGTERM', shutdown)
+process.once('SIGINT', shutdown)
+
+if (command === 'queue') {
+  const queues = values.queue?.split(',').map(name => name.trim()).filter(Boolean) ?? ['default']
+  const worker = await app.make(QueueManager).work({ connection: values.connection, queues, concurrency: Number(values.concurrency ?? 1) })
+  stopQueue = worker.stop
+  app.logger.info(\`Queue worker started: \${queues.join(', ')}\`)
+}
+else if (command === 'schedule') {
+  app.logger.info(\`Scheduler started: \${app.make(Scheduler).tasks().length} task(s)\`)
+  await app.make(Scheduler).work(controller.signal)
+}
+else if (command === 'schedule:run') {
+  const runs = await app.make(Scheduler).runDue()
+  await app.dispose()
+  process.exit(runs.some(run => run.status === 'failed') ? 1 : 0)
+}
+else {
+  app.logger.error(\`Unknown command "\${command}" (queue | schedule | schedule:run)\`)
+  await app.dispose()
+  process.exit(1)
+}
+`
+}
+
+function workerHint(context: FinalizeContext, command: string): string {
+  const worker = rel(context, join(context.layout.serverDir, 'worker.mjs'))
+  return `\nQueue worker: ${command} ${worker} queue${context.schedules
+    ? `\nScheduler: ${command} ${worker} schedule`
+    : ''}`
+}
+
 function migrateHint(context: FinalizeContext, command: string): string {
   return context.orm
     ? `\nMigrate: ${command} ${rel(context, join(context.layout.serverDir, 'migrate.mjs'))}`
@@ -119,7 +182,7 @@ export const presets: Record<PresetName, Preset> = {
       : { serverDir: context.outDir, clientDir: undefined, staticFromServer: undefined },
     migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: node ${rel(context, join(context.layout.serverDir, 'index.mjs'))}  (or think-h3 start)${migrateHint(context, 'node')}`,
+    hint: context => `Run: node ${rel(context, join(context.layout.serverDir, 'index.mjs'))}  (or think-h3 start)${migrateHint(context, 'node')}${workerHint(context, 'node')}`,
   },
 
   'bun': {
@@ -132,7 +195,7 @@ export const presets: Record<PresetName, Preset> = {
       : { serverDir: context.outDir, clientDir: undefined, staticFromServer: undefined },
     migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: bun ${rel(context, join(context.layout.serverDir, 'index.mjs'))}${migrateHint(context, 'bun')}`,
+    hint: context => `Run: bun ${rel(context, join(context.layout.serverDir, 'index.mjs'))}${migrateHint(context, 'bun')}${workerHint(context, 'bun')}`,
   },
 
   'deno': {
@@ -143,7 +206,7 @@ export const presets: Record<PresetName, Preset> = {
     layout: serverLayout,
     migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: deno run -A ${rel(context, join(context.layout.serverDir, 'index.mjs'))}${migrateHint(context, 'deno run -A')}`,
+    hint: context => `Run: deno run -A ${rel(context, join(context.layout.serverDir, 'index.mjs'))}${migrateHint(context, 'deno run -A')}${workerHint(context, 'deno run -A')}`,
   },
 
   'docker': {
@@ -170,6 +233,8 @@ CMD ["node", "server/index.mjs"]
     },
     hint: context => `Build image: docker build -t ${packageName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} -e APP_KEY=<key> ${packageName(context.root)}${context.orm
       ? `\nMigrate: docker run --rm ${packageName(context.root)} node server/migrate.mjs`
+      : ''}\nQueue worker: docker run ${packageName(context.root)} node server/worker.mjs queue${context.schedules
+      ? `\nScheduler: docker run ${packageName(context.root)} node server/worker.mjs schedule`
       : ''}`,
   },
 
@@ -190,6 +255,14 @@ import { createLambdaHandler } from '@think-h3/core'
 
 /** API Gateway（HTTP API / REST API）、ALB、Function URL 事件 */
 export const handler = createLambdaHandler(async () => (await getApp()).fetch)
+
+import { Scheduler } from '@think-h3/core'
+
+/** 定时任务：handler 设为 index.schedule，由 EventBridge 每分钟触发（rate(1 minute)） */
+export async function schedule(event = {}) {
+  const runs = await (await getApp()).make(Scheduler).runDue(event.time ? new Date(event.time) : new Date())
+  return runs.map(({ name, status, reason }) => ({ name, status, reason }))
+}
 ${context.orm
   ? `
 import { runMigrations } from '@think-h3/orm'
@@ -208,6 +281,8 @@ export async function migrate(event = {}) {
     },
     hint: context => `Zip ${rel(context, context.layout.serverDir)} and set the Lambda handler to index.handler (runtime nodejs22.x), with APP_KEY in the environment${context.orm
       ? '\nMigrate: invoke the same bundle with handler index.migrate (event: { "connection"?: string, "all"?: boolean })'
+      : ''}${context.schedules
+      ? '\nScheduler: a function with handler index.schedule, triggered by an EventBridge rule rate(1 minute)'
       : ''}`,
   },
 
@@ -222,10 +297,20 @@ export async function migrate(event = {}) {
       staticFromServer: undefined,
     }),
     entry: context => `${lazyApp(context)}
-import { toNodeHandler } from '@think-h3/core'
+import { Scheduler, toNodeHandler } from '@think-h3/core'
 
 let handler
 export default async function vercelHandler(req, res) {
+  // Vercel Cron：调用 /__think/schedule，并带上 Authorization: Bearer $CRON_SECRET
+  if (req.url?.split('?')[0] === '/__think/schedule') {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== \`Bearer \${process.env.CRON_SECRET}\`) {
+      res.statusCode = 401
+      return res.end('Unauthorized')
+    }
+    const runs = await (await getApp()).make(Scheduler).runDue()
+    res.setHeader('content-type', 'application/json')
+    return res.end(JSON.stringify(runs.map(({ name, status, reason }) => ({ name, status, reason }))))
+  }
   handler ??= toNodeHandler((await getApp()).h3)
   return handler(req, res)
 }
@@ -243,9 +328,15 @@ export default async function vercelHandler(req, res) {
       }, null, 2)}\n`)
       await writeFile(join(dir, 'package.json'), '{ "type": "module" }\n')
       // 静态文件优先，其余交给函数；全栈时非后端路径回退到 index.html（前端路由）
+      const cron = context.schedules
+        ? [
+            { src: '^/__think/schedule$', dest: '/__server' },
+          ]
+        : []
       const routes = context.fullstack
         ? [
             { handle: 'filesystem' },
+            ...cron,
             ...context.prefixes.map(prefix => ({ src: `^${prefix}(?:/.*)?$`, dest: '/__server' })),
             { src: '/(.*)', dest: '/index.html' },
           ]
@@ -253,9 +344,20 @@ export default async function vercelHandler(req, res) {
             { handle: 'filesystem' },
             { src: '/(.*)', dest: '/__server' },
           ]
-      await writeFile(join(output, 'config.json'), `${JSON.stringify({ version: 3, routes }, null, 2)}\n`)
+      const crons = context.schedules
+        ? [
+            { path: '/__think/schedule', schedule: context.vercel?.cron ?? '* * * * *' },
+          ]
+        : undefined
+      await writeFile(join(output, 'config.json'), `${JSON.stringify({
+        version: 3,
+        routes,
+        ...(crons && { crons }),
+      }, null, 2)}\n`)
     },
-    hint: () => 'Deploy the prebuilt output: vercel deploy --prebuilt (set APP_KEY with: vercel env add APP_KEY)',
+    hint: context => `Deploy the prebuilt output: vercel deploy --prebuilt (set APP_KEY with: vercel env add APP_KEY)${context.schedules
+      ? '\nScheduler: Vercel Cron calls /__think/schedule; set CRON_SECRET (vercel env add CRON_SECRET). Hobby plans only allow daily crons (think.config.ts: vercel.cron)'
+      : ''}`,
   },
 
   'netlify': {
@@ -329,19 +431,33 @@ export const config = {
       staticFromServer: undefined,
     }),
     entry: context => `${lazyApp(context, `env: false,`)}
-import { setPlatformBindings } from '@think-h3/core'
+import { QueueManager, Scheduler, setPlatformBindings } from '@think-h3/core'
+
+function bind(env) {
+  setPlatformBindings(env)
+  if (!app) {
+    for (const [key, value] of Object.entries(env ?? {})) {
+      if (typeof value === 'string' && process.env[key] === undefined)
+        process.env[key] = value
+    }
+  }
+}
 
 /** Cloudflare Workers：静态资源由 Workers Assets 提供，环境变量与 D1 等来自绑定 */
 export default {
   async fetch(request, env) {
-    setPlatformBindings(env)
-    if (!app) {
-      for (const [key, value] of Object.entries(env ?? {})) {
-        if (typeof value === 'string' && process.env[key] === undefined)
-          process.env[key] = value
-      }
-    }
+    bind(env)
     return (await getApp()).fetch(request)
+  },
+  /** Cloudflare Queues 消费：重试映射为 message.retry({ delaySeconds }) */
+  async queue(batch, env) {
+    bind(env)
+    await (await getApp()).make(QueueManager).handleBatch(batch)
+  },
+  /** Cron Triggers：执行该分钟到期的定时任务 */
+  async scheduled(controller, env, ctx) {
+    bind(env)
+    ctx.waitUntil((async () => (await getApp()).make(Scheduler).runDue(new Date(controller.scheduledTime)))())
   },
 }
 `,
@@ -379,6 +495,12 @@ export default {
         const source = join(context.srcDir, 'database', 'migrations')
         if (existsSync(source))
           await cp(source, join(context.outDir, 'migrations'), { recursive: true })
+      }
+      // 定时任务：每分钟触发 scheduled()，由框架判断哪些任务到期
+      if (context.schedules && !config.triggers) {
+        config.triggers = {
+          crons: ['* * * * *'],
+        }
       }
       await writeFile(join(context.outDir, 'wrangler.json'), `${JSON.stringify(config, null, 2)}\n`)
     },
