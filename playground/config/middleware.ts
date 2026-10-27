@@ -1,9 +1,9 @@
 import { defineMiddlewareConfig } from '@think-h3/core'
 import { Authenticate } from '~/app/middleware/Authenticate'
-import { requestId } from '~/app/middleware/requestId'
 
+// 请求 ID（x-request-id）与访问日志由框架内置，无需注册
 export default defineMiddlewareConfig({
-  global: [requestId],
+  global: [],
   alias: {
     auth: Authenticate,
   },

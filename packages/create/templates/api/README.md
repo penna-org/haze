@@ -7,10 +7,39 @@
 ```bash
 pnpm dev        # 开发服务器，修改代码即时生效（进程不重启）
 pnpm routes     # 查看路由表
+pnpm typegen    # 生成配置键 / 路由名类型（dev 时自动执行）
 pnpm test       # 运行测试
 pnpm build      # 构建到 dist/
 pnpm start      # 运行构建产物
 ```
+
+## 代码生成
+
+```bash
+npx think-h3 make:controller User --resource   # app/controller/UserController.ts
+npx think-h3 make:service User                 # app/service/UserService.ts
+npx think-h3 make:middleware Authenticate      # app/middleware/Authenticate.ts
+npx think-h3 make:validate User                # app/validate/user.ts
+npx think-h3 make:test user                    # tests/user.test.ts
+npx think-h3 stub:publish                      # 复制模板到 stubs/，按团队规范定制
+```
+
+其余：`make:repository`、`make:provider`、`make:config`、`make:route`。名称可带子目录，如 `admin/User`。
+
+## 类型安全
+
+开发服务器会把配置键与命名路由生成到 `.think/types/think.d.ts`：
+
+```ts
+config('app.name') // string
+router.url('api.hello') // 路由名有补全，参数按路径检查
+```
+
+## 日志
+
+- 开发环境：彩色输出，自动记录访问日志 `GET /api/hello 200 3ms`
+- 生产环境：JSON 行日志（含 requestId），便于日志平台采集
+- 请求内使用 `ctx.logger.info(...)`，自动带上请求 ID
 
 ## 目录
 

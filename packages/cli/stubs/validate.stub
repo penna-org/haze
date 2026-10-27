@@ -1,0 +1,10 @@
+import * as v from 'valibot'
+
+export const Create{{name}}Schema = v.object({
+  name: v.pipe(v.string('name 必填'), v.trim(), v.minLength(1, 'name 不能为空')),
+})
+
+export const Update{{name}}Schema = v.partial(Create{{name}}Schema)
+
+export type Create{{name}}Input = v.InferOutput<typeof Create{{name}}Schema>
+export type Update{{name}}Input = v.InferOutput<typeof Update{{name}}Schema>

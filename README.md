@@ -2,7 +2,7 @@
 
 基于 [h3 v2](https://h3.dev) 的 Node 服务端框架：IoC 容器、集中路由、分层中间件、统一异常处理，设计参考 ThinkPHP。完整设计见 [docs/design.md](docs/design.md)。
 
-> 当前进度：M0（monorepo）、M1（运行时内核）、M2（Vite 插件 + 热更新 + CLI）、M3（Vue 全栈集成、脚手架、测试工具）。
+> 当前进度：M0（monorepo）、M1（运行时内核）、M2（Vite 插件 + 热更新 + CLI）、M3（Vue 全栈集成、脚手架、测试工具）、M4（代码生成、类型生成、日志、开发错误页）。
 
 ## 环境
 
@@ -24,7 +24,10 @@ pnpm create think-h3 my-app -t vue     # Vue 3 全栈（同仓库、同端口、
 ```ts
 // vite.config.ts
 export default defineConfig({
-  plugins: [vue(), thinkH3()], // 开发时 /api/** 交给 server/ 下的后端；vite build 产出 dist/client + dist/server
+  plugins: [
+    vue(),
+    thinkH3()
+  ], // 开发时 /api/** 交给 server/ 下的后端；vite build 产出 dist/client + dist/server
 })
 
 // think.config.ts
@@ -50,6 +53,9 @@ pnpm routes       # think-h3 route:list
 pnpm build        # think-h3 build → dist/index.mjs
 pnpm start        # think-h3 start
 pnpm test         # think-h3 test（vitest）
+npx think-h3 typegen                         # 配置键 / 路由名类型（dev 时自动生成）
+npx think-h3 make:controller Order --resource # make:service / repository / middleware / provider / validate / test / config / route
+npx think-h3 stub:publish                    # 导出 stub 到 stubs/ 以定制生成代码
 ```
 
 ## 目录
@@ -57,7 +63,7 @@ pnpm test         # think-h3 test（vitest）
 ```
 packages/create/ create-think-h3 脚手架与 api / vue 模板
 packages/testing/ @think-h3/testing  useTestApp / createTestApp / defineThinkTestConfig
-packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / test / route:list）
+packages/cli/    @think-h3/cli  命令行 think-h3（dev / build / start / test / route:list / typegen / make:*）
 packages/vite/   @think-h3/vite Vite 插件（virtual:think/*）、热替换开发服务器、生产构建
 packages/core/   @think-h3/core 运行时内核
   src/container/   依赖注入（inject()、Singleton / Request / Transient 作用域）

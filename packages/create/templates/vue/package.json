@@ -9,7 +9,8 @@
     "start": "think-h3 start",
     "test": "think-h3 test",
     "routes": "think-h3 route:list",
-    "typecheck": "vue-tsc --build"
+    "typecheck": "vue-tsc --build",
+    "typegen": "think-h3 typegen"
   },
   "dependencies": {
     "@think-h3/core": "{{version}}",

@@ -629,3 +629,38 @@ it('获取用户', async () => {
 - 包尚未发布，模板依赖的 `^0.0.0` 在仓库外无法安装；发布前需确定 npm 仓库（公共 / gitea 私有）。
 - 前端调用 API 仍是手写 `fetch`，路由与控制器返回类型尚未生成前端类型（计划中的类型安全 API 客户端）。
 - M4：`make:*` 代码生成器、`typegen`、日志增强、错误页；M5：ORM、缓存、Session/Auth、队列、OpenAPI。
+
+### M4（2026-10-26）
+
+98 个测试通过；在 playground 中用真实开发服务器 + 浏览器验证了访问日志与 500 / 422 / 404 错误页。
+
+**日志**
+
+- `Logger` 支持 `format: 'pretty' | 'json'`、`child(context)`（保留子类）、`access()`；JSON 行含 `time / level / tag / msg / requestId / err`，error 级别写 stderr。
+- 默认值按模式：development 彩色 + 访问日志；production JSON + 访问日志；test 仅 warn 以上、关闭访问日志。
+- 内置请求 ID：沿用上游 `x-request-id`（仅接受 `[\w.:-]{1,128}`，防日志注入），否则生成 UUID，并回写响应头；`app.requestIdHeader: false` 可关闭回写。
+- `ctx.requestId` / `ctx.logger`（带 requestId）；访问日志在 h3 `onResponse` 中记录，状态码为异常渲染后的最终值；ExceptionHandler 的上报改用 `ctx.logger`。
+- 模板与 playground 删除了自写的 requestId 中间件。
+
+**开发错误页**
+
+- `app.debug` 开启且请求 `Accept: text/html` 时渲染 HTML：异常类名、源码片段（经 Vite source map 定位到 TS 源文件）、调用栈、校验错误表、请求信息（敏感头脱敏）、404 时列出全部路由；API 请求仍为 JSON，生产环境永不渲染。
+- 开发服务器“应用启动失败”的响应同样使用该页面。
+- 修复：模板 `.env` 原先写死 `APP_DEBUG=true`，导致生产构建也开启调试（会泄露堆栈）。现在 debug 完全由模式决定（仅 development 开启）。
+
+**typegen**
+
+- 生成 `.think/types/think.d.ts`：`GeneratedConfig`（`typeof import('config/x').default`，仅依赖文件列表）与 `RouteNames`（路由名 → 路径参数）。dev 每次成功重载后写入（内容不变不写），`think-h3 typegen` 手动执行，`think.config.ts` 中 `typegen: false` 可关闭。
+- `GeneratedConfig` 与手写的 `ConfigSchema` 在类型层深合并（直接扩充 `ConfigSchema` 会与内置 `app: AppConfig` 冲突）。
+- 生成后配置键变为严格模式：未知键报错，读取任意键需传默认值 `config.get('x', fallback)`；`router.url()` 校验路由名与必填参数。通过“带 / 去掉 `@ts-expect-error` 各跑一次 tsc”验证类型确实生效。
+
+**make:* 生成器**
+
+- `make:controller [--resource] / service / repository / middleware / provider / validate / test / config / route`，名称支持子目录（`admin/User`）并自动去除重复后缀；`config`、`route` 只按第一层自动发现，带子目录时报错。
+- stub 为 CLI 包内的 `.stub` 文件；项目 `stubs/<name>.stub` 优先（`think-h3 stub:publish` 导出）；仅安装 zod 时 `make:validate` 使用 zod 版本。
+- 模板端到端测试：生成全部类型 → typegen → 类型探针 → tsc → vitest（含生成的测试）。
+
+**已知限制**
+
+- monorepo 内框架包以链接方式被内联执行，重新构建 core 后需重启开发服务器（真实安装时框架位于 node_modules，升级依赖本就需要重启）。
+- 中间件别名尚未生成类型（`.middleware('auth')` 仍为字符串）。

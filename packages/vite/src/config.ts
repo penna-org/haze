@@ -13,6 +13,8 @@ export interface ThinkConfig {
   host?: string
   /** 构建输出目录，默认 `dist` */
   outDir?: string
+  /** 开发时自动生成配置键 / 路由名类型到 .think/types，默认 true */
+  typegen?: boolean
   /** 透传给 Vite 的配置（插件、别名等） */
   vite?: UserConfig
 }
@@ -23,6 +25,7 @@ export interface ResolvedThinkConfig {
   port: number
   host: string | undefined
   outDir: string
+  typegen: boolean
   vite: UserConfig
   configFile: string | undefined
 }
@@ -58,6 +61,7 @@ export async function loadThinkConfig(root: string, mode = 'development'): Promi
     port: config.port ?? 3000,
     host: config.host,
     outDir: resolve(root, config.outDir ?? 'dist'),
+    typegen: config.typegen ?? true,
     vite: config.vite ?? {},
     configFile,
   }

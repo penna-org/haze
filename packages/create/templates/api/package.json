@@ -9,7 +9,8 @@
     "start": "think-h3 start",
     "test": "think-h3 test",
     "routes": "think-h3 route:list",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typegen": "think-h3 typegen"
   },
   "dependencies": {
     "@think-h3/core": "{{version}}",

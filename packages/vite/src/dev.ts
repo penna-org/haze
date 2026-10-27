@@ -45,6 +45,7 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
     srcDir: config.srcDir,
     port: config.port,
     host: config.host,
+    typegen: config.typegen,
     standalone: true,
   })
 
@@ -63,7 +64,8 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
       // 纯后端无需 HMR WebSocket；文件变化仍会经过 hotUpdate 钩子
       ws: false,
       watch: {
-        ignored: [`${normalizePath(config.outDir)}/**`],
+        // 构建产物与生成的类型不触发重载
+        ignored: [`${normalizePath(config.outDir)}/**`, `${normalizePath(root)}/.think/**`],
       },
     },
     plugins: [plugin],

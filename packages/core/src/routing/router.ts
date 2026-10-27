@@ -21,6 +21,22 @@ export interface ControllerMiddleware {
   except?: string[]
 }
 
+/**
+ * 命名路由及其参数，由 `think-h3 typegen`（开发服务器自动执行）生成：
+ * `'api.users.show': { id: string | number }`
+ */
+export interface RouteNames {}
+
+type KnownRoute = keyof RouteNames & string
+/** 生成过类型后只接受已定义的路由名，否则为 string */
+export type RouteName = [KnownRoute] extends [never] ? string : KnownRoute
+type Query = Record<string, string | number>
+type UrlArgs<N> = N extends KnownRoute
+  ? [keyof RouteNames[N]] extends [never]
+      ? [params?: Record<string, never>, query?: Query]
+      : [params: RouteNames[N], query?: Query]
+  : [params?: Record<string, string | number>, query?: Query]
+
 export interface RouteInfo {
   method: string
   path: string
@@ -58,7 +74,8 @@ export class Router {
   }
 
   /** 根据路由名生成 URL：`router.url('users.show', { id: 1 })` */
-  url(name: string, params: Record<string, string | number> = {}, query?: Record<string, string | number>): string {
+  url<N extends RouteName>(name: N, ...args: UrlArgs<N>): string
+  url(name: string, params: Record<string, string | number> = {}, query?: Query): string {
     const definition = this.definitions().find(def => def.name === name)
     if (!definition)
       throw new Error(`Route "${name}" is not defined`)

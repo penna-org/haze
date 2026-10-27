@@ -4,6 +4,7 @@ import type { Container } from '../container/container'
 import type { InjectionKey } from '../container/token'
 import { getQuery, readBody, redirect } from 'h3'
 import { Scope } from '../container/container'
+import { Logger } from '../logger'
 
 export interface ValidationTargets {
   body?: StandardSchemaV1
@@ -35,13 +36,21 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
 
   readonly event: H3Event
   readonly container: Container
+  /** 请求 ID（沿用 x-request-id 或自动生成），会写入响应头与日志 */
+  readonly requestId: string
+  /** 带 requestId 上下文的日志器 */
+  readonly logger: Logger
+  /** 请求开始时间（performance.now()） */
+  readonly startedAt = performance.now()
   validated = {} as Validated<V>
   readonly #state = new Map<PropertyKey, unknown>()
   #body: Promise<unknown> | undefined
 
-  constructor(event: H3Event, container: Container) {
+  constructor(event: H3Event, container: Container, options: { requestId?: string, logger?: Logger } = {}) {
     this.event = event
     this.container = container
+    this.requestId = options.requestId ?? crypto.randomUUID()
+    this.logger = options.logger ?? new Logger().child({ requestId: this.requestId })
   }
 
   get req(): H3Event['req'] {

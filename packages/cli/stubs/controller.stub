@@ -1,0 +1,6 @@
+/** 控制器：接收参数 → 调用服务 → 返回数据（框架统一包装为 { code, message, data }） */
+export class {{className}} {
+  index() {
+    return { message: 'Hello from {{className}}' }
+  }
+}

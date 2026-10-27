@@ -1,0 +1,13 @@
+import type { HttpContext, Middleware, Next } from '@think-h3/core'
+
+/**
+ * 在 config/middleware.ts 中注册：alias: { {{camelName}}: {{className}} }
+ * 路由中使用：.middleware('{{camelName}}')
+ */
+export class {{className}} implements Middleware {
+  async handle(ctx: HttpContext, next: Next) {
+    ctx.logger.debug(`{{className}}: ${ctx.method} ${ctx.path}`)
+    const response = await next()
+    return response
+  }
+}

@@ -1,0 +1,11 @@
+import { defineProvider } from '@think-h3/core'
+
+/** 服务提供者：app/provider 下的文件会被自动加载 */
+export default defineProvider({
+  register(_container) {
+    // _container.singleton(SomeService)
+  },
+  boot(_app) {
+    // 所有提供者 register 完成后执行
+  },
+})

@@ -1,0 +1,90 @@
+import type { RouteInfo } from '@think-h3/core'
+import { existsSync, readdirSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join, relative } from 'node:path'
+import { normalizePath } from 'vite'
+import { PLUGIN_NAME } from './constants'
+
+export interface TypegenOptions {
+  root: string
+  srcDir: string
+  routes: readonly RouteInfo[]
+}
+
+export interface TypegenResult {
+  file: string
+  changed: boolean
+  configs: string[]
+  routes: string[]
+}
+
+const SOURCE_RE = /\.[cm]?[jt]s$/
+
+/** 生成文件位置（需在 tsconfig 的 include 中加入 `.think/types/**\/*.d.ts`） */
+export function typesFile(root: string): string {
+  return join(root, '.think', 'types', 'think.d.ts')
+}
+
+/** 生成配置键与命名路由的类型声明（模块扩充 @think-h3/core） */
+export function generateTypes({ root, srcDir, routes }: TypegenOptions): Omit<TypegenResult, 'changed'> & { content: string } {
+  const file = typesFile(root)
+  const typesDir = join(file, '..')
+  const configDir = join(srcDir, 'config')
+  const configFiles = existsSync(configDir)
+    ? readdirSync(configDir).filter(name => SOURCE_RE.test(name) && !name.endsWith('.d.ts')).sort()
+    : []
+
+  const configs = configFiles.map((name) => {
+    const key = name.replace(SOURCE_RE, '')
+    let path = normalizePath(relative(typesDir, join(configDir, key)))
+    if (!path.startsWith('.'))
+      path = `./${path}`
+    return { key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${JSON.stringify(path)}).default>` }
+  })
+
+  const named = routes
+    .filter(route => route.name)
+    .map((route) => {
+      const params = [
+        ...route.path.matchAll(/:(\w+)/g),
+      ].map(match => match[1])
+      const type = params.length
+        ? `{ ${params.map(param => `${param}: string | number`).join(', ')} }`
+        : 'Record<never, never>'
+      return { name: route.name!, line: `    ${JSON.stringify(route.name)}: ${type}` }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const content = `// 由 ${PLUGIN_NAME} 自动生成（think-h3 dev / think-h3 typegen），请勿手动修改
+import type { ConfigValue } from '@think-h3/core'
+
+declare module '@think-h3/core' {
+  interface GeneratedConfig {
+${configs.map(item => item.line).join('\n')}
+  }
+
+  interface RouteNames {
+${named.map(item => item.line).join('\n')}
+  }
+}
+
+export {}
+`
+  return {
+    file,
+    content,
+    configs: configs.map(item => item.key),
+    routes: named.map(item => item.name),
+  }
+}
+
+/** 内容变化时才写入，避免触发编辑器与文件监听的无谓刷新 */
+export async function writeTypes(options: TypegenOptions): Promise<TypegenResult> {
+  const { content, ...result } = generateTypes(options)
+  const previous = await readFile(result.file, 'utf8').catch(() => undefined)
+  if (previous === content)
+    return { ...result, changed: false }
+  await mkdir(join(result.file, '..'), { recursive: true })
+  await writeFile(result.file, content)
+  return { ...result, changed: true }
+}

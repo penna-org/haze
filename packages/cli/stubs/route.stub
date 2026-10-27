@@ -1,0 +1,7 @@
+import { defineRoutes } from '@think-h3/core'
+
+export default defineRoutes((r) => {
+  r.group({ prefix: '/{{kebabName}}', as: '{{camelName}}.' }, (r) => {
+    r.get('/', () => ({ message: 'ok' })).name('index')
+  })
+})

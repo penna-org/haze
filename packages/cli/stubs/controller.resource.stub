@@ -1,0 +1,35 @@
+import type { HttpContext } from '@think-h3/core'
+import { NotFoundException } from '@think-h3/core'
+
+/**
+ * RESTful 资源控制器，在 route/*.ts 中注册：
+ * r.resource('/{{routePath}}', {{className}})
+ */
+export class {{className}} {
+  /** GET /{{routePath}} */
+  index() {
+    return []
+  }
+
+  /** GET /{{routePath}}/:id */
+  show(ctx: HttpContext) {
+    throw new NotFoundException(`{{name}} ${ctx.param('id')} 不存在`)
+  }
+
+  /** POST /{{routePath}} */
+  async store(ctx: HttpContext) {
+    const data = await ctx.body<Record<string, unknown>>()
+    return ctx.created(data)
+  }
+
+  /** PUT | PATCH /{{routePath}}/:id */
+  async update(ctx: HttpContext) {
+    const data = await ctx.body<Record<string, unknown>>()
+    return { id: ctx.param('id'), ...data }
+  }
+
+  /** DELETE /{{routePath}}/:id */
+  destroy(ctx: HttpContext) {
+    return ctx.noContent()
+  }
+}

@@ -2,12 +2,14 @@ export { Application, config, createApplication, useApp } from './application'
 export type { ApplicationOptions, AppMode, DisposeOptions } from './application'
 
 export { Config, defineConfig } from './config/config'
-export type { AppConfig, ConfigInput, ConfigKey, ConfigSchema, CoreConfig, ResponseConfig } from './config/config'
+export type { AppConfig, ConfigInput, ConfigKey, ConfigPath, ConfigPathValue, ConfigSchema, ConfigValue, CoreConfig, GeneratedConfig, PathValue, ResolvedConfigSchema, ResponseConfig } from './config/config'
 export { env, loadEnv } from './config/env'
 export type { LoadEnvOptions } from './config/env'
 
 export * from './container'
 
+export { parseStack, renderErrorPage } from './exception/error-page'
+export type { ErrorPageInput, StackFrame } from './exception/error-page'
 export * from './exception/exceptions'
 export { ExceptionHandler } from './exception/handler'
 export type { NormalizedError } from './exception/handler'
@@ -20,7 +22,7 @@ export type { StaticOptions } from './http/static'
 export { validate } from './http/validation'
 
 export { Logger } from './logger'
-export type { LoggerConfig, LogLevel } from './logger'
+export type { AccessLogEntry, LogContext, LogFormat, LoggerConfig, LogLevel } from './logger'
 
 export { MiddlewareRegistry } from './middleware/registry'
 export type { ResolvedMiddleware } from './middleware/registry'
@@ -40,7 +42,7 @@ export type { GroupOptions, ResourceAction, ResourceOptions, RouteModule, RouteR
 export { Route } from './routing/route'
 export type { ControllerAction, HandlerFn, HttpMethod, RouteDefinition, RouteHandler, RouteMeta, RouteMethod } from './routing/route'
 export { Router } from './routing/router'
-export type { ControllerMiddleware, RouteInfo } from './routing/router'
+export type { ControllerMiddleware, RouteInfo, RouteName, RouteNames } from './routing/router'
 
 export type { Constructor, MaybePromise } from './utils'
 

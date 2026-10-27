@@ -7,11 +7,23 @@ Vue 3 + think-h3 全栈项目：前后端同一个仓库、同一个端口、一
 ```bash
 pnpm dev        # Vite 开发服务器：前端 HMR，/api/** 由后端处理（改后端代码即时生效）
 pnpm routes     # 查看后端路由表
+pnpm typegen    # 生成配置键 / 路由名类型（dev 时自动执行）
 pnpm test       # 后端测试（@think-h3/testing）
 pnpm typecheck  # vue-tsc 类型检查
 pnpm build      # 构建 dist/client 与 dist/server
 pnpm start      # 运行构建产物（同一进程托管前端页面与 API）
 ```
+
+## 代码生成
+
+```bash
+npx think-h3 make:controller User --resource   # server/app/controller/UserController.ts
+npx think-h3 make:service User
+npx think-h3 make:validate User
+npx think-h3 make:test user
+```
+
+开发时浏览器直接访问出错的 `/api/*` 地址，会看到带源码定位的错误页；前端 `fetch` 仍得到 JSON。
 
 ## 目录
 

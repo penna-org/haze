@@ -1,0 +1,6 @@
+/** 数据访问层：封装持久化细节（ORM / 外部 API），供服务层调用 */
+export class {{className}} {
+  async findById(id: number): Promise<{ id: number } | undefined> {
+    return { id }
+  }
+}

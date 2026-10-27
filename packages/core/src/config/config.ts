@@ -14,6 +14,8 @@ export interface AppConfig {
   /** 调试模式：错误响应携带堆栈，默认 development 下开启 */
   debug: boolean
   response: ResponseConfig
+  /** 读取 / 回写请求 ID 的请求头，false 关闭（仍会生成 ID 用于日志） */
+  requestIdHeader: string | false
 }
 
 /** 框架内置的配置项 */
@@ -34,7 +36,29 @@ export interface CoreConfig {
  */
 export interface ConfigSchema extends CoreConfig {}
 
+/**
+ * 由 `think-h3 typegen`（开发服务器自动执行）根据 config/*.ts 生成，勿手动扩展。
+ * 与 ConfigSchema 深合并，同名配置以配置文件推导出的类型为准。
+ */
+export interface GeneratedConfig {}
+
 export type ConfigInput<T> = T | (() => T)
+
+/** 配置文件默认导出的值类型（展开函数形式） */
+export type ConfigValue<T> = T extends (...args: any[]) => infer R ? R : T
+
+type IsLeaf<T> = T extends readonly any[] | ((...args: any[]) => any) ? true : T extends Record<string, any> ? false : true
+
+type DeepMerge<A, B> = {
+  [K in keyof A | keyof B]: K extends keyof B
+    ? K extends keyof A
+      ? IsLeaf<A[K]> extends true ? B[K] : IsLeaf<B[K]> extends true ? B[K] : DeepMerge<A[K], B[K]>
+      : B[K]
+    : K extends keyof A ? A[K] : never
+}
+
+/** 实际生效的配置结构：手动声明（ConfigSchema）+ 自动生成（GeneratedConfig） */
+export type ResolvedConfigSchema = DeepMerge<ConfigSchema, GeneratedConfig>
 
 /**
  * 定义配置文件。读取环境变量时请使用函数形式，保证在 `.env` 加载之后才求值：
@@ -53,11 +77,12 @@ export function resolveConfigInput<T>(input: ConfigInput<T>): T {
     : input
 }
 
-export function defaultConfig(debug: boolean): CoreConfig {
+export function defaultConfig(mode: 'development' | 'production' | 'test'): CoreConfig {
   return {
     app: {
       name: 'think-h3',
-      debug,
+      debug: mode === 'development',
+      requestIdHeader: 'x-request-id',
       response: {
         envelope: true,
         successCode: 0,
@@ -65,7 +90,14 @@ export function defaultConfig(debug: boolean): CoreConfig {
       },
     },
     logger: {
-      level: 'info',
+      // 测试时只输出警告与错误，避免访问日志刷屏
+      level: mode === 'test'
+        ? 'warn'
+        : 'info',
+      format: mode === 'production'
+        ? 'json'
+        : 'pretty',
+      requests: mode !== 'test',
     },
     middleware: {
       global: [],
@@ -83,11 +115,19 @@ type DotPath<T, Prefix extends string = ''> = {
     : `${Prefix}${K}`
 }[keyof T & string]
 
-type PathValue<T, P extends string> = P extends `${infer Head}.${infer Rest}`
+export type PathValue<T, P extends string> = P extends `${infer Head}.${infer Rest}`
   ? Head extends keyof T ? PathValue<T[Head], Rest> : unknown
   : P extends keyof T ? T[P] : unknown
 
-export type ConfigKey = DotPath<ConfigSchema>
+export type ConfigKey = DotPath<ResolvedConfigSchema>
+
+/**
+ * 生成过配置类型后只接受已知键（读取其它键需传默认值）；未生成时允许任意字符串。
+ * `string & {}` 保留已知键的自动补全。
+ */
+export type ConfigPath = [keyof GeneratedConfig] extends [never] ? ConfigKey | (string & {}) : ConfigKey
+
+export type ConfigPathValue<P extends string> = P extends ConfigKey ? PathValue<ResolvedConfigSchema, P> : unknown
 
 export class Config {
   #data: Record<string, any>
@@ -96,8 +136,8 @@ export class Config {
     this.#data = data
   }
 
-  get<P extends ConfigKey>(key: P): PathValue<ConfigSchema, P>
-  get<T = unknown>(key: string, defaultValue?: T): T
+  get<P extends ConfigPath>(key: P): ConfigPathValue<P>
+  get<T>(key: string, defaultValue: T): T
   get(key: string, defaultValue?: unknown): unknown {
     let current: any = this.#data
     for (const segment of key.split('.')) {
@@ -111,7 +151,7 @@ export class Config {
   }
 
   has(key: string): boolean {
-    return this.get(key, undefined) !== undefined
+    return this.get<unknown>(key, undefined) !== undefined
   }
 
   set(key: string, value: unknown): this {

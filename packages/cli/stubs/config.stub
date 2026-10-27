@@ -1,0 +1,6 @@
+import { defineConfig, env } from '@think-h3/core'
+
+// 读取：config('{{camelName}}.enabled')
+export default defineConfig(() => ({
+  enabled: env('{{envName}}_ENABLED', true),
+}))

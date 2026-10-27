@@ -3,19 +3,32 @@
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.tsbuildinfo",
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "moduleDetection": "force",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
-      "~/*": ["./server/*"]
+      "~/*": [
+        "./server/*"
+      ]
     },
-    "types": ["node", "vite/client", "@think-h3/vite/client"],
+    "types": [
+      "node",
+      "vite/client",
+      "@think-h3/vite/client"
+    ],
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["server/**/*.ts", "tests/**/*.ts", "*.config.ts"]
+  "include": [
+    "server/**/*.ts",
+    "tests/**/*.ts",
+    "*.config.ts",
+    ".think/types/**/*.d.ts"
+  ]
 }

@@ -18,6 +18,8 @@ export interface ThinkPluginOptions {
   /** 生产入口的默认端口 / 地址（运行时 PORT / HOST 环境变量优先） */
   port?: number
   host?: string
+  /** 开发时自动生成类型（默认读取 think.config.ts，否则为 true） */
+  typegen?: boolean
   /**
    * 不集成 Vite 开发服务器与前端构建（不挂载中间件、不配置 client / ssr 构建）。
    * 由 `think-h3 dev / build` 与 `@think-h3/testing` 使用。
@@ -33,12 +35,15 @@ export interface ReloadEvent {
 export interface ThinkPluginApi {
   /** 后端相关文件变化时通知（开发服务器据此热替换应用） */
   onReload: (listener: (event: ReloadEvent) => void) => () => void
+  /** 解析后的目录与选项（config 钩子执行之后可用） */
+  settings: () => Readonly<Pick<Settings, 'root' | 'srcDir' | 'typegen'>>
 }
 
 interface Settings {
   root: string
   srcDir: string
   outDir: string
+  typegen: boolean
   port: number
   host: string | undefined
   prefixes: string[]
@@ -58,20 +63,22 @@ const virtualIds = new Set<string>(Object.values(VIRTUAL_MODULES))
  */
 export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi> {
   const listeners = new Set<(event: ReloadEvent) => void>()
+  const settings: Settings = {
+    root: process.cwd(),
+    srcDir: process.cwd(),
+    outDir: resolve('dist'),
+    typegen: true,
+    port: 3000,
+    host: undefined,
+    prefixes: normalizePrefixes(options.prefix),
+    fullstack: !options.standalone,
+  }
   const api: ThinkPluginApi = {
     onReload(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-  }
-  const settings: Settings = {
-    root: process.cwd(),
-    srcDir: process.cwd(),
-    outDir: resolve('dist'),
-    port: 3000,
-    host: undefined,
-    prefixes: normalizePrefixes(options.prefix),
-    fullstack: !options.standalone,
+    settings: () => settings,
   }
   let isDev = true
 
@@ -93,6 +100,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       settings.outDir = normalizePath(think?.outDir ?? resolve(base, 'dist'))
       settings.port = options.port ?? think?.port ?? 3000
       settings.host = options.host ?? think?.host
+      settings.typegen = options.typegen ?? think?.typegen ?? true
 
       const config: UserConfig = {}
       if (options.alias !== false) {
@@ -185,6 +193,9 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
 
     hotUpdate({ type, file, modules }) {
       if (this.environment.name !== 'ssr')
+        return
+      // 生成的类型声明不触发重载
+      if (file.startsWith(`${settings.root}/.think/`) || file.endsWith('.d.ts'))
         return
 
       const isEnvFile = dirname(file) === settings.root && basename(file).startsWith('.env')

@@ -5,6 +5,8 @@ import { HTTPError } from 'h3'
 import { Config } from '../config/config'
 import { inject } from '../container/container'
 import { Logger } from '../logger'
+import { Router } from '../routing/router'
+import { renderErrorPage } from './error-page'
 import { HttpException, ValidationException } from './exceptions'
 
 export interface NormalizedError {
@@ -21,6 +23,8 @@ export interface NormalizedError {
  * 全局异常处理器。业务项目在 `app/exception/Handler.ts` 中继承并覆盖：
  * - `report()`：记录 / 上报（日志、Sentry 等）
  * - `render()`：转换为响应体
+ *
+ * 调试模式下浏览器访问（Accept: text/html）会得到带源码与请求信息的错误页，API 请求仍返回 JSON。
  */
 export class ExceptionHandler {
   protected readonly logger = inject(Logger)
@@ -41,14 +45,40 @@ export class ExceptionHandler {
   report(error: unknown, ctx: HttpContext): MaybePromise<void> {
     if (!this.shouldReport(error))
       return
-    this.logger.error(`[${ctx.method}] ${ctx.path}`, error)
+    ctx.logger.error(`[${ctx.method}] ${ctx.path}`, error)
   }
 
   render(error: unknown, ctx: HttpContext): MaybePromise<unknown> {
     const normalized = this.normalize(error)
     ctx.status(normalized.status)
     normalized.headers?.forEach((value, key) => ctx.setHeader(key, value))
+    if (this.debug && this.wantsHtml(ctx))
+      return this.renderDebugPage(error, normalized, ctx)
     return this.format(normalized)
+  }
+
+  protected wantsHtml(ctx: HttpContext): boolean {
+    return ctx.header('accept')?.includes('text/html') ?? false
+  }
+
+  protected renderDebugPage(error: unknown, normalized: NormalizedError, ctx: HttpContext): Response {
+    const html = renderErrorPage({
+      error,
+      status: normalized.status,
+      message: normalized.message,
+      code: normalized.code,
+      request: ctx.req,
+      requestId: ctx.requestId,
+      params: ctx.params(),
+      issues: normalized.errors,
+      routes: normalized.status === 404
+        ? ctx.make(Router).list()
+        : undefined,
+    })
+    return new Response(html, {
+      status: normalized.status,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })
   }
 
   protected get debug(): boolean {

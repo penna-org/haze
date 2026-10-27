@@ -1,0 +1,12 @@
+import { useTestApp } from '@think-h3/testing'
+import { describe, expect, it } from 'vitest'
+
+// 每个用例一个全新的应用实例
+const t = useTestApp()
+
+describe('{{kebabName}}', () => {
+  it('responds', async () => {
+    const res = await t.get('/')
+    expect(res.status).toBeLessThan(500)
+  })
+})

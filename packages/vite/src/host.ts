@@ -2,9 +2,11 @@ import type { Application, ApplicationOptions } from '@think-h3/core'
 import type { ViteDevServer } from 'vite'
 import type { ReloadEvent, ThinkPluginApi } from './plugin'
 import { relative } from 'node:path'
+import { renderErrorPage } from '@think-h3/core'
 import { consola } from 'consola'
 import { createServerModuleRunner, normalizePath } from 'vite'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
+import { writeTypes } from './typegen'
 
 export interface ReloadResult {
   ok: boolean
@@ -70,6 +72,7 @@ export function createAppHost({ vite, api, debounce = 30 }: AppHostOptions): App
       lastError = undefined
       if (previous)
         void retire(previous)
+      await generateTypes(app)
       return { ok: true, file, duration: performance.now() - start }
     }
     catch (error) {
@@ -80,6 +83,22 @@ export function createAppHost({ vite, api, debounce = 30 }: AppHostOptions): App
         duration: performance.now() - start,
         error,
       }
+    }
+  }
+
+  async function generateTypes(app: Application): Promise<void> {
+    const { srcDir, typegen } = api.settings()
+    if (!typegen)
+      return
+    try {
+      await writeTypes({
+        root,
+        srcDir,
+        routes: app.router.list(),
+      })
+    }
+    catch (error) {
+      consola.warn(`[${PLUGIN_NAME}] failed to generate types`, error)
     }
   }
 
@@ -137,7 +156,7 @@ export function createAppHost({ vite, api, debounce = 30 }: AppHostOptions): App
     await started
     const slot = current
     if (!slot)
-      return errorResponse(lastError)
+      return errorResponse(lastError, request, root)
     slot.active++
     try {
       return await slot.app.fetch(request)
@@ -174,13 +193,27 @@ export function createAppHost({ vite, api, debounce = 30 }: AppHostOptions): App
   }
 }
 
-function errorResponse(error: unknown): Response {
+/** 应用启动失败时的响应：浏览器显示错误页，其余返回 JSON */
+function errorResponse(error: unknown, request: Request, rootDir: string): Response {
   const err = error instanceof Error
     ? error
     : new Error(String(error ?? 'Application is starting'))
+  const message = `[${PLUGIN_NAME}] ${err.message}`
+  if (request.headers.get('accept')?.includes('text/html')) {
+    return new Response(renderErrorPage({
+      error: err,
+      status: 500,
+      message,
+      request,
+      rootDir,
+    }), {
+      status: 500,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })
+  }
   return Response.json({
     code: 500,
-    message: `[${PLUGIN_NAME}] ${err.message}`,
+    message,
     stack: err.stack?.split('\n').map(line => line.trim()),
   }, { status: 500 })
 }

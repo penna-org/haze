@@ -16,6 +16,7 @@
     ]
   },
   "include": [
-    "**/*.ts"
+    "**/*.ts",
+    ".think/types/**/*.d.ts"
   ]
 }

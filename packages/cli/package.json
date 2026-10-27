@@ -2,12 +2,16 @@
   "name": "@think-h3/cli",
   "type": "module",
   "version": "0.0.0",
-  "description": "think-h3 command line: dev / build / start / test / route:list",
+  "description": "think-h3 command line: dev / build / start / test / route:list / typegen / make:*",
   "license": "MIT",
   "bin": {
     "think-h3": "./bin/think-h3.mjs"
   },
-  "files": ["bin", "dist"],
+  "files": [
+    "bin",
+    "dist",
+    "stubs"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },

@@ -59,14 +59,21 @@ function childEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
     ...extra,
   }
   loaded?.forEach(key => delete env[key])
+  // 未显式指定时去掉 Vitest 注入的测试标记（consola 在测试环境下会隐藏 info 输出）
+  if (!('NODE_ENV' in extra)) {
+    for (const key of Object.keys(env)) {
+      if (key === 'NODE_ENV' || key === 'TEST' || key.startsWith('VITEST'))
+        delete env[key]
+    }
+  }
   return env
 }
 
-export function run(script: string, args: string[], cwd: string): Promise<{ code: number, output: string }> {
+export function run(script: string, args: string[], cwd: string, env: Record<string, string> = { NODE_ENV: 'test' }): Promise<{ code: number, output: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [script, ...args], {
       cwd,
-      env: childEnv({ CI: '1', NODE_ENV: 'test' }),
+      env: childEnv({ CI: '1', ...env }),
     })
     let output = ''
     child.stdout.on('data', chunk => (output += chunk))

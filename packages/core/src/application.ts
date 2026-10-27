@@ -1,4 +1,5 @@
-import type { ConfigInput } from './config/config'
+import type { H3Event } from 'h3'
+import type { ConfigInput, ConfigPath, ConfigPathValue } from './config/config'
 import type { InjectionKey } from './container/token'
 import type { StaticOptions } from './http/static'
 import type { MiddlewareConfig } from './middleware/types'
@@ -165,7 +166,7 @@ export class Application {
   }
 
   #loadConfig(): void {
-    const defaults = defaultConfig(this.mode === 'development')
+    const defaults = defaultConfig(this.mode)
     for (const [name, value] of Object.entries(defaults))
       this.config.merge(name, value)
 
@@ -189,20 +190,43 @@ export class Application {
       return handler.render(error, ctx)
     }
 
+    const requestIdHeader = this.config.get('app.requestIdHeader')
+    const logRequests = this.config.get('logger.requests') ?? false
+    const createContext = (event: H3Event, container: Container): HttpContext => {
+      const requestId = resolveRequestId(event, requestIdHeader)
+      // 从容器取 Logger，测试中替换的日志器同样生效
+      const logger = this.container.make(Logger).child({ requestId })
+      return new HttpContext(event, container, { requestId, logger })
+    }
+
     const h3 = new H3({
       debug: this.config.get('app.debug'),
       silent: true,
       // 兜底：请求作用域建立之前的错误（如非法 URL）或异常处理器自身出错
       onError: (error, event) => {
-        const ctx = getHttpContext(event) ?? new HttpContext(event, this.container.createChild())
+        const ctx = getHttpContext(event) ?? createContext(event, this.container.createChild())
         return handleError(error, ctx)
+      },
+      // 访问日志在响应生成之后记录，状态码包含异常渲染后的结果
+      onResponse: (response, event) => {
+        const ctx = getHttpContext(event)
+        if (logRequests && ctx) {
+          ctx.logger.access({
+            method: ctx.method,
+            path: ctx.path,
+            status: response.status,
+            duration: performance.now() - ctx.startedAt,
+          })
+        }
       },
     })
 
     // 请求作用域：子容器 + HttpContext + AsyncLocalStorage
     h3.use(async (event, next) => {
       const container = this.container.createChild()
-      const ctx = new HttpContext(event, container)
+      const ctx = createContext(event, container)
+      if (requestIdHeader)
+        event.res.headers.set(requestIdHeader, ctx.requestId)
       container.instance(HttpContext, ctx)
       setHttpContext(event, ctx)
       try {
@@ -262,7 +286,9 @@ export function useApp(): Application {
 }
 
 /** 读取配置的快捷函数：`config('app.name')` */
-export function config<T = unknown>(key: string, defaultValue?: T): T {
+export function config<P extends ConfigPath>(key: P): ConfigPathValue<P>
+export function config<T>(key: string, defaultValue: T): T
+export function config(key: string, defaultValue?: unknown): unknown {
   return useApp().config.get(key, defaultValue)
 }
 
@@ -270,4 +296,16 @@ function resolveMode(nodeEnv: string | undefined): AppMode {
   if (nodeEnv === 'production' || nodeEnv === 'test')
     return nodeEnv
   return 'development'
+}
+
+const REQUEST_ID_RE = /^[\w.:-]{1,128}$/
+
+/** 沿用上游传入的请求 ID（仅接受安全字符，防止日志注入），否则生成新的 */
+function resolveRequestId(event: H3Event, header: string | false): string {
+  const incoming = header
+    ? event.req.headers.get(header)
+    : null
+  return incoming && REQUEST_ID_RE.test(incoming)
+    ? incoming
+    : crypto.randomUUID()
 }

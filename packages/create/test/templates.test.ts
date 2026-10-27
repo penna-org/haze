@@ -1,5 +1,5 @@
 import type { createProject as CreateProject } from './utils'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildServer, createDevServer } from '@think-h3/vite'
 import { createBuilder, createServer } from 'vite'
@@ -80,6 +80,62 @@ describe('api template', () => {
     finally {
       await server.stop()
     }
+  })
+})
+
+describe('code generation and types', () => {
+  it('make:* output and generated types typecheck in a fresh project', async () => {
+    project = createProject('api')
+    const cli = binOf('@think-h3/cli', 'think-h3')
+    // 不传 NODE_ENV=test，否则 consola 会隐藏命令的提示输出
+    const think = (...args: string[]) => run(cli, [...args, '--root', project!.root], project!.root, {})
+
+    const typegen = await think('typegen')
+    expect(typegen.code, typegen.output).toBe(0)
+    expect(typegen.output).toContain('1 named route(s)')
+    expect(project.read('.think/types/think.d.ts')).toContain('"api.hello": Record<never, never>')
+
+    for (const kind of [
+      'controller',
+      'service',
+      'repository',
+      'middleware',
+      'provider',
+      'validate',
+      'test',
+    ]) {
+      const result = await think(`make:${kind}`, 'admin/order-item')
+      expect(result.code, result.output).toBe(0)
+    }
+    for (const kind of ['config', 'route']) {
+      const result = await think(`make:${kind}`, 'order-item')
+      expect(result.code, result.output).toBe(0)
+    }
+    // 新增配置 / 路由后重新生成类型
+    await think('typegen')
+    const resource = await think('make:controller', 'Product', '--resource')
+    expect(resource.output).toContain('app/controller/ProductController.ts')
+    expect((await think('make:service', 'admin/order-item')).output).toContain('already exists')
+
+    // 类型探针：生成的配置键 / 路由名必须能拦截拼写错误
+    writeFileSync(join(project.root, 'probe.ts'), `
+import { config, Router } from '@think-h3/core'
+declare const router: Router
+const name: string = config('app.name')
+const enabled: boolean = config('orderItem.enabled')
+router.url('api.hello')
+// @ts-expect-error 未知配置键
+config('app.nope')
+// @ts-expect-error 未知路由名
+router.url('api.nope')
+export { enabled, name }
+`)
+    const tsc = await run(binOf('typescript', 'tsc'), ['--noEmit', '-p', 'tsconfig.json'], project.root)
+    expect(tsc.output).toBe('')
+
+    // 生成的测试与模板测试一起通过
+    const tests = await run(binOf('vitest'), ['run'], project.root)
+    expect(tests.output, tests.output).toContain('4 passed')
   })
 })
 

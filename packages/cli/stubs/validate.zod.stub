@@ -1,0 +1,10 @@
+import { z } from 'zod'
+
+export const Create{{name}}Schema = z.object({
+  name: z.string({ error: 'name 必填' }).trim().min(1, 'name 不能为空'),
+})
+
+export const Update{{name}}Schema = Create{{name}}Schema.partial()
+
+export type Create{{name}}Input = z.infer<typeof Create{{name}}Schema>
+export type Update{{name}}Input = z.infer<typeof Update{{name}}Schema>

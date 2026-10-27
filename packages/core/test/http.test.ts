@@ -11,6 +11,7 @@ import {
   inject,
   Logger,
   NotFoundException,
+  renderErrorPage,
   Scope,
   UnauthorizedException,
   useContext,
@@ -550,5 +551,97 @@ describe('static files', () => {
     expect((await app.request('/../package.json')).status).toBe(404)
     expect((await app.request('/%2e%2e/%2e%2e/etc/passwd')).status).toBe(404)
     expect((await app.request('/users/42', html)).status).toBe(404)
+  })
+})
+
+describe('debug error page', () => {
+  const browser = {
+    headers: { accept: 'text/html,application/xhtml+xml' },
+  }
+  const routes: RouteRegistrar = (r) => {
+    r.get('/boom', () => {
+      throw new Error('<script>alert(1)</script> exploded')
+    })
+    r.post('/users', () => 'ok').validate({
+      body: v.object({
+        name: v.string('名称必填'),
+      }),
+    }).name('users.store')
+  }
+
+  it('renders html with source frame, stack and request info for browsers', async () => {
+    const app = await boot(routes, {
+      config: {
+        app: { debug: true },
+      },
+    })
+    const res = await app.request('/boom?x=1', {
+      headers: { ...browser.headers, authorization: 'Bearer secret-token-value' },
+    })
+    expect(res.status).toBe(500)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    const html = await res.text()
+    // 消息被转义
+    expect(html).toContain('&#60;script&#62;alert(1)&#60;/script&#62; exploded')
+    expect(html).not.toContain('<script>alert(1)')
+    // 源码定位到本测试文件中的抛出行
+    expect(html).toContain('test/http.test.ts:')
+    expect(html).toContain('throw new Error(')
+    expect(html).toContain('GET /boom?x=1')
+    // 敏感请求头被隐藏
+    expect(html).not.toContain('secret-token-value')
+  })
+
+  it('lists validation issues and available routes', async () => {
+    const app = await boot(routes, {
+      config: {
+        app: { debug: true },
+      },
+    })
+    const invalid = await (await app.request('/users', { method: 'POST', ...browser })).text()
+    expect(invalid).toContain('校验错误')
+    expect(invalid).toContain('名称必填')
+
+    const missing = await (await app.request('/nope', browser)).text()
+    expect(missing).toContain('可用路由')
+    expect(missing).toContain('users.store')
+  })
+
+  it('keeps json for api clients and never renders html without debug', async () => {
+    const debug = await boot(routes, {
+      config: {
+        app: { debug: true },
+      },
+    })
+    expect((await debug.request('/boom')).headers.get('content-type')).toContain('json')
+
+    const prod = await boot(routes, { mode: 'production' })
+    const res = await prod.request('/boom', browser)
+    expect(res.headers.get('content-type')).toContain('json')
+    expect(await res.text()).not.toContain('exploded')
+  })
+})
+
+describe('debug error page details', () => {
+  it('shows exception class names instead of HTTPError', async () => {
+    const app = await boot(r => r.get('/x', () => 'x'), {
+      config: {
+        app: { debug: true },
+      },
+    })
+    const html = await (await app.request('/missing', {
+      headers: { accept: 'text/html' },
+    })).text()
+    expect(html).toContain('NotFoundException')
+  })
+
+  it('hides framework-only stacks for client errors but keeps them for server errors', () => {
+    const error = new NotFoundException()
+    error.stack = 'Error\n    at eval (/app/node_modules/@think-h3/core/dist/index.mjs:10:5)'
+    expect(renderErrorPage({ error, status: 404, message: 'Not Found' })).not.toContain('调用栈')
+
+    const crash = new Error('boom')
+    crash.stack = 'Error: boom\n    at eval (/app/node_modules/@think-h3/core/dist/index.mjs:10:5)'
+    expect(renderErrorPage({ error: crash, status: 500, message: 'boom' })).toContain('<details open>')
   })
 })
