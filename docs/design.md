@@ -691,6 +691,7 @@ it('获取用户', async () => {
 | M11 | 参考 Nitro：依赖追踪进产物（nf3）、`vite preview` / `think-h3 preview` 运行产物、React 模板与多框架验证 |
 | M12 | 内置中间件（CORS、限流、安全头、压缩、请求体上限）、文件上传、Cookie / Session、认证（JWT / Session Guard） |
 | M13 | 授权（Gate / Policy、ctx.can / authorize、can: 中间件）与 CSRF 同步令牌 |
+| M14 | 缓存（memory / redis / upstash / kv）、原子锁、响应缓存，限流与 Session 的共享存储，Cloudflare 限流绑定 |
 
 ### M5 实施记录（2026-10-26）
 
@@ -943,7 +944,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - Cloudflare 部署提示新增 `wrangler secret put APP_KEY`（Workers 没有 .env）。
 
 **仍然存在的限制 / 后续**
-- 限流与 memory Session 只在单进程内生效，多实例部署需要共享存储（计划在缓存模块中提供 Redis / KV 实现）。
+- ~~限流与 memory Session 只在单进程内生效~~（M14：缓存存储共享）。
 - `store()` 只写本地文件系统；S3 / R2 等存储计划在后续的 Storage 模块中提供。
 - ~~没有 CSRF 中间件~~、~~授权~~（M13 已补）。
 
@@ -1021,4 +1022,71 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 **后续**
 - 授权目前只有全局策略，多应用的 `app/<name>/policy` 尚未支持。
 - 策略中的能力不能接收除模型外的类型化参数（能接收，但类型为 any）。
+
+### M14 实施记录（2026-10-27）：缓存与共享存储
+
+确认的决策：
+- 缓存放在 core 内置；
+- Redis 客户端用 ioredis，Edge 上用 Upstash；
+- 在 colima 中用 redis:7 与 serverless-redis-http（SRH）做真实验证；
+- 顺带做原子锁、响应缓存中间件和 Cloudflare 限流绑定。
+
+**设计**
+- 没有用 unstorage：它没有原子自增和锁，各驱动对 TTL 的支持也不一致。改为自己实现一个小的 `CacheStore` 接口：
+  - 读写类：`get / set(ttl) / add / delete`；
+  - 原子类：`increment(key, by, ttl)` 返回新值与剩余秒数，`deleteIf(key, expected)` 用于持有者校验；
+  - 清理：`clear(prefix)`；
+  - `atomic` 标记驱动是否保证原子性。
+- 值统一以字符串存储，序列化在上层完成；自增的计数与 JSON 数字兼容。
+- 上层 `CacheRepository` 提供 `get(fallback) / many / has / set / setMany / add / forget / pull / remember / rememberForever / increment / decrement / flush / lock / restoreLock`，TTL 可写成 `'10m'`。
+- 值以 JSON 序列化，Date 读回为字符串。
+- `CacheManager` 是应用单例，可以注入；没有 `config/cache.ts` 时默认使用内存缓存，键前缀默认为 `think:`。
+- 门面 `Cache` 在请求内从请求容器取管理器，请求外取最近启动的应用。
+
+| 驱动 | 实现要点 |
+|------|----------|
+| memory | Map，热更新后保留，惰性清理过期项 |
+| redis（ioredis 6） | 自增用 Lua 脚本，一次完成 INCRBY 与首次 EXPIRE；`deleteIf` 也是 Lua；`clear` 用 SCAN + DEL；连接跨热更新复用，应用关闭时 quit |
+| upstash | 关闭 `automaticDeserialization`，与 redis 驱动共用同一组 Lua 脚本 |
+| kv | 绑定名默认 `CACHE`；KV 的 TTL 最短 60 秒，更短的有效期记录在元数据的 expiresAt 中；add / increment / deleteIf 是先读后写（非原子）；`clear` 用 list 分页删除 |
+
+- 依赖：ioredis 与 @upstash/redis 是 core 的可选 peer 依赖，按固定包名导入。构建时它们被列入驱动包：
+  - ioredis 在 Workers 上替换为报错空模块（TCP 长连接不可用）；
+  - Node 类产物按需追踪进产物。
+
+**锁**
+- `Lock`：`add` 获取（相当于 SET NX EX），持有者标识为随机值，`release` 只删除自己持有的锁。
+- 其他方法：`block(wait)` 轮询等待，`run(fn, wait?)` 拿到锁后执行并在结束时释放，拿不到时抛 `LockTimeoutException`。
+- 非原子驱动（KV）直接拒绝创建锁。
+
+**限流与 Session 的共享存储**
+- `throttle.store` 可以写缓存存储名（`'redis'`），由 `cacheRateLimitStore` 用原子自增和剩余 TTL 计算固定窗口。用非原子驱动时只警告一次（结果为近似值）。
+- 限流规则支持 `binding`，使用 Cloudflare Workers Rate Limiting（`limit({ key })`）：超限返回 429，`Retry-After` 取 window。本地没有绑定时回退到 store 计数。
+- Session 新增 `driver: 'cache'` 与 `store`，键为 `session:<id>`，即 `cacheSessionStore`。
+
+**响应缓存（`cacheResponse:<ttl>[,user]`）**
+- 只缓存 GET / HEAD 的 200 响应，按路径与查询参数区分，`user` 时再按用户区分。
+- 跳过 `no-store` / `private` 的响应；缓存副本不含 Set-Cookie。
+- 命中时直接返回，带 `X-Cache: HIT` 与 `Age`；未命中时在 onResponse 中写入缓存，响应带 `X-Cache: MISS`。
+- 它是路由中间件，钩子先于全局的 compress 执行，因此缓存的是未压缩的内容，命中后仍会按客户端压缩。
+
+**模板**
+- 新增 `config/cache.ts`：`CACHE_STORE`、`CACHE_PREFIX`、`REDIS_URL`，注释中给出 upstash / kv 示例。
+- 新增 `config/throttle.ts`：store 跟随 `CACHE_STORE`，注释中给出 Workers 限流绑定的示例。
+- README 新增"缓存"一节。
+
+**验证**
+- `cache.test.ts`：同一套 11 个行为用例分别在 memory、KV（Miniflare）、真实 Redis 7（colima）、Upstash REST（SRH 代理到同一个 Redis）上运行：
+  - 基本读写、过期、remember / add / many；
+  - 自增与 TTL 只在创建时设置；50 次并发自增；
+  - 只清理自己前缀；锁（持有者释放、run、block）；
+  - Session 与限流走缓存；cacheResponse。
+- 另有 3 个接入用例：默认内存缓存、按用户的响应缓存、Cloudflare 限流绑定及其回退。
+- workerd：KV 缓存的自增与 remember 在 Worker 中运行，并直接读取 KV 校验写入的值。
+- 多实例端到端：api 模板的 node 产物拷到项目之外，用同一个 Redis 启动两个实例轮流请求带 `throttle:10,60` 的登录接口，第 11 次返回 429。同时验证了 ioredis 被追踪进 `dist/node_modules`。
+- Redis / Upstash 用例按 `THINK_TEST_REDIS_URL`、`THINK_TEST_UPSTASH_URL`、`THINK_TEST_UPSTASH_TOKEN` 启用。验证结束后容器、镜像与 Docker 网络已删除，colima 已停止。
+
+**限制**
+- KV 非原子、最终一致，不适合精确计数与锁（构建与运行时都有提示）。
+- 没有缓存标签（tags）与防击穿：`remember` 并发未命中时会重复计算，可以配合 `lock` 使用。
 

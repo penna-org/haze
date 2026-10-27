@@ -1,5 +1,6 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
@@ -44,8 +45,9 @@ describe('full-stack deployment presets (vue template)', () => {
     expect(output).toContain('docker build -t demo-vue dist')
     expect(existsSync(join(root, 'dist/client/index.html'))).toBe(true)
     expect(existsSync(join(root, 'dist/server/index.mjs'))).toBe(true)
-    // ORM 按需加载的 SQLite 驱动在镜像里安装；未安装的驱动不会列入
-    expect(Object.keys(JSON.parse(readFileSync(join(root, 'dist/package.json'), 'utf8')).dependencies)).toEqual(['@libsql/client'])
+    // 项目安装的驱动在镜像里安装（测试环境另装了 ioredis）；未安装的驱动不会列入
+    const dependencies = Object.keys(JSON.parse(readFileSync(join(root, 'dist/package.json'), 'utf8')).dependencies)
+    expect(dependencies).toEqual(['@libsql/client', 'ioredis'])
     expect(output).toContain('docker run --rm demo-vue node server/migrate.mjs')
 
     // 生产迁移脚本：迁移已打包进产物，不需要源码与 drizzle-kit
@@ -337,6 +339,46 @@ export default defineThinkConfig({
     }
     finally {
       await mf.dispose()
+    }
+  })
+
+  // 真实 Redis：THINK_TEST_REDIS_URL=redis://127.0.0.1:6379
+  it.runIf(process.env.THINK_TEST_REDIS_URL)('node: two instances share throttle counts through Redis, with ioredis traced into dist', async () => {
+    project = createProject('api')
+    const build = await run(binOf('@think-h3/cli', 'think-h3'), ['build', '--root', project.root], project.root, {})
+    expect(build.code, build.output).toBe(0)
+    expect(existsSync(join(project.root, 'dist/node_modules/ioredis/package.json'))).toBe(true)
+
+    // 产物拷到项目之外运行，两个实例共用 Redis
+    const elsewhere = mkdtempSync(join(tmpdir(), 'think-h3-redis-'))
+    cpSync(join(project.root, 'dist'), elsewhere, { recursive: true })
+    const env = {
+      APP_KEY: 'k'.repeat(32),
+      CACHE_STORE: 'redis',
+      REDIS_URL: process.env.THINK_TEST_REDIS_URL!,
+      CACHE_PREFIX: `e2e:${crypto.randomUUID()}:`,
+    }
+    const servers = await Promise.all([
+      startProduction(join(elsewhere, 'index.mjs'), elsewhere, env),
+      startProduction(join(elsewhere, 'index.mjs'), elsewhere, env),
+    ])
+    try {
+      // /api/auth/login 为 throttle:10,60：两个实例轮流请求，第 11 次被拒绝
+      const statuses: number[] = []
+      for (let index = 0; index < 11; index++) {
+        const res = await fetch(`${servers[index % 2].url}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        })
+        statuses.push(res.status)
+      }
+      expect(statuses.slice(0, 10)).toEqual(Array.from({ length: 10 }).fill(422))
+      expect(statuses[10]).toBe(429)
+    }
+    finally {
+      await Promise.all(servers.map(server => server.stop()))
+      rmSync(elsewhere, { recursive: true, force: true })
     }
   })
 })

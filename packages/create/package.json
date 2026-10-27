@@ -43,6 +43,7 @@
     "deno": "catalog:",
     "drizzle-kit": "catalog:",
     "drizzle-orm": "catalog:",
+    "ioredis": "catalog:",
     "miniflare": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

@@ -22,6 +22,18 @@
     "build": "tsdown",
     "dev": "tsdown --watch"
   },
+  "peerDependencies": {
+    "@upstash/redis": "^1.40.0",
+    "ioredis": "^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@upstash/redis": {
+      "optional": true
+    },
+    "ioredis": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@standard-schema/spec": "catalog:",
     "consola": "catalog:",
@@ -29,6 +41,9 @@
     "jose": "catalog:"
   },
   "devDependencies": {
+    "@upstash/redis": "catalog:",
+    "ioredis": "catalog:",
+    "miniflare": "catalog:",
     "valibot": "catalog:"
   }
 }

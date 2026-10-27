@@ -1,6 +1,7 @@
 import type { MiddlewareHandler } from '../types'
 import { authenticate, can, guest } from '../../auth/middleware'
 import { parseSize } from '../../utils'
+import { cacheResponse } from './cache-response'
 import { compress } from './compress'
 import { cors } from './cors'
 import { csrf } from './csrf'
@@ -33,4 +34,5 @@ export const builtinMiddleware: Record<string, MiddlewareHandler> = {
   guest,
   can,
   csrf,
+  cacheResponse,
 }

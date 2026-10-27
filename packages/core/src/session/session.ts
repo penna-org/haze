@@ -3,10 +3,11 @@ import type { CookieOptions } from '../http/cookie'
 import type { WebCryptoKey } from '../security/key'
 import type { SessionData, SessionStore } from './store'
 import { getCookie } from 'h3'
+import { CacheManager } from '../cache/manager'
 import { mutableResponse, serializeCookie } from '../http/cookie'
 import { appKey, fromBase64Url, sign, toBase64Url, verify } from '../security/key'
 import { parseDuration } from '../utils'
-import { memorySessionStore } from './store'
+import { cacheSessionStore, memorySessionStore } from './store'
 
 export interface SessionConfig {
   /**
@@ -14,7 +15,9 @@ export interface SessionConfig {
    * - `memory`：数据在进程内存，Cookie 只保存签名的会话 ID（单实例）
    * - 自定义 SessionStore：Redis、KV、数据库等
    */
-  driver: 'cookie' | 'memory' | SessionStore
+  driver: 'cookie' | 'memory' | 'cache' | SessionStore
+  /** driver 为 cache 时使用的缓存存储（config/cache.ts 的 stores），默认缓存的默认存储 */
+  store?: string
   /** Cookie 名，默认 `think_session` */
   cookie: string
   /** 有效期，默认 `2h` */
@@ -173,13 +176,16 @@ function newSessionId(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(24)))
 }
 
-function resolveStore(driver: SessionConfig['driver']): SessionStore | undefined {
+function resolveStore(ctx: HttpContext, config: SessionConfig): SessionStore | undefined {
+  const { driver } = config
   if (driver === 'cookie')
     return undefined
   if (driver === 'memory') {
     memoryStore ??= memorySessionStore()
     return memoryStore
   }
+  if (driver === 'cache')
+    return cacheSessionStore(ctx.make(CacheManager).store(config.store))
   return driver
 }
 
@@ -191,7 +197,7 @@ export async function startSession(ctx: HttpContext): Promise<Session> {
   }
   const secret = appKey(ctx.config)
   const lifetime = parseDuration(config.lifetime)
-  const store = resolveStore(config.driver)
+  const store = resolveStore(ctx, config)
   const raw = getCookie(ctx.event, config.cookie)
 
   let session: Session | undefined

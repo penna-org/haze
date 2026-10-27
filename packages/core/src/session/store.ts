@@ -1,3 +1,4 @@
+import type { CacheRepository } from '../cache/repository'
 import { definePersistent } from '../persistent'
 
 export type SessionData = Record<string, unknown>
@@ -40,6 +41,17 @@ export function memorySessionStore(): SessionStore {
     },
     async destroy(id) {
       entries.delete(id)
+    },
+  }
+}
+
+/** 基于缓存存储的会话（Redis / Upstash / KV 等，多实例共享）：`{ driver: 'cache', store: 'redis' }` */
+export function cacheSessionStore(cache: CacheRepository): SessionStore {
+  return {
+    get: id => cache.get<SessionData>(`session:${id}`),
+    set: (id, data, ttl) => cache.set(`session:${id}`, data, ttl),
+    destroy: async (id) => {
+      await cache.forget(`session:${id}`)
     },
   }
 }

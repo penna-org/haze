@@ -13,6 +13,7 @@ import process from 'node:process'
 import { H3, serve, toResponse } from 'h3'
 import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
 import { Gate } from './auth/gate'
+import { CacheManager, setCacheManager } from './cache/manager'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
 import { Container } from './container/container'
@@ -149,6 +150,10 @@ export class Application {
     for (const [, policy] of normalizeModules<unknown>(options.policies))
       gate.register(policy)
     this.container.instance(Gate, gate)
+    // 缓存：config/cache.ts，缺省为内存缓存
+    const cache = new CacheManager(this.config)
+    this.container.instance(CacheManager, cache)
+    setCacheManager(cache)
 
     // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()

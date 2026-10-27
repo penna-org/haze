@@ -9,6 +9,8 @@ import { NodeNativePackages, NonBundleablePackages } from 'nf3/db'
 /** 数据库驱动：含原生二进制 / WASM / 可选原生依赖，不打包，运行时从 node_modules 加载（或追踪进产物） */
 export const DRIVER_PACKAGES = [
   '@libsql/client',
+  '@upstash/redis',
+  'ioredis',
   'libsql',
   '@electric-sql/pglite',
   'mongodb',
@@ -19,6 +21,8 @@ export const DRIVER_PACKAGES = [
 /** Edge（Workers）上无法运行的驱动：构建时替换为调用即报错的空模块 */
 export const EDGE_UNSUPPORTED_DRIVERS = [
   '@electric-sql/pglite',
+  // TCP 长连接；Workers 上请用 upstash（HTTP）或 KV
+  'ioredis',
   'mysql2',
   'mongodb',
   'libsql',

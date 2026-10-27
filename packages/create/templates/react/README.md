@@ -117,8 +117,33 @@ export default definePolicy(User, {
 | `auth` / `guest` | 认证 | `auth.ts` |
 | `can:<ability>[,Model[,param]]` | 授权 | `app/policy/*.ts` |
 | `csrf` | CSRF 同步令牌（419） | `csrf.ts`（except、cookie、testing） |
+| `cacheResponse:60[,user]` | 缓存 GET 响应 | `cache.ts`（responseStore） |
 
 文件上传：multipart 请求的 `await ctx.body()` 中文件字段为 `UploadedFile`（继承 File，可直接用 valibot 的 `v.file()`、`v.maxSize()`、`v.mimeType()` 校验），`await (await ctx.file('avatar'))?.store('storage/avatars')` 保存到本地。
+
+## 缓存
+
+`server/config/cache.ts`（默认内存；设置 `CACHE_STORE=redis` 与 `REDIS_URL` 切换到 Redis，需要 `pnpm add ioredis`）：
+
+```ts
+import { Cache } from '@think-h3/core'
+
+const stats = await Cache.remember('stats', '10m', () => computeStats())
+await Cache.increment('views') // 原子自增
+await Cache.lock('report', '30s').run(() => generateReport()) // 原子锁（拿不到时抛 LockTimeoutException）
+await Cache.store('redis').get('key') // 指定存储
+```
+
+| 驱动 | 适用 | 说明 |
+|------|------|------|
+| `memory` | 开发、单实例 | 进程内 |
+| `redis` | 多实例 Node / Docker / Lambda | ioredis，原子自增与锁 |
+| `upstash` | Vercel / Netlify / Workers | HTTP，需要 `@upstash/redis` |
+| `kv` | Cloudflare Workers | 最终一致、非原子：适合缓存与 Session，不支持锁 |
+
+- 多实例共享：`server/config/throttle.ts` 的 `store` 与 Session 的 `{ driver: 'cache', store: 'redis' }` 使用同一个缓存存储
+- Workers 上的限流：限流规则配置 `binding: 'API_RATE_LIMITER'`，使用 Cloudflare Rate Limiting 绑定（原子、全局）
+- 响应缓存：`.middleware('cacheResponse:60')` 缓存 GET 响应（`X-Cache: HIT / MISS`），`cacheResponse:60,user` 按用户区分
 
 ## 部署
 

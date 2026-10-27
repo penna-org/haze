@@ -37,9 +37,13 @@ export default defineThinkConfig({ srcDir: 'server' })
 
 ## 认证与安全
 
-内置中间件按名使用：`cors`、`secureHeaders`、`compress`、`throttle:60,60`、`bodyLimit:10mb`、`session`、`csrf`、`auth` / `auth:web,api`、`guest`、`can:<ability>`。认证参考 Laravel 的 Guard / Provider：`config/auth.ts` 中配置 jwt（jose，HS / RS / ES / EdDSA）与 session 两种 Guard，`modelUserProvider(() => User)` 基于 ORM 模型提供用户。Cookie 签名、Session 加密（AES-GCM）与 JWT 默认密钥均来自 `APP_KEY`（`think-h3 key:generate`）；密码哈希用 `Hash.make()`（scrypt）。multipart 上传解析为 `UploadedFile`（继承 File，可用 valibot 校验，`store()` 保存到本地）。
+内置中间件按名使用：`cors`、`secureHeaders`、`compress`、`throttle:60,60`、`bodyLimit:10mb`、`session`、`csrf`、`auth` / `auth:web,api`、`guest`、`can:<ability>`、`cacheResponse:60`。认证参考 Laravel 的 Guard / Provider：`config/auth.ts` 中配置 jwt（jose，HS / RS / ES / EdDSA）与 session 两种 Guard，`modelUserProvider(() => User)` 基于 ORM 模型提供用户。Cookie 签名、Session 加密（AES-GCM）与 JWT 默认密钥均来自 `APP_KEY`（`think-h3 key:generate`）；密码哈希用 `Hash.make()`（scrypt）。multipart 上传解析为 `UploadedFile`（继承 File，可用 valibot 校验，`store()` 保存到本地）。
 
 授权参考 Laravel 的 Gate / Policy：`app/policy/*.ts` 中 `definePolicy(Model, {...})` / `defineAbilities({...})` 自动注册，`ctx.can()` / `ctx.authorize()` 与 `can:update,Post,id` 中间件检查，能力名由 typegen 生成类型。`csrf` 中间件为 Laravel 方式的同步令牌（XSRF-TOKEN Cookie + X-XSRF-TOKEN 头 / `_token` 字段，失败 419）。
+
+## 缓存
+
+`Cache.remember / get / set / increment / lock`，驱动：memory、redis（ioredis）、upstash（HTTP，Edge 可用）、kv（Cloudflare KV）。限流与 Session 可直接引用缓存存储实现多实例共享（`throttle: { store: 'redis' }`、`session: { driver: 'cache', store: 'redis' }`）；Workers 上限流可用 Cloudflare Rate Limiting 绑定；`cacheResponse:60` 中间件缓存 GET 响应。
 
 ## 部署
 

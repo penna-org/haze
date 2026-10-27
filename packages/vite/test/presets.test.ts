@@ -256,6 +256,15 @@ export default defineRoutes(r => r.get('/session-visits', (ctx) => {
   return { visits }
 }).middleware('session'))
 `)
+    // KV 缓存在 workerd 中运行
+    fixture.write('config/cache.ts', `export default { default: 'kv', stores: { kv: { driver: 'kv', binding: 'CACHE' } } }\n`)
+    fixture.write('route/kv.ts', `
+import { Cache, defineRoutes } from '@think-h3/core'
+export default defineRoutes(r => r.get('/kv', async () => ({
+  hits: await Cache.increment('hits'),
+  first: await Cache.remember('first', 120, () => 'cached once'),
+})))
+`)
     const result = await build('cloudflare', undefined, fixture)
     const dist = join(result.root, 'dist')
     const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))
@@ -275,6 +284,7 @@ export default defineRoutes(r => r.get('/session-visits', (ctx) => {
         APP_NAME: 'from-binding',
         APP_KEY: 'k'.repeat(32),
       },
+      kvNamespaces: ['CACHE'],
     })
     try {
       const hello = await mf.dispatchFetch('http://localhost/hello')
@@ -296,6 +306,11 @@ export default defineRoutes(r => r.get('/session-visits', (ctx) => {
         name: 'from-binding',
       })
       expect((await mf.dispatchFetch('http://localhost/missing')).status).toBe(404)
+
+      expect((await (await mf.dispatchFetch('http://localhost/kv')).json() as any).data).toEqual({ hits: 1, first: 'cached once' })
+      expect((await (await mf.dispatchFetch('http://localhost/kv')).json() as any).data).toEqual({ hits: 2, first: 'cached once' })
+      const kv = await mf.getKVNamespace('CACHE') as unknown as { get: (key: string) => Promise<string | null> }
+      expect(await kv.get('think:hits')).toBe('2')
 
       const first = await mf.dispatchFetch('http://localhost/session-visits')
       expect((await first.json() as any).data).toEqual({ visits: 1 })

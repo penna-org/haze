@@ -1,8 +1,11 @@
+import type { CacheRepository } from '../../cache/repository'
 import type { HttpContext } from '../../http/context'
 import type { MaybePromise } from '../../utils'
 import type { MiddlewareHandler } from '../types'
+import { CacheManager } from '../../cache/manager'
 import { TooManyRequestsException } from '../../exception/exceptions'
 import { definePersistent } from '../../persistent'
+import { usePlatformBinding } from '../../platform'
 import { parseDuration } from '../../utils'
 
 /** 限流计数存储：固定窗口内的请求次数 */
@@ -13,17 +16,25 @@ export interface RateLimitStore {
 }
 
 export interface ThrottleLimiter {
-  /** 窗口内最多请求次数 */
+  /** 窗口内最多请求次数（使用 binding 时只用于响应头与本地回退） */
   max: number
   /** 窗口长度：`60` / `1m` / `1h` */
   window: string | number
+  /**
+   * Cloudflare Workers Rate Limiting 绑定名（限额与周期在 wrangler.json 的 ratelimits 中配置）：
+   * 原子、全局生效，是 Workers 上限流的推荐方式。绑定不存在时（本地开发）回退到 store 计数。
+   */
+  binding?: string
   /** 计数维度，默认已登录用户 ID，否则客户端 IP */
   key?: (ctx: HttpContext) => MaybePromise<string>
 }
 
 export interface ThrottleConfig {
-  /** 默认进程内存（单实例）；多实例部署换成 Redis / KV 等共享存储 */
-  store?: RateLimitStore
+  /**
+   * 计数存储：默认进程内存（单实例）。多实例部署使用共享存储：
+   * 字符串为 config/cache.ts 中的存储名（如 `'redis'`），也可传入自定义 RateLimitStore
+   */
+  store?: RateLimitStore | string
   /** 命名规则：`throttle:api` */
   limiters?: Record<string, ThrottleLimiter>
 }
@@ -59,6 +70,44 @@ export function memoryRateLimitStore(): RateLimitStore {
 }
 
 let defaultStore: RateLimitStore | undefined
+const cacheStores = new WeakMap<CacheRepository, RateLimitStore>()
+
+/** 基于缓存存储的限流计数（原子自增 + 首次设置过期）：`throttle: { store: 'redis' }` */
+export function cacheRateLimitStore(cache: CacheRepository): RateLimitStore {
+  return {
+    async hit(key, windowSeconds) {
+      const { value, ttl } = await cache.store.increment(cache.key(key), 1, windowSeconds)
+      return { count: value, resetAt: Date.now() + (ttl ?? windowSeconds) * 1000 }
+    },
+    async reset(key) {
+      await cache.forget(key)
+    },
+  }
+}
+
+let warnedNonAtomic = false
+
+function resolveStore(ctx: HttpContext, store: ThrottleConfig['store']): RateLimitStore {
+  if (store === undefined)
+    return defaultStore ??= memoryRateLimitStore()
+  if (typeof store !== 'string')
+    return store
+  const cache = ctx.make(CacheManager).store(store)
+  if (!cache.store.atomic && !warnedNonAtomic) {
+    warnedNonAtomic = true
+    ctx.logger.warn(`throttle: cache store "${store}" (${cache.store.driver}) is not atomic, counts are approximate. On Cloudflare Workers use a Rate Limiting binding (limiter.binding)`)
+  }
+  let limiter = cacheStores.get(cache)
+  if (!limiter) {
+    limiter = cacheRateLimitStore(cache)
+    cacheStores.set(cache, limiter)
+  }
+  return limiter
+}
+
+interface RateLimitBinding {
+  limit: (options: { key: string }) => Promise<{ success: boolean }>
+}
 
 /** 默认计数维度：已登录用户，否则客户端 IP */
 async function defaultKey(ctx: HttpContext): Promise<string> {
@@ -88,9 +137,20 @@ export const throttle: MiddlewareHandler = async (ctx, next, ...args) => {
     }
   }
   const window = parseDuration(limiter.window)
-  const store = config.store ?? (defaultStore ??= memoryRateLimitStore())
   const key = `throttle:${spec}:${await (limiter.key ?? defaultKey)(ctx)}`
-  const { count, resetAt } = await store.hit(key, window)
+
+  // Cloudflare Rate Limiting 绑定：只返回是否放行
+  const binding = limiter.binding && usePlatformBinding<RateLimitBinding>(limiter.binding)
+  if (binding) {
+    ctx.setHeader('ratelimit-limit', String(limiter.max))
+    if (!(await binding.limit({ key })).success) {
+      ctx.setHeader('retry-after', String(window))
+      throw new TooManyRequestsException('请求过于频繁，请稍后再试')
+    }
+    return next()
+  }
+
+  const { count, resetAt } = await resolveStore(ctx, config.store).hit(key, window)
   const reset = Math.max(0, Math.ceil((resetAt - Date.now()) / 1000))
   ctx.setHeader('ratelimit-limit', String(limiter.max))
   ctx.setHeader('ratelimit-remaining', String(Math.max(0, limiter.max - count)))

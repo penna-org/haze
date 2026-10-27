@@ -1,5 +1,6 @@
 import type { SubAppConfig } from '../apps'
 import type { AuthConfig } from '../auth/config'
+import type { CacheConfig } from '../cache/config'
 import type { CookieOptions } from '../http/cookie'
 import type { LoggerConfig } from '../logger'
 import type { CompressOptions } from '../middleware/builtin/compress'
@@ -50,6 +51,7 @@ export interface CoreConfig {
   secureHeaders?: SecureHeadersOptions
   compress?: CompressOptions
   session?: Partial<SessionConfig>
+  cache?: CacheConfig
   auth?: AuthConfig
 }
 
