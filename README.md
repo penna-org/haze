@@ -53,6 +53,10 @@ export default defineThinkConfig({ srcDir: 'server' })
 
 `app/event/*.ts` 中 `defineEvent<Payload>()`，`app/listener/*.ts` 中 `defineListener(Event, handler, { queue? })`，`Event.emit(payload)` 触发；排队监听器复用队列。WebSocket 基于 crossws：路由中 `r.ws(path, { open, message, close })`，升级请求经过中间件；`Socket.publish(topic, data)` 服务端推送，多实例经 Redis 广播；开发服务器（含 Vite 全栈）、node / bun / deno / docker 产物与预览直接可用，Cloudflare 自动使用 Durable Object。
 
+## Socket.IO
+
+`@think-h3/socket.io` 集成官方 socket.io 服务端，兼容 socket.io-client：`app/socket/*.ts` 中 `defineNamespace({ middleware, connection })` 自动注册，`authenticate()` 用框架的 Guard 鉴权握手，`SocketIO.to(room).emit()` 服务端推送，多实例使用 `@socket.io/redis-adapter`。与 HTTP 共用端口，开发服务器（含 Vite 全栈）、node / docker 与 Bun（`@socket.io/bun-engine`）产物、预览均可用。
+
 ## 部署
 
 ```bash
@@ -94,6 +98,7 @@ npx think-h3 stub:publish                    # 导出 stub 到 stubs/ 以定制�
 ## 目录
 
 ```
+packages/socketio/ @think-h3/socket.io  官方 socket.io 服务端集成（命名空间、Guard 鉴权、Redis 适配器、Node / Bun）
 packages/orm/    @think-h3/orm  基于 drizzle 的 Db 查询构造器 + Model（MySQL / PostgreSQL / SQLite / Turso / Cloudflare D1）；
                  @think-h3/orm/mongo 为同形态的 MongoDB 适配器（Mongo / MongoModel）
 packages/create/ create-think-h3 脚手架与 api / vue / react 模板

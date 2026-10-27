@@ -225,6 +225,30 @@ Socket.publish('users', { type: 'user.registered' }) // 在接口、任务、监
 - Cloudflare：自动生成 Durable Object（`ThinkWebSocket`），所有连接在同一个 DO 中，`Socket.publish` 经 RPC 转发
 - Vercel / Netlify / AWS Lambda：平台不支持 WebSocket（升级请求返回 426）
 
+## Socket.IO
+
+需要兼容 socket.io-client 时安装 `pnpm add @think-h3/socket.io socket.io`，并：
+
+```ts
+// app/provider/SocketProvider.ts
+export default socketIoProvider()
+
+// app/socket/chat.ts —— 命名空间 /chat
+export default defineNamespace({
+  middleware: [
+    authenticate()
+  ],
+  connection(socket, io, chat) {
+    socket.on('chat:send', (text, ack) => {
+      chat.emit('chat:message', text)
+      ack?.('ok')
+    })
+  },
+})
+```
+
+与 HTTP 共用端口（`/socket.io/`），`SocketIO.to(room).emit()` 在任意位置推送；多实例在 `config/socketio.ts` 配置 `adapter: { driver: 'redis' }`（`@socket.io/redis-adapter`）。支持 Node（开发、node / docker 产物）与 Bun，Deno / Workers / Serverless 不支持。
+
 ## 部署
 
 ```bash

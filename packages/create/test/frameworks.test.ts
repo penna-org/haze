@@ -3,7 +3,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBuilder, createServer, preview } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { binOf, createProject, freePort, run, wsExchange } from './utils'
+import { binOf, createProject, freePort, run, socketIoFirst, waitFor, wsExchange } from './utils'
 
 let project: ReturnType<typeof createProject> | undefined
 let server: ViteDevServer | PreviewServer | undefined
@@ -61,6 +61,15 @@ describe.each(frameworks)('$name + thinkH3()', (framework) => {
     expect((await (await fetch(`${base}/api/hello`)).json() as any).data).toEqual({ app: 'demo-react', message: 'Hello, think-h3!' })
     // WebSocket 经 Vite 开发服务器交给后端（与 Vite 的 HMR 连接并存）
     expect(await wsExchange(`${base.replace(/^http/, 'ws')}/api/ws`, 'ping', 2)).toEqual(['{"type":"connected"}', '{"type":"pong"}'])
+    // Socket.IO（/socket.io/）：长轮询与升级都在同一个 Vite 端口上
+    expect(await socketIoFirst(`${base}/chat`, 'online')).toBe(1)
+    expect(await socketIoFirst(`${base}/chat`, 'online', {
+      transports: ['websocket'],
+    })).toBe(1)
+
+    // 热替换：修改命名空间后，新连接使用新代码
+    project!.edit('server/app/socket/chat.ts', `chat.emit('online', chat.sockets.size)\n    socket.on`, `chat.emit('online', chat.sockets.size + 100)\n    socket.on`)
+    await waitFor(async () => (await socketIoFirst(`${base}/chat`, 'online')) === 101, 15_000)
   })
 
   it('build + vite preview: runs the built server with the built client', async () => {

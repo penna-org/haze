@@ -13,6 +13,9 @@
       ],
       "@think-h3/testing": [
         "./packages/testing/src/index.ts"
+      ],
+      "@think-h3/socket.io": [
+        "./packages/socketio/src/index.ts"
       ]
     }
   },

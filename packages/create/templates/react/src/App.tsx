@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { api } from '@/api'
+import { chat } from '@/socket'
 import './App.css'
 
 const title = import.meta.env.VITE_APP_TITLE
@@ -10,9 +11,19 @@ export function App() {
   const [name, setName] = useState('')
   const [reply, setReply] = useState('')
   const [error, setError] = useState('')
+  const [online, setOnline] = useState(0)
 
   useEffect(() => {
     api<{ message: string }>('/api/hello').then(data => setHello(data.message))
+  }, [])
+
+  useEffect(() => {
+    chat.on('online', setOnline)
+    chat.connect()
+    return () => {
+      chat.off('online', setOnline)
+      chat.disconnect()
+    }
   }, [])
 
   async function greet(event: FormEvent) {
@@ -35,6 +46,13 @@ export function App() {
     <main className="page">
       <h1>{title}</h1>
       <p className="hello">{hello || '加载中…'}</p>
+      <p className="online">
+        在线
+        {' '}
+        {online}
+        {' '}
+        人（Socket.IO）
+      </p>
 
       <form className="form" onSubmit={greet}>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="输入名字" aria-label="名字" />

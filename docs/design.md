@@ -694,6 +694,7 @@ it('获取用户', async () => {
 | M14 | 缓存（memory / redis / upstash / kv）、原子锁、响应缓存，限流与 Session 的共享存储，Cloudflare 限流绑定 |
 | M15 | 队列（sync / memory / redis(BullMQ) / Cloudflare Queues，重试、延迟、超时、失败任务）与定时任务（croner，onOneServer / withoutOverlapping） |
 | M16 | 事件 / 监听器（同步与排队）、WebSocket（crossws：开发热替换、各运行时、Redis 多实例广播、Cloudflare Durable Object） |
+| M17 | Socket.IO 兼容：`@think-h3/socket.io`（官方 socket.io 服务端，Node / Bun，Guard 鉴权，redis-adapter） |
 
 ### M5 实施记录（2026-10-26）
 
@@ -1229,4 +1230,56 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 升级完成后请求级容器即被释放：长连接中使用的数据需在 `open` 时读取并保存。
 - Cloudflare 预览（Miniflare）不转发 WebSocket，请用 `wrangler dev`；所有连接集中在同一个 DO 中，连接数很大时需要按房间拆分 DO（`resolveDurableStub`）。
 - 排队监听器的 payload 经 JSON 序列化，模型实例会变成普通对象。
+
+### M17 实施记录（2026-10-27）：Socket.IO 兼容
+
+背景：前端大多使用 socket.io-client，它使用 Engine.IO / Socket.IO 协议（长轮询握手、升级、命名空间、ack、房间），无法直接连接 M16 的原生 WebSocket（`r.ws()`）。
+
+确认的决策：
+- 集成官方 socket.io 服务端，不在 crossws 上自研协议；
+- Bun 通过 `@socket.io/bun-engine` 支持；
+- 多实例使用 `@socket.io/redis-adapter`（在 colima 中用 redis:7 验证）；
+- 全栈模板带示例。
+
+**core 的扩展点**
+- `registerServerExtension({ name, matches(pathname), node?(httpServer), bun? })`：服务器扩展注册表（进程级）。
+  - Node：框架创建的每个 http 服务器都会注册（`registerNodeServer`：产物服务端、`think-h3 dev`、Vite 开发服务器），扩展在注册时或服务器出现时挂载；
+  - 挂载前记录 `request` / `upgrade` 监听器，用于卸载与同名替换（engine.io 会替换 request 监听器）；`unregisterServerExtension()` 卸载。
+- crossws 的 Node 升级处理会跳过扩展匹配的路径。
+- Bun：srvx 中间件先把匹配路径的请求交给扩展；由于 Bun 只允许一组 websocket 处理器，按 `owns(ws)` 把连接分发给扩展或 crossws；`idleTimeout` 取扩展的最大值，长轮询需要较长的空闲超时。
+- `app.discovered(name)`：通用的按目录发现，虚拟清单中提供 `discovered.sockets`，即 `app/socket/*.ts`。
+- `app.contextFor(request)`：为请求之外的 Request 创建 HttpContext（可读 `ctx.auth`），用于握手鉴权。
+
+**@think-h3/socket.io**
+- `socketIoProvider()`：创建 socket.io Server，跨热替换保留。
+  - 设置 `serveClient: false`、`destroyUpgrade: false`（不能销毁 `r.ws()` 与 Vite HMR 的升级请求）；CORS 默认沿用 `config/cors.ts` 的 origin；
+  - Node 上 `io.attach(httpServer)`，Bun 上 `io.bind(new BunEngine())`；
+  - 在 Cloudflare Workers 上警告后跳过（socket.io 在构建时已替换为空模块）。
+- `defineNamespace({ name?, middleware, connection(socket, io, namespace) })`：文件名决定命名空间（`index` 为 `/`，`ChatRoom` 为 `/chat-room`）。每个命名空间只挂一次中间件与 connection 处理器，每次从最新的定义中取，所以热替换后新连接使用新代码。
+- `authenticate({ guard?, optional? })`：用握手的请求头（以及 `auth.token`，作为 Bearer）构造 Request，按 Guard 取得用户，存入 `socket.data.user`；未登录时以 `unauthorized` 拒绝。兼容 Bun 引擎握手中的完整 URL。
+- `SocketIO.emit / to / except / of`、`SocketIOServer` 注入令牌。
+- `config/socketio.ts`：`path`、`cors`、`adapter: { driver: 'redis', url, key }`、`options`（透传）。
+- 释放：socket.io 实例还没挂到任何服务器时 `io.close()` 会抛错（例如模板自带的测试），此时只断开连接；关闭时注销服务器扩展。
+- 构建：`socket.io`、`@socket.io/bun-engine`、`@socket.io/redis-adapter` 列入驱动包（保持 external 并追踪进产物，Docker 在镜像内安装，Workers 上替换为空模块）。
+
+**模板（vue / react）**
+- `server/app/provider/SocketProvider.ts`、`server/app/socket/chat.ts`（广播在线人数、`chat:send` 带 ack）、`server/config/socketio.ts`（`SOCKET_ADAPTER=redis`）。
+- `src/socket.ts`；页面显示"在线 N 人（Socket.IO）"。
+- api 模板只在 README 中说明用法。
+
+**验证**
+- `socketio.test.ts`（8 个）：
+  - 同进程：长轮询、WebSocket、默认客户端从长轮询升级、ack、房间与 `SocketIO.to()` 推送、握手鉴权（拒绝 / 令牌通过并取得用户）、与 HTTP 路由及 `r.ws()` 共用服务器；
+  - 两个 Node 子进程经真实 Redis 互通；
+  - 真实 Bun 1.4 子进程：长轮询、WebSocket、升级、鉴权、同一个 Bun.serve 中的 `r.ws()`。
+- create：
+  - React 模板经 Vite 全栈开发服务器以两种传输连接 `/chat`，修改命名空间后新连接使用新代码；
+  - vue 模板的 node / bun / docker 预览以两种传输连接；
+  - Cloudflare 构建与运行不受影响。
+- 验证结束后 Redis 容器与镜像已删除，colima 已停止。
+
+**限制**
+- Deno、Cloudflare Workers、Vercel / Netlify / Lambda 不支持（Workers 请用 `r.ws()` + Durable Object）。
+- 开发服务器刚启动、应用尚未启动完成时到达的第一个握手会失败，客户端默认会自动重连。
+- 每个进程只有一个 socket.io 实例，只挂到一个 HTTP 服务器（engine.io 的限制）。
 

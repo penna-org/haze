@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { api } from '@/api'
+import { chat } from '@/socket'
 
 const title = import.meta.env.VITE_APP_TITLE
 const hello = ref('')
 const name = ref('')
 const reply = ref('')
 const error = ref('')
+const online = ref(0)
 
 onMounted(async () => {
+  chat.on('online', (count: number) => (online.value = count))
+  chat.connect()
   hello.value = (await api<{ message: string }>('/api/hello')).message
+})
+
+onUnmounted(() => {
+  chat.off('online')
+  chat.disconnect()
 })
 
 async function greet() {
@@ -33,6 +42,9 @@ async function greet() {
     <h1>{{ title }}</h1>
     <p class="hello">
       {{ hello || '加载中…' }}
+    </p>
+    <p class="online">
+      在线 {{ online }} 人（Socket.IO）
     </p>
 
     <form class="form" @submit.prevent="greet">

@@ -10,7 +10,7 @@ import type { RouteModule, RouteRegistrar } from './routing/builder'
 import type { RouteMeta } from './routing/route'
 import type { Constructor, MaybePromise, ModuleRecord } from './utils'
 import process from 'node:process'
-import { H3, serve, toResponse } from 'h3'
+import { H3, mockEvent, serve, toResponse } from 'h3'
 import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
 import { Gate } from './auth/gate'
 import { CacheManager, setCacheManager } from './cache/manager'
@@ -65,6 +65,8 @@ export interface ApplicationOptions {
   events?: unknown[] | ModuleRecord
   /** 监听器（app/listener/*.ts：defineListener） */
   listeners?: unknown[] | ModuleRecord
+  /** 其它按目录发现的模块，供扩展包读取（如 @think-h3/socket.io 的 app/socket/*.ts） */
+  discovered?: Record<string, unknown[] | ModuleRecord>
   /**
    * 多应用模块：`import.meta.glob('/app/*\/{route,config,provider,exception,response}/*')`。
    * 只有在 `config/app.ts` 的 `apps` 中声明的应用才会启用。
@@ -245,6 +247,21 @@ export class Application {
     process.once('SIGINT', shutdown)
     process.once('SIGTERM', shutdown)
     return server
+  }
+
+  /** 按目录发现的模块：`[文件名, 默认导出]`（如 discovered('sockets')） */
+  discovered<T = unknown>(name: string): Array<[name: string | undefined, value: T]> {
+    return normalizeModules<T>(this.#options.discovered?.[name] as T[] | ModuleRecord | undefined)
+  }
+
+  /**
+   * 为请求之外的 Request 创建上下文（不经过路由与中间件），可读 ctx.auth 等：
+   * 如 Socket.IO 握手时按 Authorization / Cookie 鉴权
+   */
+  contextFor(request: Request): HttpContext {
+    const ctx = new HttpContext(mockEvent(request), this.container.createChild(), { config: this.config, logger: this.logger })
+    ctx.container.instance(HttpContext, ctx)
+    return ctx
   }
 
   async dispose(options: DisposeOptions = {}): Promise<void> {

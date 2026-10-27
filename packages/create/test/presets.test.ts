@@ -46,9 +46,14 @@ describe('full-stack deployment presets (vue template)', () => {
     expect(output).toContain('docker build -t demo-vue dist')
     expect(existsSync(join(root, 'dist/client/index.html'))).toBe(true)
     expect(existsSync(join(root, 'dist/server/index.mjs'))).toBe(true)
-    // 项目安装的驱动在镜像里安装（测试环境另装了 bullmq、ioredis）；未安装的驱动不会列入
+    // 项目安装的驱动在镜像里安装（测试环境另装了 bullmq、ioredis、socket.io）；未安装的驱动不会列入
     const dependencies = Object.keys(JSON.parse(readFileSync(join(root, 'dist/package.json'), 'utf8')).dependencies)
-    expect(dependencies).toEqual(['@libsql/client', 'bullmq', 'ioredis'])
+    expect(dependencies).toEqual([
+      '@libsql/client',
+      'bullmq',
+      'ioredis',
+      'socket.io',
+    ])
     expect(output).toContain('docker run --rm demo-vue node server/migrate.mjs')
 
     // 生产迁移脚本：迁移已打包进产物，不需要源码与 drizzle-kit

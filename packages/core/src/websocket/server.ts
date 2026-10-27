@@ -1,14 +1,16 @@
 import type { AdapterInstance, Hooks, SyncAdapter } from 'crossws'
 import type { Buffer } from 'node:buffer'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, Server as NodeServer } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { ServerPlugin } from 'srvx'
 import type { Config } from '../config/config'
+import type { BunSocketLike } from '../server/extensions'
 import { getWebSocketHooks } from 'crossws'
 import bunAdapter from 'crossws/adapters/bun'
 import denoAdapter from 'crossws/adapters/deno'
 import { redis } from 'crossws/sync'
 import { NodeRequest } from 'srvx/node'
+import { extensionFor, registerNodeServer, serverExtensions } from '../server/extensions'
 import { globalStore } from '../utils'
 
 type FetchHandler = (request: Request) => Response | Promise<Response>
@@ -115,12 +117,31 @@ export function webSocketPlugin(fetch: FetchHandler, config?: WebSocketConfig): 
     if (runtime.Bun) {
       const ws = bunAdapter({ resolve, sync })
       registerWebSocketAdapter(ws)
-      server.options.middleware.unshift((request, next) => request.headers.get('upgrade')?.toLowerCase() === 'websocket'
-        ? ws.handleUpgrade(request, (request as unknown as { runtime: { bun: { server: never } } }).runtime.bun.server) as Promise<Response>
-        : next())
-      const options = server.options as { bun?: { websocket?: unknown } }
+      const bunServer = (request: Request): never => (request as unknown as { runtime: { bun: { server: never } } }).runtime.bun.server
+      server.options.middleware.unshift((request, next) => {
+        // 服务器扩展（如 Socket.IO）的路径：交给扩展，包括它的 WebSocket 升级
+        const extension = extensionFor(request.url)
+        if (extension?.bun)
+          return extension.bun.handle(request, bunServer(request))
+        return request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+          ? ws.handleUpgrade(request, bunServer(request)) as Promise<Response>
+          : next()
+      })
+      const options = server.options as { bun?: { websocket?: unknown, idleTimeout?: number } }
       options.bun ??= {}
-      options.bun.websocket = ws.websocket
+      // Bun 只允许一组 websocket 处理器：按连接的升级方分发
+      const pick = (socket: BunSocketLike): Record<string, ((...args: never[]) => unknown) | undefined> =>
+        (serverExtensions().find(extension => extension.bun?.owns(socket))?.bun?.websocket ?? ws.websocket) as never
+      options.bun.websocket = {
+        open: (socket: BunSocketLike) => pick(socket).open?.(socket as never),
+        message: (socket: BunSocketLike, message: unknown) => pick(socket).message?.(socket as never, message as never),
+        close: (socket: BunSocketLike, code: number, reason: string) => pick(socket).close?.(socket as never, code as never, reason as never),
+        drain: (socket: BunSocketLike) => pick(socket).drain?.(socket as never),
+      }
+      // 长轮询需要较长的空闲超时（Bun 默认 10 秒）
+      const idle = Math.max(0, ...serverExtensions().map(extension => extension.bun?.idleTimeout ?? 0))
+      if (idle)
+        options.bun.idleTimeout = Math.max(options.bun.idleTimeout ?? 0, idle)
       return
     }
     if (runtime.Deno) {
@@ -134,7 +155,12 @@ export function webSocketPlugin(fetch: FetchHandler, config?: WebSocketConfig): 
     const upgrade = nodeUpgradeHandler(fetch, config)
     const serve = server.serve.bind(server)
     server.serve = () => {
-      server.node?.server?.on('upgrade', upgrade)
+      const node = server.node?.server as NodeServer | undefined
+      if (node) {
+        node.on('upgrade', upgrade)
+        // 服务器扩展（如 Socket.IO）挂到同一个 http.Server
+        registerNodeServer(node)
+      }
       return serve()
     }
   }
@@ -154,6 +180,9 @@ export function nodeUpgradeHandler(fetch: FetchHandler, config?: WebSocketConfig
     return ws
   })
   return (req, socket, head) => {
+    // 服务器扩展的路径（如 /socket.io/）由扩展自己处理升级
+    if (extensionFor(req.url))
+      return
     void ready.then(ws => ws.handleUpgrade(req, socket, head, new NodeRequest({
       req,
       upgrade: { socket, head },

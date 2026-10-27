@@ -6,7 +6,7 @@ import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, Preset
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
-import { nodeUpgradeHandler } from '@think-h3/core'
+import { nodeUpgradeHandler, registerNodeServer } from '@think-h3/core'
 import { toNodeHandler } from 'srvx/node'
 import { normalizePath } from 'vite'
 import { loadThinkConfig } from './config'
@@ -307,6 +307,8 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       server.httpServer?.once('listening', () => void host.start())
       // WebSocket：后端前缀下的升级请求交给应用（Vite 自己的 HMR 连接带 vite-hmr 协议，互不影响）
       if (server.httpServer) {
+        // 服务器扩展（如 Socket.IO）挂到 Vite 的 http 服务器
+        registerNodeServer(server.httpServer as never)
         const upgrade = nodeUpgradeHandler(host.fetch)
         server.httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
           if (req.url && matches(req.url) && req.headers['sec-websocket-protocol'] !== 'vite-hmr')
@@ -437,6 +439,8 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const schedules = ${glob('schedule/*.{ts,mts,js,mjs}')}`,
     `export const events = ${glob('app/event/*.{ts,mts,js,mjs}')}`,
     `export const listeners = ${glob('app/listener/*.{ts,mts,js,mjs}')}`,
+    // 扩展包读取的目录（app.discovered(name)）
+    `export const discovered = { sockets: ${glob('app/socket/*.{ts,mts,js,mjs}')} }`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
     `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
@@ -477,6 +481,7 @@ export function createApp(options = {}) {
     schedules: manifest.schedules,
     events: manifest.events,
     listeners: manifest.listeners,
+    discovered: manifest.discovered,
     apps: manifest.apps,
     ...options,
   })

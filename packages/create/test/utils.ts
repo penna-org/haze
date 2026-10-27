@@ -174,3 +174,19 @@ export async function wsExchange(url: string, send: string, count: number): Prom
   socket.close()
   return messages
 }
+
+/** socket.io-client 连接命名空间，返回收到的第一个 event 的数据 */
+export async function socketIoFirst(url: string, event: string, options: Record<string, unknown> = {}): Promise<unknown> {
+  const { io } = await import('socket.io-client')
+  const socket = io(url, { reconnection: false, ...options })
+  try {
+    return await new Promise((resolve, reject) => {
+      socket.once(event, resolve)
+      socket.once('connect_error', reject)
+      setTimeout(() => reject(new Error(`no ${event} from ${url}`)), 10_000)
+    })
+  }
+  finally {
+    socket.close()
+  }
+}

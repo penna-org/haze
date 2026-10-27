@@ -1,0 +1,51 @@
+{
+  "name": "@think-h3/socket.io",
+  "type": "module",
+  "version": "0.0.0",
+  "description": "think-h3 Socket.IO integration: namespaces in app/socket, guard authentication, Redis adapter, Node and Bun servers",
+  "license": "MIT",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "@socket.io/bun-engine": "^0.1.2",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "@think-h3/core": "workspace:^",
+    "ioredis": "^6.0.0",
+    "socket.io": "^4.8.0"
+  },
+  "peerDependenciesMeta": {
+    "@socket.io/bun-engine": {
+      "optional": true
+    },
+    "@socket.io/redis-adapter": {
+      "optional": true
+    },
+    "ioredis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@socket.io/bun-engine": "catalog:",
+    "@socket.io/redis-adapter": "catalog:",
+    "@think-h3/core": "workspace:*",
+    "@think-h3/vite": "workspace:*",
+    "ioredis": "catalog:",
+    "socket.io": "catalog:",
+    "socket.io-client": "catalog:"
+  }
+}

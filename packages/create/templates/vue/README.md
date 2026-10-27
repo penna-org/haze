@@ -209,6 +209,37 @@ Socket.publish('users', { type: 'user.registered' }) // 在接口、任务、监
 - Cloudflare：自动生成 Durable Object（`ThinkWebSocket`），所有连接在同一个 DO 中，`Socket.publish` 经 RPC 转发
 - Vercel / Netlify / AWS Lambda：平台不支持 WebSocket（升级请求返回 426）
 
+## Socket.IO
+
+前端大多使用 socket.io-client，模板已集成官方 socket.io 服务端（`@think-h3/socket.io`），与 HTTP 共用端口（`/socket.io/`）：
+
+```ts
+// server/app/socket/chat.ts —— 命名空间 /chat（文件名决定，index.ts 为 /）
+export default defineNamespace({
+  middleware: [
+    authenticate()
+  ], // 可选：用 config/auth.ts 的 Guard 鉴权，用户在 socket.data.user
+  connection(socket, io, chat) {
+    socket.on('chat:send', (text, ack) => {
+      chat.emit('chat:message', text)
+      ack?.('ok')
+    })
+  },
+})
+
+// src/socket.ts —— 前端
+export const chat: Socket = io('/chat', { autoConnect: false }) // 需要登录：io('/chat', { auth: { token } })
+
+// 在接口、任务、事件监听器中推送
+SocketIO.of('/chat').emit('chat:message', 'hi')
+SocketIO.to(`user:${id}`).emit('notice', data)
+```
+
+- 开发：`pnpm dev` 中直接可用（长轮询与 WebSocket 都经 Vite 开发服务器），修改命名空间后新连接使用新代码
+- 产物：node / docker 与 bun（官方 `@socket.io/bun-engine`）支持；`pnpm preview` 也可连接
+- 多实例：设置 `SOCKET_ADAPTER=redis`（`server/config/socketio.ts`，需要 `pnpm add @socket.io/redis-adapter ioredis`）
+- 不支持：Deno、Cloudflare Workers（请用 `r.ws()`）、Vercel / Netlify / AWS Lambda（无长连接）
+
 ## 部署
 
 ```bash

@@ -112,8 +112,10 @@ export { defineScheduleConfig, Scheduler } from './schedule/scheduler'
 export type { ScheduleConfig, TaskRun } from './schedule/scheduler'
 export { Hash } from './security/hash'
 export type { HashOptions } from './security/hash'
-
 export { appKey, generateKey } from './security/key'
+export { extensionFor, registerNodeServer, registerServerExtension, serverExtensions, unregisterServerExtension } from './server/extensions'
+
+export type { BunExtension, BunSocketLike, ServerExtension } from './server/extensions'
 
 export { defineSessionConfig, Session } from './session/session'
 export type { SessionConfig } from './session/session'

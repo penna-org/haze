@@ -22,7 +22,10 @@
     "@libsql/client": "^0.18.0",
     "@think-h3/core": "{{version}}",
     "@think-h3/orm": "{{version}}",
+    "@think-h3/socket.io": "{{version}}",
     "drizzle-orm": "^0.45.4",
+    "socket.io": "^4.8.0",
+    "socket.io-client": "^4.8.0",
     "valibot": "^1.1.0",
     "vue": "^3.5.0"
   },
