@@ -1,5 +1,6 @@
 import type { ValidationTargets } from '../http/context'
 import type { MiddlewareRef } from '../middleware/types'
+import type { RouteDoc } from '../openapi/types'
 import type { Constructor } from '../utils'
 import type { WebSocketHandler } from '../websocket/handler'
 import type { ControllerAction, HandlerFn, RouteMethod } from './route'
@@ -53,6 +54,12 @@ export class ResourceRoutes {
 
   middleware(...refs: Array<MiddlewareRef | MiddlewareRef[]>): this {
     this.routes.forEach(route => route.middleware(...refs))
+    return this
+  }
+
+  /** 为全部资源路由添加文档信息（如 tags），各路由仍可单独 `.doc()` */
+  doc(doc: Pick<RouteDoc, 'tags' | 'deprecated' | 'hidden'>): this {
+    this.routes.forEach(route => route.doc(doc))
     return this
   }
 

@@ -96,7 +96,9 @@ export function createAppHost({ vite, api, debounce = 30 }: AppHostOptions): App
       await writeTypes({
         root,
         srcDir,
-        routes: app.router.list(),
+        // records() 带路由定义，用于生成客户端的输入输出类型
+        routes: app.router.records(),
+        import: id => runner.import(id),
       })
     }
     catch (error) {

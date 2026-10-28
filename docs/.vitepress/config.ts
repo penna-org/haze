@@ -26,6 +26,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
       ['requests', ['Requests & Validation', '请求与校验']],
       ['responses', ['Responses', '响应']],
       ['errors', ['Errors & Logging', '异常与日志']],
+      ['openapi', ['OpenAPI', 'OpenAPI 文档']],
     ],
   },
   {

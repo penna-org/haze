@@ -78,7 +78,11 @@ Print every route with its method, path, name, handler and middleware. With [mul
 
 ### `haze typegen`
 
-Write `.haze/types/haze.d.ts`: types for config keys, named routes and policy abilities. `haze dev` does this automatically (unless `typegen: false` in `haze.config.ts`); run it in CI before type checking.
+Write `.haze/types/haze.d.ts`: types for config keys, named routes (with their inputs and outputs, for the [typed client](./openapi#typed-client)) and policy abilities. `haze dev` does this automatically (unless `typegen: false` in `haze.config.ts`); run it in CI before type checking.
+
+### `haze openapi`
+
+Print the [OpenAPI](./openapi) document for the application, or write it to a file with `-o openapi.json`.
 
 ## Setup
 

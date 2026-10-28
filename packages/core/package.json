@@ -39,6 +39,10 @@
       "types": "./dist/adapters/cloudflare.d.mts",
       "default": "./dist/adapters/cloudflare.mjs"
     },
+    "./client": {
+      "types": "./dist/client.d.mts",
+      "default": "./dist/client.mjs"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.mjs",
@@ -59,6 +63,7 @@
     "@aws-sdk/lib-storage": "^3.1158.0",
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@upstash/redis": "^1.40.0",
+    "@valibot/to-json-schema": "^1.0.0",
     "bullmq": "^6.5.0",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.0"
@@ -77,6 +82,9 @@
       "optional": true
     },
     "@upstash/redis": {
+      "optional": true
+    },
+    "@valibot/to-json-schema": {
       "optional": true
     },
     "bullmq": {
@@ -104,6 +112,7 @@
     "@aws-sdk/lib-storage": "catalog:",
     "@aws-sdk/s3-request-presigner": "catalog:",
     "@upstash/redis": "catalog:",
+    "@valibot/to-json-schema": "catalog:",
     "bullmq": "catalog:",
     "ioredis": "catalog:",
     "miniflare": "catalog:",

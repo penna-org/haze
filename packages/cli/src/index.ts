@@ -21,6 +21,7 @@ const main = defineCommand({
     'test': () => import('./commands/test').then(m => m.default),
     'route:list': () => import('./commands/routes').then(m => m.default),
     'typegen': () => import('./commands/typegen').then(m => m.default),
+    'openapi': () => import('./commands/openapi').then(m => m.default),
     'stub:publish': () => import('./commands/stub-publish').then(m => m.default),
     ...makeCommands,
     'make:model': makeModelCommand,

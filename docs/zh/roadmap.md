@@ -57,6 +57,7 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | M14–M16 | 缓存、队列、定时任务、事件、WebSocket（Redis 广播、Durable Objects） |
 | M17–M18 | Socket.IO、文件存储（local / S3 / R2）、邮件（SMTP / Resend / Postmark / Mailgun / SES） |
 | M19 | 文档站（VitePress，英文 + 中文，GitHub Pages）；`@hazejs/ai`：17 个厂商、无 SDK 依赖，流式输出、工具、结构化输出、Embedding 与 RAG、带记忆的 Agent、图像、语音、MCP、`useChat` |
+| M20 | **OpenAPI**：由路由与 Standard Schema 校验生成，提供 Swagger / Scalar 界面，以及给前端用的类型化 HTTP 客户端 |
 
 ## 后续计划
 
@@ -64,7 +65,6 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 
 | 里程碑 | 内容 |
 | --- | --- |
-| M20 | **OpenAPI**：由路由与 Standard Schema 校验生成，提供 Swagger / Scalar 界面，以及给前端用的类型化 HTTP 客户端 |
 | M21 | **命令行扩展**：自定义命令（`app/command`、`haze make:command`）、`haze repl`、`make:mail` |
 | M22 | **通知**（邮件、数据库、广播、Slack / Webhook）与**广播频道**（私有 / Presence 频道鉴权，基于 WebSocket、Socket.IO 与 SSE） |
 | M23 | **国际化**（消息、校验错误、邮件）、API Resource / 转换器、签名路由链接、加密服务 |

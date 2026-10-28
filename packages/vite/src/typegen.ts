@@ -1,14 +1,21 @@
 import type { RouteInfo } from '@hazejs/core'
+import type { RouteTypes } from './typegen-routes'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { normalizePath } from 'vite'
 import { PLUGIN_NAME } from './constants'
+import { generateRouteTypes } from './typegen-routes'
 
 export interface TypegenOptions {
   root: string
   srcDir: string
+  /** `app.router.list()`；传 `app.router.records()` 时还会生成客户端的输入输出类型 */
   routes: readonly RouteInfo[]
+  /** 在应用的模块图中加载模块（`devServer.import`），用于引用校验 schema 与控制器的类型 */
+  import?: (id: string) => Promise<any>
+  /** 客户端路由类型（writeTypes 内部生成） */
+  client?: RouteTypes
 }
 
 export interface TypegenResult {
@@ -26,8 +33,13 @@ export function typesFile(root: string): string {
   return join(root, '.haze', 'types', 'haze.d.ts')
 }
 
+/** 前端客户端的运行时路由清单 */
+export function routesFile(root: string): string {
+  return join(root, '.haze', 'routes.ts')
+}
+
 /** 生成配置键与命名路由的类型声明（模块扩充 @hazejs/core） */
-export function generateTypes({ root, srcDir, routes }: TypegenOptions): Omit<TypegenResult, 'changed'> & { content: string } {
+export function generateTypes({ root, srcDir, routes, client }: TypegenOptions): Omit<TypegenResult, 'changed'> & { content: string } {
   const file = typesFile(root)
   const typesDir = join(file, '..')
   const configDir = join(srcDir, 'config')
@@ -70,7 +82,9 @@ export function generateTypes({ root, srcDir, routes }: TypegenOptions): Omit<Ty
 
   const content = `// 由 ${PLUGIN_NAME} 自动生成（haze dev / haze typegen），请勿手动修改
 import type { ConfigValue } from '@hazejs/core'
-
+${client
+  ? `import type { SchemaInput } from '@hazejs/core/client'\n`
+  : ''}
 declare module '@hazejs/core' {
   interface GeneratedConfig {
 ${configs.map(item => item.line).join('\n')}
@@ -84,7 +98,15 @@ ${named.map(item => item.line).join('\n')}
 ${policies.map(item => item.line).join('\n')}
   }
 }
-
+${client
+  ? `
+declare module '@hazejs/core/client' {
+  interface GeneratedRoutes {
+${client.lines.join('\n')}
+  }
+}
+`
+  : ''}
 export {}
 `
   return {
@@ -98,11 +120,26 @@ export {}
 
 /** 内容变化时才写入，避免触发编辑器与文件监听的无谓刷新 */
 export async function writeTypes(options: TypegenOptions): Promise<TypegenResult> {
-  const { content, ...result } = generateTypes(options)
-  const previous = await readFile(result.file, 'utf8').catch(() => undefined)
+  const client = options.client ?? await generateRouteTypes({
+    root: options.root,
+    srcDir: options.srcDir,
+    typesDir: join(typesFile(options.root), '..'),
+    routes: options.routes,
+    import: options.import,
+  })
+  const { content, ...result } = generateTypes({ ...options, client })
+  const changed = [
+    await writeIfChanged(result.file, content),
+    await writeIfChanged(routesFile(options.root), client.manifest),
+  ].some(Boolean)
+  return { ...result, changed }
+}
+
+async function writeIfChanged(file: string, content: string): Promise<boolean> {
+  const previous = await readFile(file, 'utf8').catch(() => undefined)
   if (previous === content)
-    return { ...result, changed: false }
-  await mkdir(join(result.file, '..'), { recursive: true })
-  await writeFile(result.file, content)
-  return { ...result, changed: true }
+    return false
+  await mkdir(join(file, '..'), { recursive: true })
+  await writeFile(file, content)
+  return true
 }

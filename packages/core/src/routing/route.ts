@@ -1,5 +1,6 @@
 import type { HttpContext, ValidationTargets } from '../http/context'
 import type { MiddlewareRef } from '../middleware/types'
+import type { RouteDoc } from '../openapi/types'
 import type { Constructor } from '../utils'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
@@ -29,6 +30,8 @@ export interface RouteDefinition {
   middleware: MiddlewareRef[]
   name?: string
   validate?: ValidationTargets
+  /** OpenAPI 文档信息（`.doc()`） */
+  doc?: RouteDoc
   meta: RouteMeta
 }
 
@@ -61,6 +64,15 @@ export class Route {
     this.definition.validate = {
       ...this.definition.validate,
       ...schemas,
+    }
+    return this
+  }
+
+  /** OpenAPI 文档：摘要、标签、响应 schema 等；`hidden: true` 时不出现在文档中 */
+  doc(doc: RouteDoc): this {
+    this.definition.doc = {
+      ...this.definition.doc,
+      ...doc,
     }
     return this
   }

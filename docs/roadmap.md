@@ -57,6 +57,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M14–M16 | Cache, queues, scheduler, events, WebSocket (Redis fan-out, Durable Objects) |
 | M17–M18 | Socket.IO, file storage (local / S3 / R2), mail (SMTP / Resend / Postmark / Mailgun / SES) |
 | M19 | Documentation site (VitePress, English + 中文) on GitHub Pages; `@hazejs/ai`: 17 providers without SDK dependencies, streaming, tools, structured output, embeddings & RAG, agents with memory, images, speech, MCP, `useChat` |
+| M20 | **OpenAPI** generated from routes and Standard Schema validators, Swagger / Scalar UI, typed HTTP client for frontends |
 
 ## Next
 
@@ -64,7 +65,6 @@ Priorities may shift with community feedback. Each milestone ships with tests, t
 
 | Milestone | Scope |
 | --- | --- |
-| M20 | **OpenAPI** generated from routes and Standard Schema validators, Swagger / Scalar UI, typed HTTP client for frontends |
 | M21 | **Console**: user-defined commands (`app/command`, `haze make:command`), `haze repl`, `make:mail`, `make:command` |
 | M22 | **Notifications** (mail, database, broadcast, Slack / webhooks) and **broadcasting** with private / presence channel authorization over WebSocket, Socket.IO and SSE |
 | M23 | **i18n** (localized messages, validation errors, mail), API resources / transformers, signed route URLs, encryption service |

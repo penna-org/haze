@@ -78,7 +78,11 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 
 ### `haze typegen`
 
-生成 `.haze/types/haze.d.ts`，包含配置键、命名路由和授权能力的类型。`haze dev` 会自动执行（除非 `haze.config.ts` 中设置了 `typegen: false`）；CI 中请在类型检查之前运行一次。
+生成 `.haze/types/haze.d.ts`，包含配置键、命名路由（含输入与输出类型，供[类型安全的客户端](./openapi#类型安全的客户端)使用）和授权能力的类型。`haze dev` 会自动执行（除非 `haze.config.ts` 中设置了 `typegen: false`）；CI 中请在类型检查之前运行一次。
+
+### `haze openapi`
+
+输出应用的 [OpenAPI](./openapi) 文档，或用 `-o openapi.json` 写入文件。
 
 ## 项目设置
 

@@ -1492,3 +1492,15 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - Workers AI 的 JSON 模式不支持流式，流式时忽略 `response_format` 并给出警告。
 - MCP 尚未实现多轮请求（elicitation、sampling）与资源订阅；服务端只返回 JSON，不返回 SSE。
 - 我们的 SSE 协议不传递推理签名，客户端回传的历史中推理内容不带签名（Anthropic / Bedrock 适配器会丢弃无签名的推理）。
+
+### M20 实施记录（2026-10-28）：OpenAPI 与类型安全的客户端
+
+- `generateOpenAPI(app)` 由路由生成 OpenAPI 3.1：`:id` → `{id}`，operationId 取路由名，默认 tag 取第一个路径段（跳过 `api`、`v1` 等）；参数与请求体来自 `.validate()` 的 schema（zod 4 / arktype 的 Standard JSON Schema，valibot 经可选依赖 `@valibot/to-json-schema`），含文件字段时请求体为 `multipart/form-data`；转换失败退化为 `{}`，`$defs` 提升到 `components.schemas`。
+- 响应：成功响应按 `app.response.envelope` 包装（路由或全局可关），自动补 422；带 `auth` 中间件的路由补 401 与安全要求（JWT 守卫 → bearer，session 守卫 → Cookie），带 `can:` 的补 403。
+- 路由文档：`.doc({ summary, description, tags, deprecated, operationId, response, status, security, hidden })`，资源路由的 `.doc()` 作用于全部动作。
+- `config/openapi.ts`（`defineOpenAPIConfig`）：默认生产环境关闭；`/openapi.json` 与 `/docs`（Scalar 或 Swagger UI，jsDelivr 固定版本）。中间件安装在全局中间件之前（CSP、鉴权、CSRF 不影响文档页），文档在首次请求时生成并缓存。
+- typegen 为每个命名路由生成方法、路径、参数 / 查询 / 请求体与输出类型：通过模块图导入 controller / validate 模块，按对象身份匹配 schema 与控制器，匹配到的用 `SchemaInput<typeof import(...)>` 与 `Awaited<ReturnType<...>>`，内联 schema 由 JSON Schema 转为 TS 类型，闭包处理器为 `unknown`；运行时路由表写入 `.haze/routes.ts`。
+- `@hazejs/core/client` 的 `createClient({ routes, baseURL })`：零依赖，按信封解包，输出类型经 `Serialize<>`（`toJSON`、Date → string、去掉方法）。
+- `haze openapi [-o file]`。
+
+已知限制：多应用按域名绑定的路由需要各自的 baseURL；`r.any()` 路由不出现在文档中；自定义 `ResponseFormatter` 时错误响应的结构按默认信封描述；全栈模式下后端只接收 `/api/*`，需把文档路径配置为 `/api/openapi.json`。

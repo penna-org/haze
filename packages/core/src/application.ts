@@ -29,6 +29,7 @@ import { createStaticMiddleware } from './http/static'
 import { Logger } from './logger'
 import { MailManager, setMailManager } from './mail/manager'
 import { MiddlewareRegistry } from './middleware/registry'
+import { openAPIMiddleware } from './openapi/middleware'
 import { disposePersistent } from './persistent'
 import { setQueueManager } from './queue/context'
 import { QueueManager } from './queue/manager'
@@ -413,6 +414,8 @@ export class Application {
       h3.use(createStaticMiddleware(this.#options.static))
     // 文件存储：签名临时链接与 serve: true 的本地磁盘
     h3.use(this.container.make(StorageManager).middleware())
+    // OpenAPI 文档（/openapi.json、/docs），在全局中间件之前，不受 CSP / 鉴权影响
+    h3.use(openAPIMiddleware(this))
 
     const registry = new MiddlewareRegistry(this.config.get('middleware') as MiddlewareConfig)
     for (const item of registry.resolve(this.config.get('middleware.global') ?? []))

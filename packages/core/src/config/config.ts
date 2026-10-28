@@ -10,6 +10,7 @@ import type { CsrfConfig } from '../middleware/builtin/csrf'
 import type { SecureHeadersOptions } from '../middleware/builtin/secure-headers'
 import type { ThrottleConfig } from '../middleware/builtin/throttle'
 import type { MiddlewareConfig } from '../middleware/types'
+import type { OpenAPIConfig } from '../openapi/types'
 import type { QueueConfig } from '../queue/manager'
 import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
@@ -66,6 +67,7 @@ export interface CoreConfig {
   websocket?: WebSocketConfig
   schedule?: ScheduleConfig
   auth?: AuthConfig
+  openapi?: OpenAPIConfig
 }
 
 /**

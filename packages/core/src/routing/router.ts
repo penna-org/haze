@@ -47,6 +47,11 @@ export interface RouteInfo {
   middleware: string[]
 }
 
+/** 路由表条目及其定义（校验 schema、文档信息），供 OpenAPI 与类型生成读取 */
+export interface RouteRecord extends RouteInfo {
+  definition: RouteDefinition
+}
+
 export interface CompileOptions {
   h3: H3
   container: Container
@@ -63,7 +68,7 @@ export interface MountOptions {
 export class Router {
   readonly #routes: Route[] = []
   readonly #mounts: Array<{ router: Router } & MountOptions> = []
-  #compiled: RouteInfo[] = []
+  #compiled: RouteRecord[] = []
 
   /** 加载路由模块；`as` 为路由名前缀（多应用时为 `<app>.`） */
   load(module: RouteModule | RouteRegistrar, options: { as?: string } = {}): this {
@@ -90,9 +95,14 @@ export class Router {
 
   /** 已编译的路由表（含展开后的中间件与所有子应用），用于 `route:list` */
   list(): readonly RouteInfo[] {
+    return this.records().map(({ definition: _, ...info }) => info)
+  }
+
+  /** 与 list() 相同，但带有路由定义 */
+  records(): readonly RouteRecord[] {
     return [
       ...this.#compiled,
-      ...this.#mounts.flatMap(({ router, app, prefix, domain }) => router.list().map(route => ({
+      ...this.#mounts.flatMap(({ router, app, prefix, domain }) => router.records().map(route => ({
         ...route,
         path: joinPath(prefix, route.path),
         app,
@@ -174,6 +184,7 @@ export class Router {
         name: definition.name,
         handler: handlerLabel(definition.handler),
         middleware: resolved.map(item => item.name),
+        definition,
       }
     })
   }

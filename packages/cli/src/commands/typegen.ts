@@ -18,7 +18,8 @@ export default defineCommand({
       const result = await writeTypes({
         root,
         srcDir,
-        routes: server.app.router.list(),
+        routes: server.app.router.records(),
+        import: id => server.import(id),
       })
       consola.success(`Types written to ${relative(process.cwd(), result.file)} (${result.configs.length} config file(s), ${result.routes.length} named route(s))`)
     }
