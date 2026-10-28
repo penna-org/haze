@@ -197,6 +197,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
           ssr: {
             resolve: {
               ...(preset.conditions && { conditions: preset.conditions }),
+              ...(preset.mainFields && { mainFields: preset.mainFields }),
               // 打包依赖：产物不依赖项目的 node_modules（框架包也无需发布）
               ...(bundle === 'drivers-external' && {
                 noExternal: bundleAllExcept(externalPackages(settings.externals)),

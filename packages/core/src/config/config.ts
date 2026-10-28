@@ -3,6 +3,7 @@ import type { AuthConfig } from '../auth/config'
 import type { CacheConfig } from '../cache/config'
 import type { CookieOptions } from '../http/cookie'
 import type { LoggerConfig } from '../logger'
+import type { MailConfig } from '../mail/config'
 import type { CompressOptions } from '../middleware/builtin/compress'
 import type { CorsOptions } from '../middleware/builtin/cors'
 import type { CsrfConfig } from '../middleware/builtin/csrf'
@@ -12,6 +13,7 @@ import type { MiddlewareConfig } from '../middleware/types'
 import type { QueueConfig } from '../queue/manager'
 import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
+import type { FilesystemConfig } from '../storage/config'
 import type { WebSocketConfig } from '../websocket/server'
 import { deepMerge, isPlainObject } from '../utils'
 
@@ -33,6 +35,8 @@ export interface AppConfig {
   requestIdHeader: string | false
   /** 多应用：`{ admin: { prefix: '/admin' }, api: { domain: 'api.example.com' } }`，目录为 app/<name>/ */
   apps?: Record<string, SubAppConfig>
+  /** 应用的外部访问地址（APP_URL），用于生成绝对链接（如存储的签名临时链接） */
+  url?: string
   /** 应用密钥（默认读取 APP_KEY）：签名 Cookie、加密 Session、JWT 默认密钥 */
   key?: string
   /** 请求体上限，默认 `1mb`；单个路由用 `bodyLimit:10mb` 中间件调整 */
@@ -55,6 +59,8 @@ export interface CoreConfig {
   compress?: CompressOptions
   session?: Partial<SessionConfig>
   cache?: CacheConfig
+  filesystem?: FilesystemConfig
+  mail?: MailConfig
   queue?: QueueConfig
   websocket?: WebSocketConfig
   schedule?: ScheduleConfig

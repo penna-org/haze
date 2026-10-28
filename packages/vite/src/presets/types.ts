@@ -95,6 +95,8 @@ export interface Preset {
   target?: string
   /** 打包平台：Edge 运行时使用 browser，避免生成依赖 import.meta.url 的 createRequire 辅助代码 */
   platform?: 'node' | 'browser' | 'neutral'
+  /** 解析 package.json 的入口字段（含 browser 时同时应用 browser 字段的文件映射） */
+  mainFields?: string[]
   /** 替换为“调用即报错”空模块的包（该运行时不支持） */
   unsupported?: string[]
   /** 输出单文件（Workers 要求入口模块只导出处理器，不能被拆分出的 chunk 反向导入） */

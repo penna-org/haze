@@ -8,6 +8,11 @@ import { NodeNativePackages, NonBundleablePackages } from 'nf3/db'
 
 /** 数据库驱动：含原生二进制 / WASM / 可选原生依赖，不打包，运行时从 node_modules 加载（或追踪进产物） */
 export const DRIVER_PACKAGES = [
+  // 文件存储（S3）与邮件（SES / SMTP）：可选安装，未安装时替换为空模块
+  '@aws-sdk/client-s3',
+  '@aws-sdk/client-sesv2',
+  '@aws-sdk/lib-storage',
+  '@aws-sdk/s3-request-presigner',
   '@libsql/client',
   '@socket.io/bun-engine',
   '@socket.io/redis-adapter',
@@ -18,6 +23,7 @@ export const DRIVER_PACKAGES = [
   '@electric-sql/pglite',
   'mongodb',
   'mysql2',
+  'nodemailer',
   'postgres',
   // Socket.IO 服务端（engine.io / ws）：保持 external 并追踪进产物
   'socket.io',
@@ -35,6 +41,8 @@ export const EDGE_UNSUPPORTED_DRIVERS = [
   'mysql2',
   'mongodb',
   'libsql',
+  // SMTP（TCP）：Workers 上请用 resend / postmark / mailgun / ses 等 HTTP 接口的邮件驱动
+  'nodemailer',
 ]
 
 /** 匹配“除给定包外的全部依赖”，用作 ssr.noExternal */

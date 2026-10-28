@@ -1,9 +1,14 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
+import type { PutOptions } from '../storage/types'
+import { useStorageManager } from '../storage/manager'
+
+export interface StoreOptions extends PutOptions {
+  /** 磁盘（config/filesystem.ts 的 disks），默认 default */
+  disk?: string
+}
 
 /**
  * 上传的文件。继承 File：可直接交给 valibot 的 `v.file()` / `v.maxSize()` / `v.mimeType()` 校验，
- * 或 `fetch` / 对象存储 SDK 上传。
+ * `store()` 保存到存储磁盘（local / s3 / r2）。
  */
 export class UploadedFile extends File {
   /** 表单字段名 */
@@ -16,29 +21,29 @@ export class UploadedFile extends File {
 
   /** 客户端文件名的扩展名（小写，不含点），没有时为空字符串 */
   get extension(): string {
-    return extname(this.name).slice(1).toLowerCase()
+    const match = /\.([a-z0-9]+)$/i.exec(this.name)
+    return match
+      ? match[1].toLowerCase()
+      : ''
   }
 
   /**
-   * 保存到本地目录（相对运行目录或绝对路径），文件名随机生成并保留扩展名，返回保存路径。
-   * 本地文件系统之外的存储（S3 / R2 等）请读取 `arrayBuffer()` / `stream()` 自行上传。
+   * 保存到存储磁盘的目录下，文件名随机生成并保留扩展名，返回磁盘内路径：
+   * `await file.store('avatars', 'public')`、`await file.store('docs', { disk: 's3' })`
    */
-  async store(dir: string): Promise<string> {
-    const name = `${crypto.randomUUID()}${this.extension
-      ? `.${this.extension}`
-      : ''}`
-    return this.storeAs(dir, name)
+  async store(dir: string, options: string | StoreOptions = {}): Promise<string> {
+    const { disk, ...put } = typeof options === 'string'
+      ? { disk: options }
+      : options
+    return useStorageManager().disk(disk).putFile(dir, this, put)
   }
 
-  /** 以指定文件名保存（只取文件名部分，防止路径穿越） */
-  async storeAs(dir: string, name: string): Promise<string> {
-    const safe = basename(name)
-    if (!safe || safe === '.' || safe === '..')
-      throw new Error(`Invalid file name "${name}"`)
-    await mkdir(dir, { recursive: true })
-    const path = join(dir, safe)
-    await writeFile(path, new Uint8Array(await this.arrayBuffer()))
-    return path
+  /** 以指定文件名保存（只取文件名部分，防止路径穿越），返回磁盘内路径 */
+  async storeAs(dir: string, name: string, options: string | StoreOptions = {}): Promise<string> {
+    const { disk, ...put } = typeof options === 'string'
+      ? { disk: options }
+      : options
+    return useStorageManager().disk(disk).putFileAs(dir, this, name, put)
   }
 
   toJSON(): { field: string, name: string, size: number, type: string } {

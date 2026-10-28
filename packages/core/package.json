@@ -18,7 +18,9 @@
   },
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },
@@ -27,11 +29,28 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/client-sesv2": "^3.1158.0",
+    "@aws-sdk/lib-storage": "^3.1158.0",
+    "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@upstash/redis": "^1.40.0",
     "bullmq": "^6.5.0",
-    "ioredis": "^6.0.0"
+    "ioredis": "^6.0.0",
+    "nodemailer": "^10.0.0"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/client-sesv2": {
+      "optional": true
+    },
+    "@aws-sdk/lib-storage": {
+      "optional": true
+    },
+    "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    },
     "@upstash/redis": {
       "optional": true
     },
@@ -39,6 +58,9 @@
       "optional": true
     },
     "ioredis": {
+      "optional": true
+    },
+    "nodemailer": {
       "optional": true
     }
   },
@@ -52,10 +74,15 @@
     "srvx": "catalog:"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "catalog:",
+    "@aws-sdk/client-sesv2": "catalog:",
+    "@aws-sdk/lib-storage": "catalog:",
+    "@aws-sdk/s3-request-presigner": "catalog:",
     "@upstash/redis": "catalog:",
     "bullmq": "catalog:",
     "ioredis": "catalog:",
     "miniflare": "catalog:",
+    "nodemailer": "catalog:",
     "valibot": "catalog:"
   }
 }

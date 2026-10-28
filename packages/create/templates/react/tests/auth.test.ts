@@ -1,9 +1,10 @@
-import { Events, Queue } from '@think-h3/core'
+import { Events, Mail, MailFake, Queue, Storage } from '@think-h3/core'
 import { refreshDatabase } from '@think-h3/orm'
 import { useTestApp } from '@think-h3/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import UserRegistered from '~/app/event/UserRegistered'
 import SendWelcomeEmail from '~/app/job/SendWelcomeEmail'
+import WelcomeMail from '~/app/mail/WelcomeMail'
 import { User } from '~/app/model/User'
 
 const t = useTestApp()
@@ -25,6 +26,10 @@ describe('auth', () => {
     expect(registered.body.data.user).not.toHaveProperty('password')
     // 注册事件的监听器投递欢迎邮件任务（app/listener/QueueWelcomeEmail.ts）
     fake.assertDispatched(SendWelcomeEmail, payload => payload.userId === registered.body.data.user.id)
+    // 执行任务：发送欢迎邮件（Mail.fake() 只记录不投递）
+    const mail = Mail.fake()
+    await fake.drain()
+    mail.assertSent(WelcomeMail, sent => MailFake.hasRecipient(sent, ada.email) && sent.message.subject === '欢迎加入，Ada')
 
     const login = await t.post('/api/auth/login', { email: ada.email, password: ada.password })
     expect(login.body.data).toMatchObject({ type: 'Bearer', expiresIn: 7200 })
@@ -52,5 +57,21 @@ describe('auth', () => {
     const user = await User.create({ name: 'Bob', email: 'bob@example.com' })
     const me = await (await t.actingAs(user)).get('/api/auth/me')
     expect(me.body.data).toMatchObject({ id: user.id, email: 'bob@example.com' })
+  })
+
+  it('uploads an avatar to the public disk', async () => {
+    const disk = Storage.fake('public')
+    const user = await User.create({ name: 'Bob', email: 'bob@example.com' })
+    const form = new FormData()
+    form.set('avatar', new File([
+      new Uint8Array([137, 80, 78, 71]),
+    ], 'me.png', { type: 'image/png' }))
+    const res = await (await t.actingAs(user)).post('/api/auth/avatar', form)
+    expect(res.status).toBe(201)
+    expect(res.body.data.url).toBe(`/storage/${res.body.data.path}`)
+    await disk.assertExists(res.body.data.path)
+
+    form.set('avatar', new File(['text'], 'a.txt', { type: 'text/plain' }))
+    expect((await (await t.actingAs(user)).post('/api/auth/avatar', form)).status).toBe(422)
   })
 })

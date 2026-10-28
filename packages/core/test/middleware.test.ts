@@ -177,7 +177,7 @@ describe('request body limit and uploads', () => {
     r.post('/avatar', async (ctx) => {
       const input = await validate(AvatarSchema, await ctx.body())
       const file = (await ctx.file('avatar'))!
-      const path = await file.store(join(dir, 'avatars'))
+      const path = await file.store('avatars')
       return {
         name: input.name,
         file: file.toJSON(),
@@ -187,9 +187,16 @@ describe('request body limit and uploads', () => {
       }
     })
     r.post('/photos', async ctx => (await ctx.files('photos')).map(file => file.name))
+    r.post('/store-as', async () => new UploadedFile(new File(['x'], 'x.txt'), 'file').storeAs('docs', '../../escape.txt').then(path => ({ path })))
   }, {
     config: {
       app: { bodyLimit: '1kb' },
+      filesystem: {
+        default: 'local',
+        disks: {
+          local: { driver: 'local', root: dir },
+        },
+      },
     },
   })
 
@@ -230,9 +237,9 @@ describe('request body limit and uploads', () => {
       extension: 'png',
       isFile: true,
     })
-    expect(data.path).toMatch(/avatars\/[\w-]+\.png$/)
+    expect(data.path).toMatch(/^avatars\/[\w-]+\.png$/)
     expect([
-      ...readFileSync(data.path),
+      ...readFileSync(join(dir, data.path)),
     ]).toEqual([137, 80, 78, 71])
 
     const invalid = new FormData()
@@ -251,7 +258,8 @@ describe('request body limit and uploads', () => {
   })
 
   it('refuses path traversal in storeAs', async () => {
-    const file = new UploadedFile(new File(['x'], 'x.txt'), 'file')
-    expect(await file.storeAs(dir, '../../escape.txt')).toBe(join(dir, 'escape.txt'))
+    const res = await (await app).request('/store-as', { method: 'POST' })
+    expect((await res.json() as any).data.path).toBe('docs/escape.txt')
+    expect(readFileSync(join(dir, 'docs/escape.txt'), 'utf8')).toBe('x')
   })
 })

@@ -16,6 +16,7 @@ export default defineRoutes((r) => {
       // 登录限流：同一 IP 每分钟最多 10 次
       r.post('/login', [AuthController, 'login']).middleware('throttle:10,60').name('login')
       r.get('/me', [AuthController, 'me']).middleware('auth').name('me')
+      r.post('/avatar', [AuthController, 'avatar']).middleware(['auth', 'bodyLimit:3mb']).name('avatar')
     })
   })
 })

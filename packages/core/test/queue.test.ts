@@ -78,6 +78,8 @@ describe('queue (memory)', () => {
       'Greet',
       'custom-name',
       'Slow',
+      // 框架内置：排队发送邮件
+      'mail:send',
     ])
     await Greet.dispatch({ name: 'Ada' })
     await Queue.dispatch('Greet', { name: 'Bob' })

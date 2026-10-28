@@ -417,6 +417,14 @@ export const config = {
       'module',
       'production',
     ],
+    // 同 wrangler：优先 browser 字段（如 AWS SDK 的 runtimeConfig.browser 使用 fetch，不依赖 node:child_process）
+    mainFields: [
+      'browser',
+      'module',
+      'jsnext:main',
+      'jsnext',
+      'main',
+    ],
     target: 'es2022',
     platform: 'browser',
     singleFile: true,

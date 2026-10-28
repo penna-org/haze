@@ -3,6 +3,10 @@ minimumReleaseAgeExclude:
   - '@electric-sql/pglite@0.5.12'
   - bullmq@6.5.0
   - croner@11.0.0
+  - '@aws-sdk/client-s3@3.1158.0'
+  - '@aws-sdk/client-sesv2@3.1158.0'
+  - '@aws-sdk/lib-storage@3.1158.0'
+  - '@aws-sdk/s3-request-presigner@3.1158.0'
 
 trustPolicy: no-downgrade
 shellEmulator: true
@@ -24,6 +28,10 @@ allowBuilds:
 
 catalog:
   '@antfu/eslint-config': ^10.0.0
+  '@aws-sdk/client-s3': ^3.1158.0
+  '@aws-sdk/client-sesv2': ^3.1158.0
+  '@aws-sdk/lib-storage': ^3.1158.0
+  '@aws-sdk/s3-request-presigner': ^3.1158.0
   '@electric-sql/pglite': ^0.5.12
   '@libsql/client': ^0.18.0
   '@socket.io/bun-engine': ^0.1.2
@@ -52,6 +60,7 @@ catalog:
   mongodb-memory-server-core: ^11.3.0
   mysql2: ^3.24.6
   nf3: ^0.4.2
+  nodemailer: ^10.2.1
   postgres: ^3.4.9
   react: ^19.3.1
   react-dom: ^19.3.1

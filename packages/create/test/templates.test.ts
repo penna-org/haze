@@ -50,8 +50,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 4
-    expect(tests.output, tests.output).toContain('11 passed')
+    // greeting 3 + users 4 + auth 5
+    expect(tests.output, tests.output).toContain('12 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -119,8 +119,8 @@ describe('code generation and types', () => {
 
     const typegen = await think('typegen')
     expect(typegen.code, typegen.output).toBe(0)
-    // api.hello + api.users.{index,store,show,update,destroy} + api.auth.{register,login,me}
-    expect(typegen.output).toContain('9 named route(s)')
+    // api.hello + api.users.{index,store,show,update,destroy} + api.auth.{register,login,me,avatar}
+    expect(typegen.output).toContain('10 named route(s)')
     expect(project.read('.think/types/think.d.ts')).toContain('"api.hello": Record<never, never>')
 
     for (const kind of [
@@ -210,8 +210,8 @@ export { email, enabled, name, productName }
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 4 + 生成的测试 1
-    expect(tests.output, tests.output).toContain('12 passed')
+    // greeting 3 + users 4 + auth 5 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('13 passed')
   })
 })
 
@@ -223,8 +223,8 @@ describe('vue template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 4
-    expect(tests.output, tests.output).toContain('11 passed')
+    // greeting 3 + users 4 + auth 5
+    expect(tests.output, tests.output).toContain('12 passed')
     expect(tests.code).toBe(0)
   })
 

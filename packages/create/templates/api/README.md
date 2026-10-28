@@ -135,7 +135,7 @@ export default definePolicy(User, {
 | `csrf` | CSRF 同步令牌（419） | `csrf.ts`（except、cookie、testing） |
 | `cacheResponse:60[,user]` | 缓存 GET 响应 | `cache.ts`（responseStore） |
 
-文件上传：multipart 请求的 `await ctx.body()` 中文件字段为 `UploadedFile`（继承 File，可直接用 valibot 的 `v.file()`、`v.maxSize()`、`v.mimeType()` 校验），`await (await ctx.file('avatar'))?.store('storage/avatars')` 保存到本地。
+文件上传：multipart 请求的 `await ctx.body()` 中文件字段为 `UploadedFile`（继承 File，可直接用 valibot 的 `v.file()`、`v.maxSize()`、`v.mimeType()` 校验），`await (await ctx.file('avatar'))?.store('avatars', 'public')` 保存到存储磁盘（见下方“文件存储与邮件”）。
 
 ## 缓存
 
@@ -192,6 +192,44 @@ export default defineSchedule((s) => {
 | cloudflare | 自动生成 Cron Triggers（每分钟）；队列用 Cloudflare Queues（`driver: 'cloudflare'`，Worker 导出 queue()） |
 | aws-lambda | 同一份产物，handler 设为 `index.schedule`，EventBridge `rate(1 minute)` 触发 |
 | vercel | 自动配置 Vercel Cron 调用 `/__think/schedule`（需要设置 `CRON_SECRET`；Hobby 计划只允许每天一次，用 `think.config.ts` 的 `vercel.cron` 调整） |
+
+## 文件存储与邮件
+
+磁盘配置在 `config/filesystem.ts`（默认 `local` 与 `public`；`s3` 需要 `pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-request-presigner`，Workers 上用 `r2` 绑定）：
+
+```ts
+import { Storage } from '@think-h3/core'
+
+const path = await file.store('avatars', 'public') // 上传文件，随机文件名
+Storage.disk('public').url(path) // /storage/avatars/xxx.png（public 磁盘由框架直接提供）
+await Storage.put('reports/2026.csv', csv)
+await Storage.disk('s3').temporaryUrl('reports/2026.csv', '10m') // S3 预签名；local / r2 为 APP_KEY 签名的链接
+return Storage.download('reports/2026.csv', '报表.csv') // 控制器中直接返回文件响应
+```
+
+邮件定义在 `app/mail/*.ts`，配置在 `config/mail.ts`（默认 `log`，只写日志）：
+
+```ts
+export default defineMail((payload: { name: string }) => ({
+  subject: `欢迎，${payload.name}`,
+  html: mailLayout({ body: html`<p>你好，${payload.name}</p>${button('开始使用', url)}` }), // 插值自动转义，纯文本自动生成
+}))
+
+await Mail.to(user.email).send(WelcomeMail, { name: user.name })
+await Mail.to(user.email).queue(WelcomeMail, { name: user.name }) // 排队（任务 mail:send，失败重试）
+await Mail.to(user.email).later('10m', WelcomeMail, { name: user.name })
+```
+
+| 驱动 | 说明 |
+|------|------|
+| `log` / `array` | 只写日志 / 保存在内存中 |
+| `smtp` | nodemailer（`pnpm add nodemailer`），不支持 Workers |
+| `resend` / `postmark` / `mailgun` | HTTP 接口，可在 Workers 上运行 |
+| `ses` | Amazon SES（`pnpm add @aws-sdk/client-sesv2`） |
+
+- 本地查看邮件：运行 [Mailpit](https://mailpit.axllent.org)（`docker run -p 1025:1025 -p 8025:8025 axllent/mailpit`），设置 `MAIL_MAILER=smtp`（并 `pnpm add nodemailer`），打开 http://localhost:8025
+- 附件：`attachments: [{ filename: 'a.pdf', content: bytes }]`，或 `{ filename, disk: 's3', path }` 发送时从磁盘读取
+- 测试：`const mail = Mail.fake()` 后 `mail.assertSent(WelcomeMail, m => MailFake.hasRecipient(m, 'ada@example.com'))`；`const disk = Storage.fake('public')` 后 `await disk.assertExists(path)`
 
 ## 事件与 WebSocket
 

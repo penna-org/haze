@@ -1,8 +1,8 @@
 import type { HttpContext } from '@think-h3/core'
-import { Hash, UnauthorizedException, validate } from '@think-h3/core'
+import { Hash, Storage, UnauthorizedException, validate } from '@think-h3/core'
 import UserRegistered from '~/app/event/UserRegistered'
 import { User } from '~/app/model/User'
-import { LoginSchema, RegisterSchema } from '~/app/validate/auth'
+import { AvatarSchema, LoginSchema, RegisterSchema } from '~/app/validate/auth'
 
 /**
  * JWT 登录示例（config/auth.ts 的 api Guard）：
@@ -30,5 +30,16 @@ export class AuthController {
   /** 需要 auth 中间件：未登录时返回 401 */
   me(ctx: HttpContext) {
     return ctx.auth.user()
+  }
+
+  /** 上传头像（multipart 字段 avatar）：保存到 public 磁盘，经 /storage/<path> 访问 */
+  async avatar(ctx: HttpContext) {
+    const { avatar } = await validate(AvatarSchema, await ctx.body())
+    const path = await (await ctx.file('avatar'))!.store('avatars', 'public')
+    return ctx.created({
+      path,
+      url: Storage.disk('public').url(path),
+      size: avatar.size,
+    })
   }
 }

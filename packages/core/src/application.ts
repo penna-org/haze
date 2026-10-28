@@ -27,6 +27,7 @@ import { ResponseFormatter } from './http/formatter'
 import { isRaw } from './http/response'
 import { createStaticMiddleware } from './http/static'
 import { Logger } from './logger'
+import { MailManager, setMailManager } from './mail/manager'
 import { MiddlewareRegistry } from './middleware/registry'
 import { disposePersistent } from './persistent'
 import { setQueueManager } from './queue/context'
@@ -34,6 +35,7 @@ import { QueueManager } from './queue/manager'
 import { getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
 import { Scheduler } from './schedule/scheduler'
+import { setStorageManager, StorageManager } from './storage/manager'
 import { isClass, isModuleRecord, normalizeModules } from './utils'
 import { webSocketConfig, webSocketPlugin } from './websocket/server'
 
@@ -170,12 +172,20 @@ export class Application {
     const cache = new CacheManager(this.config)
     this.container.instance(CacheManager, cache)
     setCacheManager(cache)
+    // 文件存储：config/filesystem.ts，缺省为 local / public 两个本地磁盘
+    const storage = new StorageManager(this.config)
+    this.container.instance(StorageManager, storage)
+    setStorageManager(storage)
     // 队列与定时任务
     const queue = new QueueManager(this)
     for (const [name, job] of normalizeModules<unknown>(options.jobs))
       queue.register(job as never, name)
     this.container.instance(QueueManager, queue)
     setQueueManager(queue, QueueManager)
+    // 邮件：config/mail.ts，缺省为 log 驱动；排队发送注册为任务 mail:send
+    const mail = new MailManager(this)
+    this.container.instance(MailManager, mail)
+    setMailManager(mail)
     const scheduler = new Scheduler(this)
     for (const [, schedule] of normalizeModules<unknown>(options.schedules))
       scheduler.register(schedule)
@@ -270,6 +280,8 @@ export class Application {
     // 队列连接（BullMQ 的 Queue / Worker）随应用关闭
     if (this.container.has(QueueManager))
       await this.container.make(QueueManager).close().catch(error => this.logger.error('Failed to close queue connections', error))
+    if (this.container.has(MailManager))
+      await this.container.make(MailManager).close().catch(error => this.logger.error('Failed to close mail transports', error))
     await this.container.dispose()
     if (options.reason !== 'hmr')
       await disposePersistent()
@@ -399,6 +411,8 @@ export class Application {
     // 静态资源：在业务中间件之前，避免鉴权等逻辑作用于前端资源
     if (this.#options.static)
       h3.use(createStaticMiddleware(this.#options.static))
+    // 文件存储：签名临时链接与 serve: true 的本地磁盘
+    h3.use(this.container.make(StorageManager).middleware())
 
     const registry = new MiddlewareRegistry(this.config.get('middleware') as MiddlewareConfig)
     for (const item of registry.resolve(this.config.get('middleware.global') ?? []))

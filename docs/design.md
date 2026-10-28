@@ -695,6 +695,7 @@ it('获取用户', async () => {
 | M15 | 队列（sync / memory / redis(BullMQ) / Cloudflare Queues，重试、延迟、超时、失败任务）与定时任务（croner，onOneServer / withoutOverlapping） |
 | M16 | 事件 / 监听器（同步与排队）、WebSocket（crossws：开发热替换、各运行时、Redis 多实例广播、Cloudflare Durable Object） |
 | M17 | Socket.IO 兼容：`@think-h3/socket.io`（官方 socket.io 服务端，Node / Bun，Guard 鉴权，redis-adapter） |
+| M18 | 文件存储（local / s3 / r2 / memory 磁盘，签名临时链接，UploadedFile.store 接入）与邮件（log / array / smtp / resend / postmark / mailgun / ses，排队发送） |
 
 ### M5 实施记录（2026-10-26）
 
@@ -1282,4 +1283,104 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - Deno、Cloudflare Workers、Vercel / Netlify / Lambda 不支持（Workers 请用 `r.ws()` + Durable Object）。
 - 开发服务器刚启动、应用尚未启动完成时到达的第一个握手会失败，客户端默认会自动重连。
 - 每个进程只有一个 socket.io 实例，只挂到一个 HTTP 服务器（engine.io 的限制）。
+
+### M18 实施记录（2026-10-27）：文件存储与邮件
+
+确认的决策：
+- S3 驱动基于 AWS SDK v3（`@aws-sdk/client-s3`、`lib-storage` 分片上传、`s3-request-presigner` 预签名）；SES 使用 `@aws-sdk/client-sesv2`；
+- 邮件驱动：SMTP（nodemailer）、Resend、Postmark、Mailgun、Amazon SES，以及 log / array；
+- 邮件内容：函数返回 html / text，并提供简单的布局辅助；
+- 验证：S3 用本地 RustFS（MinIO 镜像已无法拉取），SMTP 用 Mailpit。
+- 以上 SDK 均为 core 的可选 peer 依赖，按需安装，运行时动态导入。
+
+**文件存储（`config/filesystem.ts`）**
+- `defineFilesystemConfig({ default, disks, signedRoute? })`。缺省配置有两个本地磁盘：
+  - `local`：根目录 `storage/app`；
+  - `public`：根目录 `storage/app/public`，`url: '/storage'`，`serve: true`。
+- 驱动：
+  - `local`：Node / Bun / Deno，路径不能越出根目录，流式读写；
+  - `s3`：AWS 与 S3 兼容服务；有 `endpoint` 时默认路径风格；超过 `multipartThreshold`（默认 8MB）或内容为流时分片上传；`root` 为键前缀；
+  - `r2`：Workers 绑定，经 `usePlatformBinding` 读取；
+  - `memory`：测试用；
+  - `custom`：传入自定义的 DiskDriver。
+- `Disk` 的接口：
+  - 写入：`put`（字符串 / 字节 / Blob / ReadableStream）、`putFile` / `putFileAs`（File，随机文件名保留扩展名）；
+  - 读取：`get` / `text` / `json` / `stream` / `meta` / `exists` / `missing` / `size`；
+  - 管理：`delete`（返回删除数量）/ `deleteDirectory` / `copy` / `move` / `files(dir, { recursive })`；
+  - 链接与响应：`url` / `temporaryUrl` / `response`（流式，带 Content-Type / Length / ETag，支持 304 与 HEAD）/ `download`。
+- 路径统一规范化：去掉开头的 `/`，合并重复的 `/`，`..` 直接拒绝。
+- 临时链接：
+  - S3 使用原生预签名；
+  - 其余磁盘使用框架的签名路由 `/__think/storage/<disk>/<path>?expires&signature`，签名为 APP_KEY 的 HMAC，覆盖磁盘、路径、过期时间与下载文件名；
+  - 新增 `app.url`（APP_URL）配置，用于生成绝对链接，未设置时生成站内路径。
+- `StorageManager.middleware()` 自动安装在静态资源之后、全局中间件之前：
+  - 处理签名路由，签名无效或已过期时返回 403；
+  - 在 `url` 下提供 `serve: true` 的本地磁盘文件，文件不存在时交给后续路由；Workers 上跳过。
+- 门面：`Storage.disk(name)`，以及默认磁盘的全部方法。
+- 测试：`Storage.fake(name)` 把磁盘换成内存磁盘（保留 url），提供 `assertExists` / `assertMissing` / `assertCount` / `assertDirectoryEmpty`；`Storage.restore()` 恢复。
+- `UploadedFile.store(dir, disk | { disk, ...PutOptions })` 与 `storeAs` 改为写入磁盘，返回磁盘内路径。不兼容的变化：原来写本地目录并返回完整路径。
+
+**邮件（`config/mail.ts`）**
+- `defineMailConfig({ default, from, replyTo, mailers, queue, alwaysTo })`，缺省为 log 驱动。
+- `defineMail(payload => ({ subject, html, text?, attachments?, cc?, ... }), { name?, mailer? })`：定义可复用的邮件。
+- 链式调用：`Mail.to(addr).cc().bcc().replyTo().from().mailer(name)`，再接 `.send(mail, payload)`、`.queue(...)` 或 `.later('10m', ...)`。
+- 原始消息：`Mail.send({ to, subject, ... })`、`Mail.queue(...)`。
+- 地址格式：`'Ada <ada@example.com>'`、`{ address, name }`，或二者组成的数组。
+- 发送前解析：
+  - 地址规范化，合并默认发件人；
+  - 未提供 `text` 时由 html 生成纯文本；
+  - 附件可直接给 `content`，也可以用 `{ disk, path }` 在发送时从存储磁盘读取；
+  - 设置 `alwaysTo` 时所有邮件改投到这些地址，原收件人写入 `X-Original-To`。
+- 排队发送：
+  - 渲染后的消息作为内置任务 `mail:send` 的载荷，附件转为 base64，磁盘附件只记录路径；
+  - 重试取 `mail.queue.tries`（默认 3）与 `backoff`（默认 [10, 60]）；
+  - 渲染发生在投递时，worker 端无需注册邮件定义。
+- 驱动：
+  - `smtp`：nodemailer，默认连接池；
+  - `resend` / `postmark` / `mailgun`：直接 fetch，可用 `endpoint` 覆盖接口地址；
+  - `ses`：SendEmail 的 Simple 内容，附件走 `Attachments`；
+  - `log` / `array`：array 可通过 `transport('array').messages` 读取；
+  - `custom`。
+  - 应用释放时关闭全部传输。
+- 布局辅助：
+  - `html` 模板，插值自动转义，数组拼接；`rawHtml()` 原样插入；
+  - `button(text, url)`；
+  - `mailLayout({ body, brand, preheader, footer, color })`，表格布局、内联样式；
+  - `htmlToText()`。
+- 测试：`Mail.fake()` 提供：
+  - `assertSent` / `assertNotSent` / `assertSentTimes` / `assertQueued` / `assertNotQueued` / `assertNothingSent` / `assertNothingQueued`，匹配邮件定义或谓词；
+  - `MailFake.hasRecipient()`。
+
+**构建**
+- AWS SDK 的四个包与 nodemailer 列入驱动包：Node 预设保持 external 并追踪进产物，未安装时替换为空模块。
+- nodemailer 在 Workers 上替换为报错空模块。
+- Cloudflare 预设增加 `mainFields: ['browser', 'module', ...]`（与 wrangler 一致），使 AWS SDK 使用 fetch 版的 runtimeConfig，否则会引入 `node:child_process`，Workers 无法启动。
+- 本地磁盘的根目录改为在运行时求 `process.cwd()`。原来的 `resolve(process.cwd(), 'storage/app')` 会被 nf3（nft）的静态分析当作文件引用，把构建时 cwd 下的全部依赖追踪进 `dist/node_modules`。
+
+**模板（vue / react / api）**
+- `config/filesystem.ts`（local / public / s3，注释中给出 r2）与 `config/mail.ts`（`MAIL_MAILER`，默认 log；smtp 默认连接 Mailpit 的 1025 端口；resend；其余在注释中给出）。
+- `app/mail/WelcomeMail.ts`：`SendWelcomeEmail` 任务真正发送欢迎邮件。
+- `POST /api/auth/avatar`（需登录，`bodyLimit:3mb`）：valibot 校验 png / jpeg / webp、不超过 2MB，保存到 public 磁盘，返回 `/storage/...` 链接。
+- `.gitignore` 加入 `storage`。
+- 模板测试：
+  - 注册后执行队列任务，断言欢迎邮件已发送；
+  - 用 `Storage.fake('public')` 测试头像上传。
+
+**验证**
+- `storage.test.ts`：同一组用例覆盖 memory / local / r2（Miniflare）/ s3（RustFS，`THINK_TEST_S3_ENDPOINT`）。
+  - 内容：读写、流式读写、复制 / 移动 / 列表 / 删除、路径穿越、文件响应（ETag、304、下载文件名）、临时链接；
+  - 临时链接：S3 直接访问预签名链接；其余磁盘经签名路由访问，并验证篡改与过期；
+  - S3 另测 6MB 流的分片上传；
+  - HTTP：上传到 public 磁盘并经 `/storage` 访问、穿越路径 404、APP_URL 绝对签名链接、fake。
+- `mail.test.ts`：
+  - 布局与转义、纯文本生成、磁盘附件、排队任务载荷的 JSON 往返、sync 队列、`later` 延迟、fake、alwaysTo；
+  - Resend / Postmark / Mailgun / SES 发到本地捕获服务器，校验请求格式；SES 校验 SigV4 签名头；
+  - 真实 SMTP：发到 Mailpit，经 Mailpit API 校验主题、发件人、收件人、抄送、HTML、纯文本与中文文件名附件（`THINK_TEST_SMTP_URL`、`THINK_TEST_MAILPIT_API`）。
+- 验证结束后 RustFS 与 Mailpit 的容器和镜像已删除，colima 已停止。
+
+**限制**
+- R2 绑定没有原生预签名：临时链接走应用的签名路由；需要直连时，改用 s3 驱动连接 R2 的 S3 接口。
+- 本地磁盘的 `files()` 遍历目录，不适合超大目录。
+- 排队邮件的内联附件以 base64 写入队列载荷，大文件请用磁盘附件。
+- SMTP 不能在 Workers 上运行。
 
