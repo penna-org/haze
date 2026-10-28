@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { buildServer, createDevServer } from '@hazejs/vite'
 import { createBuilder, createServer } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
+import createPackage from '../package.json' with { type: 'json' }
 import { scaffold, toPackageName } from '../src/scaffold'
 import { binOf, createProject, csrfHeaders, run, sqliteRows, startProduction, waitFor } from './utils'
 
@@ -18,6 +19,8 @@ async function json(url: string, init?: RequestInit): Promise<any> {
   return (await fetch(url, init)).json()
 }
 
+const createVersion = createPackage.version
+
 describe('scaffold', () => {
   it('copies the template, renames dotfiles and fills placeholders', () => {
     project = createProject('api')
@@ -25,7 +28,8 @@ describe('scaffold', () => {
     expect(project.files).not.toContain('_gitignore')
     expect(JSON.parse(project.read('package.json'))).toMatchObject({
       name: 'demo-api',
-      dependencies: { '@hazejs/core': '^0.0.0' },
+      // 框架包版本跟随 create-hazejs 自身的版本
+      dependencies: { '@hazejs/core': `^${createVersion}` },
     })
     for (const file of project.files)
       expect(project.read(file), file).not.toMatch(/\{\{\w+\}\}/)
