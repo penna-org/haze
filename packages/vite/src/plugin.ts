@@ -2,6 +2,7 @@ import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
+import type { ModulePackage } from './modules'
 import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -12,6 +13,7 @@ import { normalizePath } from 'vite'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
+import { findModulePackages, packagedMigrationFiles, rewriteMigrationUrls } from './modules'
 import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, externalPattern, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
 import { manifestFile, readBuildManifest, startPreview, staticDirOf, writeBuildManifest } from './preview'
 
@@ -84,6 +86,8 @@ interface Settings {
   fullstack: boolean
   preset: string
   orm: boolean
+  /** 依赖中的 hazejs 模块包 */
+  modulePackages: ModulePackage[]
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
   externals: ExternalsOptions
@@ -113,6 +117,7 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
     fullstack: !options.standalone,
     preset: 'node',
     orm: false,
+    modulePackages: [],
     cloudflare: undefined,
     vercel: undefined,
     externals: {},
@@ -157,8 +162,13 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       settings.vercel = options.vercel ?? fileConfig?.vercel
       settings.externals = options.externals ?? fileConfig?.externals ?? {}
       settings.orm = Boolean(findInstalled('@hazejs/orm', base))
+      settings.modulePackages = findModulePackages(base)
 
       const config: UserConfig = {}
+      // 链接进来的模块包（workspace / link:）在开发时由 Vite 处理，修改后热替换；已发布的模块包按普通依赖 external
+      const linked = settings.modulePackages.filter(pkg => pkg.linked).map(pkg => pkg.name)
+      if (env.command !== 'build' && linked.length)
+        config.ssr = { noExternal: linked }
       if (options.alias !== false) {
         config.resolve = {
           alias: [
@@ -203,6 +213,10 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
                 noExternal: bundleAllExcept(externalPackages(settings.externals)),
               }),
               ...(bundle === 'all' && { noExternal: true }),
+              // 依赖保持 external 时，模块包仍然打包（与框架共用同一份 core，迁移目录可以内嵌）
+              ...(bundle === 'external' && settings.modulePackages.length && {
+                noExternal: settings.modulePackages.map(pkg => pkg.name),
+              }),
             },
             build: {
               outDir: layout.serverDir,
@@ -372,6 +386,21 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       },
     },
 
+    transform: {
+      order: 'pre',
+      handler(code, id) {
+        // 生产构建：模块包中指向迁移目录的 new URL(..., import.meta.url) 改为内嵌迁移文件的键
+        if (isDev || this.environment?.name !== 'ssr' || !settings.modulePackages.length || !code.includes('import.meta.url'))
+          return
+        const file = normalizePath(id.split('?')[0])
+        const pkg = settings.modulePackages.find(item => file.startsWith(`${item.dir}/`))
+        const rewritten = pkg && rewriteMigrationUrls(code, file, pkg)
+        return rewritten
+          ? { code: rewritten, map: null }
+          : undefined
+      },
+    },
+
     load(id) {
       if (!id.startsWith(RESOLVED_PREFIX))
         return
@@ -433,11 +462,22 @@ function manifestCode(settings: Settings, dev: boolean): string {
   const glob = (pattern: string, extra = ''): string =>
     `import.meta.glob(${JSON.stringify(`${base}/${pattern}`)}, { eager: true${extra} })`
 
+  // 本地模块：键去掉 srcDir 前缀（/modules/<name>/...），按模块分组后文件名命名的规则不变
+  const local = (pattern: string | string[], eager: boolean): string =>
+    `strip(import.meta.glob(${JSON.stringify(([] as string[]).concat(pattern).map(item => `${base}/modules/*/${item}`))}${eager
+      ? ', { eager: true }'
+      : ''}))`
+  const sources = '{ts,mts,js,mjs}'
   return [
     // 开发态从项目根加载 .env；生产态使用运行时工作目录
     `export const rootDir = ${dev
       ? JSON.stringify(settings.root)
       : 'undefined'}`,
+    // 后端源码目录（本地模块迁移等相对路径的基准）；生产态迁移已内嵌，使用工作目录
+    `export const srcDir = ${dev
+      ? JSON.stringify(settings.srcDir)
+      : 'undefined'}`,
+    `const strip = record => Object.fromEntries(Object.entries(record).map(([key, value]) => [key.slice(${base.length}), value]))`,
     `export const config = ${glob('config/*.{ts,mts,js,mjs}')}`,
     `export const routes = ${glob('route/*.{ts,mts,js,mjs}')}`,
     `export const providers = ${glob('app/provider/*.{ts,mts,js,mjs}')}`,
@@ -458,6 +498,12 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const lang = ${glob('lang/**/*.{ts,mts,js,mjs,json}')}`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
     `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
+    // 本地模块 modules/<name>/：与项目相同的目录约定；命令按需加载
+    `export const modules = { ...${local([
+      `module.${sources}`,
+      `{route,config,schedule}/*.${sources}`,
+      `app/{provider,interceptor,policy,job,event,listener,notification,channel,socket,message}/*.${sources}`,
+    ], true)}, ...${local(`app/command/**/*.${sources}`, false)} }`,
   ].join('\n')
 }
 
@@ -467,11 +513,15 @@ function migrationsCode(settings: Settings): string {
   const base = rel
     ? `/${rel}/`
     : '/'
+  // 模块包的迁移（node_modules/<包名>/...，见 rewriteMigrationUrls）在构建时读取并内嵌
   return `const raw = {
-  ...import.meta.glob(${JSON.stringify(`${base}database/**/*.sql`)}, { query: '?raw', import: 'default', eager: true }),
-  ...import.meta.glob(${JSON.stringify(`${base}database/**/meta/_journal.json`)}, { query: '?raw', import: 'default', eager: true }),
+  ...import.meta.glob(${JSON.stringify([`${base}database/**/*.sql`, `${base}modules/*/database/**/*.sql`])}, { query: '?raw', import: 'default', eager: true }),
+  ...import.meta.glob(${JSON.stringify([`${base}database/**/meta/_journal.json`, `${base}modules/*/database/**/meta/_journal.json`])}, { query: '?raw', import: 'default', eager: true }),
 }
-export const files = Object.fromEntries(Object.entries(raw).map(([path, content]) => [path.slice(${base.length}), content]))
+export const files = {
+  ...Object.fromEntries(Object.entries(raw).map(([path, content]) => [path.slice(${base.length}), content])),
+  ...${JSON.stringify(packagedMigrationFiles(settings.modulePackages))},
+}
 `
 }
 
@@ -485,6 +535,7 @@ export { manifest }
 export function createApp(options = {}) {
   return createApplication({
     rootDir: manifest.rootDir,
+    srcDir: manifest.srcDir,
     config: manifest.config,
     routes: manifest.routes,
     providers: manifest.providers,
@@ -499,6 +550,7 @@ export function createApp(options = {}) {
     discovered: manifest.discovered,
     lang: manifest.lang,
     apps: manifest.apps,
+    localModules: manifest.modules,
     ...options,
   })
 }
@@ -513,7 +565,7 @@ function presetContext(settings: Settings): PresetContext {
     orm: settings.orm,
     cloudflare: settings.cloudflare,
     vercel: settings.vercel,
-    schedules: hasSources(join(settings.srcDir, 'schedule')),
+    schedules: hasSources(join(settings.srcDir, 'schedule')) || subdirs(join(settings.srcDir, 'modules')).some(dir => hasSources(join(dir, 'schedule'))),
     websocket: settings.cloudflare?.websocket ?? usesWebSocket(settings.srcDir),
     outDir: settings.outDir,
     fullstack: settings.fullstack,
@@ -552,11 +604,17 @@ function srcDirFromRoot(settings: Settings): string {
 function usesWebSocket(srcDir: string): boolean {
   const dirs = [
     join(srcDir, 'route'),
-    ...(existsSync(join(srcDir, 'app'))
-      ? readdirSync(join(srcDir, 'app'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => join(srcDir, 'app', entry.name, 'route'))
-      : []),
+    ...subdirs(join(srcDir, 'app')).map(dir => join(dir, 'route')),
+    ...subdirs(join(srcDir, 'modules')).map(dir => join(dir, 'route')),
   ]
   return dirs.some(dir => existsSync(dir) && readdirSync(dir).some(name => SOURCE_RE.test(name) && /\.ws\s*\(/.test(readFileSync(join(dir, name), 'utf8'))))
+}
+
+/** 目录下的子目录（app/<name>、modules/<name>） */
+function subdirs(dir: string): string[] {
+  return existsSync(dir)
+    ? readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => join(dir, entry.name))
+    : []
 }
 
 /** 目录下是否有源码文件（如 schedule/*.ts） */

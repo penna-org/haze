@@ -8,7 +8,7 @@ import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'
 import { resolveRoot, rootArg } from '../args'
-import { KINDS, make, makeAuthTables, makeModel, makeNotificationsTable } from '../make/generator'
+import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable } from '../make/generator'
 
 function makeCommand(kind: KindName): CommandDef<any> {
   return defineCommand({
@@ -18,6 +18,7 @@ function makeCommand(kind: KindName): CommandDef<any> {
       ...rootArg,
       force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
       app: { type: 'string', alias: 'a', description: '多应用：生成到 app/<app>/ 下' },
+      module: { type: 'string', alias: 'm', description: '本地模块：生成到 modules/<module>/ 下' },
       ...(kind === 'controller' && {
         resource: {
           type: 'boolean',
@@ -38,6 +39,7 @@ function makeCommand(kind: KindName): CommandDef<any> {
         force: args.force,
         variant: variantOf(kind, root, args),
         app: args.app,
+        module: args.module,
       })
       consola.success(`Created ${colors.cyan(relative(process.cwd(), result.file))}${result.custom
         ? colors.dim(` (stubs/${result.stub}.stub)`)
@@ -85,6 +87,7 @@ export const makeModelCommand = defineCommand({
     dialect: { type: 'string', description: 'sqlite | postgres | mysql | mongodb（默认按已安装的驱动推断）' },
     softDelete: { type: 'boolean', description: '启用软删除', default: false },
     app: { type: 'string', alias: 'a', description: '多应用：模型生成到 app/<app>/model' },
+    module: { type: 'string', alias: 'm', description: '本地模块：模型与表结构生成到 modules/<module>/ 下' },
     force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
   },
   async run({ args }) {
@@ -107,6 +110,7 @@ export const makeModelCommand = defineCommand({
       dialect,
       softDelete: args.softDelete,
       app: args.app,
+      module: args.module,
       force: args.force,
     })
     consola.success(`Created ${colors.cyan(relative(process.cwd(), result.model))}`)
@@ -180,6 +184,28 @@ export const makeAuthTablesCommand = defineCommand({
       force: args.force,
     })
     consola.success(`Created ${colors.cyan(relative(process.cwd(), result.schema))} ${colors.dim(`(${dialect})`)}`)
+    consola.info(result.hint)
+  },
+})
+
+export const makeModuleCommand = defineCommand({
+  meta: { name: 'make:module', description: '生成本地模块骨架（modules/<name>/：module.ts、路由、控制器、配置、测试）' },
+  args: {
+    name: { type: 'positional', description: '模块名，例如 blog', required: true },
+    ...rootArg,
+    force: { type: 'boolean', description: '目录已存在时覆盖', default: false },
+  },
+  async run({ args }) {
+    const root = resolveRoot(args.root)
+    const { srcDir } = await loadHazeConfig(root)
+    const result = await makeModule({
+      root,
+      srcDir,
+      name: args.name,
+      force: args.force,
+    })
+    for (const file of result.files)
+      consola.success(`Created ${colors.cyan(relative(process.cwd(), file))}`)
     consola.info(result.hint)
   },
 })

@@ -1,0 +1,6 @@
+import { defineConfig } from '@hazejs/core'
+
+// 模块的默认配置：位于项目配置之下，项目的 config/{{camelName}}.ts 可覆盖同名项
+export default defineConfig({
+  perPage: 20,
+})

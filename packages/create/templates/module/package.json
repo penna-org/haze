@@ -1,0 +1,54 @@
+{
+  "name": "{{name}}",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "A hazejs module: routes, middleware, config and migrations for any hazejs app",
+  "keywords": [
+    "hazejs",
+    "hazejs-module"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "database",
+    "dist"
+  ],
+  "hazejs": {
+    "module": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate --dialect=sqlite --schema=src/schema.ts --out=database/migrations",
+    "prepublishOnly": "tsdown"
+  },
+  "peerDependencies": {
+    "@hazejs/core": "{{version}}",
+    "@hazejs/orm": "{{version}}",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@hazejs/core": "{{version}}",
+    "@hazejs/orm": "{{version}}",
+    "@hazejs/testing": "{{version}}",
+    "@hazejs/vite": "{{version}}",
+    "@libsql/client": "^0.18.0",
+    "@types/node": "^24.0.0",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4",
+    "tsdown": "^0.23.2",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

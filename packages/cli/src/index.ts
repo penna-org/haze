@@ -3,7 +3,7 @@ import process from 'node:process'
 import { defineCommand, runMain, showUsage } from 'citty'
 import { loadUserCommands } from './commands/console'
 import { generateCommand, migrateCommand, seedCommand } from './commands/db'
-import { makeAuthTablesCommand, makeCommands, makeModelCommand, makeNotificationsTableCommand } from './commands/make'
+import { makeAuthTablesCommand, makeCommands, makeModelCommand, makeModuleCommand, makeNotificationsTableCommand } from './commands/make'
 import { searchFlushCommand, searchImportCommand, searchSyncSettingsCommand } from './commands/search'
 import { queueFailedCommand, queueFlushCommand, queueForgetCommand, queueRetryCommand, queueWorkCommand, scheduleListCommand, scheduleRunCommand, scheduleWorkCommand } from './commands/worker'
 
@@ -17,6 +17,7 @@ const builtin = {
   'key:generate': () => import('./commands/key').then(m => m.default),
   'test': () => import('./commands/test').then(m => m.default),
   'route:list': () => import('./commands/routes').then(m => m.default),
+  'module:list': () => import('./commands/modules').then(m => m.default),
   'typegen': () => import('./commands/typegen').then(m => m.default),
   'stub:publish': () => import('./commands/stub-publish').then(m => m.default),
   'repl': () => import('./commands/repl').then(m => m.default),
@@ -24,6 +25,7 @@ const builtin = {
   'microservice:listen': () => import('./commands/microservice').then(m => m.default),
   ...makeCommands,
   'make:model': makeModelCommand,
+  'make:module': makeModuleCommand,
   'make:notifications-table': makeNotificationsTableCommand,
   'make:auth-tables': makeAuthTablesCommand,
   'db:generate': generateCommand,
@@ -42,7 +44,7 @@ const builtin = {
   'search:sync-settings': searchSyncSettingsCommand,
 }
 
-// app/command 下的自定义命令（只在运行自定义命令或打印命令列表时加载）
+// app/command 与模块的自定义命令（只在运行自定义命令或打印命令列表时加载）
 const argv = process.argv.slice(2)
 const user = await loadUserCommands(argv, new Set(Object.keys(builtin)))
 

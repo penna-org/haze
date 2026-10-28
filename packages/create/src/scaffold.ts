@@ -7,6 +7,7 @@ export const TEMPLATES = {
   api: '纯后端 API 服务',
   vue: 'Vue 3 全栈（同仓库、同端口、一次构建）',
   react: 'React 19 全栈（同仓库、同端口、一次构建）',
+  module: '可发布的模块包（路由、中间件、配置与迁移，供其它项目在 config/modules.ts 中启用）',
 } as const
 
 export type TemplateName = keyof typeof TEMPLATES
@@ -66,6 +67,9 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     version: options.version ?? `^${ownVersion()}`,
     // 每个项目独立的 APP_KEY（签名 Cookie、加密 Session、JWT 默认密钥）
     appKey: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),
+    // 模块模板：模块名（配置键、路由名前缀）与表名前缀
+    moduleName: camelCase(name),
+    moduleTable: name.replace(/\W+/g, '_').replace(/^_+|_+$/g, ''),
   }
 
   cpSync(source, root, { recursive: true })
@@ -108,6 +112,13 @@ export function toPackageName(input: string): string {
     .replace(/\s+/g, '-')
     .replace(/^[._]+/, '')
     .replace(/[^a-z0-9\-~]+/g, '-') || 'hazejs-app'
+}
+
+function camelCase(value: string): string {
+  const camel = value.replace(/[^a-z0-9]+(.)?/gi, (_, char: string | undefined) => (char ?? '').toUpperCase())
+  return /^\d/.test(camel)
+    ? `m${camel}`
+    : camel.replace(/^./, char => char.toLowerCase())
 }
 
 function walk(dir: string): string[] {

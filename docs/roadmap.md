@@ -44,6 +44,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | Full-text search | ✅ `@hazejs/search` | 🧩 | 🧩 | ✅ Scout | 🧩 |
 | Multi-tenancy | ✅ | 🧩 | 🧩 | 🧩 | 🧩 |
 | GraphQL, microservice transports | ✅ `@hazejs/graphql`, `@hazejs/microservices` | ✅ | 🧩 | 🧩 | 🧩 |
+| Modules / packages (routes, config, migrations, jobs) | ✅ local `modules/` and npm modules | ◐ modules (no migrations) | ✅ packages | ✅ packages | ◐ Fastify plugins |
 | Documentation site | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Done so far
@@ -66,6 +67,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M25 | **Auth extensions**: OAuth social login, personal access tokens, email verification and password reset flows, TOTP 2FA, passkeys |
 | M26 | **Search** (database full-text, Meilisearch, Typesense, Elasticsearch / OpenSearch) and multi-tenancy |
 | M27 | Optional packages: GraphQL, microservice transports (Redis, NATS, gRPC) |
+| M28 | **Modules**: reusable feature units as local `modules/<name>/` folders or npm packages (`defineModule`), with routes, middleware, config defaults, providers, migrations, jobs, events, commands and policies; `make:module`, `module:list`, a `module` template |
 
 ## Next
 

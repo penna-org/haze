@@ -1,11 +1,13 @@
 import type { H3Event } from 'h3'
 import type { AppMatcher, SubAppConfig, SubAppModules } from './apps'
 import type { ConfigInput, ConfigPath, ConfigPathValue } from './config/config'
+import type { DiscoveredCommand } from './console/command'
 import type { InjectionKey } from './container/token'
 import type { Interceptor } from './http/interceptor'
 import type { StaticOptions } from './http/static'
 import type { LangInput } from './i18n/manager'
-import type { MiddlewareConfig } from './middleware/types'
+import type { MiddlewareConfig, MiddlewareRef } from './middleware/types'
+import type { ModuleInput, ModulesConfig, ResolvedModule } from './modules'
 import type { ProviderInput, ServiceProvider } from './provider'
 import type { RouteModule, RouteRegistrar } from './routing/builder'
 import type { RouteMeta } from './routing/route'
@@ -19,6 +21,7 @@ import { BroadcastManager } from './broadcast/manager'
 import { CacheManager, setCacheManager } from './cache/manager'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
+import { collectCommands } from './console/command'
 import { Container } from './container/container'
 import { setEventManager } from './events/context'
 import { EventManager } from './events/manager'
@@ -33,6 +36,7 @@ import { I18nManager, setI18nManager } from './i18n/manager'
 import { Logger } from './logger'
 import { MailManager, setMailManager } from './mail/manager'
 import { MiddlewareRegistry } from './middleware/registry'
+import { moduleCommands, moduleConfig, moduleDiscovered, moduleEntries, moduleMiddlewareConfig, resolveModules } from './modules'
 import { NotificationManager, setNotificationManager } from './notification/manager'
 import { Observability } from './observability/observability'
 import { openAPIMiddleware } from './openapi/middleware'
@@ -84,6 +88,15 @@ export interface ApplicationOptions {
    * 只有在 `config/app.ts` 的 `apps` 中声明的应用才会启用。
    */
   apps?: ModuleRecord
+  /** 后端源码目录（本地模块迁移等相对路径的基准），默认同 rootDir */
+  srcDir?: string
+  /** 手动启用的模块（defineModule），排在 config/modules.ts 的 modules 之前 */
+  modules?: ModuleInput[]
+  /**
+   * 本地模块：`import.meta.glob('/modules/*\/{module,route/*,config/*,schedule/*,app/<dir>/*}')`，
+   * 按 modules/<name>/ 分组，默认全部启用（config/modules.ts 的 local 可关闭或配置）
+   */
+  localModules?: ModuleRecord
   /** 托管静态资源（全栈项目的前端构建产物） */
   static?: StaticOptions
   /** 在提供者 register 之后、boot 之前执行，常用于测试中替换绑定 */
@@ -104,6 +117,7 @@ let currentApp: Application | undefined
 export class Application {
   readonly mode: AppMode
   readonly rootDir: string
+  readonly srcDir: string
   readonly container = new Container()
   readonly router = new Router()
   readonly config = new Config()
@@ -113,6 +127,9 @@ export class Application {
   readonly #providers: ServiceProvider[] = []
   readonly #interceptors: Interceptor[] = []
   readonly #apps: SubApp[] = []
+  #modules: ResolvedModule[] = []
+  /** 模块的全局中间件（追加在项目的全局中间件之后） */
+  #moduleGlobal: MiddlewareRef[] = []
   #appModules = new Map<string, EnabledApp>()
   #h3: H3 | undefined
   #booted = false
@@ -121,6 +138,7 @@ export class Application {
     this.#options = options
     this.mode = options.mode ?? resolveMode(process.env.NODE_ENV)
     this.rootDir = options.rootDir ?? process.cwd()
+    this.srcDir = options.srcDir ?? this.rootDir
     this.fetch = this.fetch.bind(this)
   }
 
@@ -173,11 +191,12 @@ export class Application {
       .singleton(ResponseFormatter, options.responseFormatter ?? ResponseFormatter)
     // 可观测性：OpenTelemetry（可选）与开发面板的记录器
     this.container.instance(Observability, await Observability.setup(this))
-    for (const [, interceptor] of normalizeModules<Interceptor>(options.interceptors))
+    // 模块的定义先于项目的注册（同名任务等以项目为准）
+    for (const [, interceptor] of this.#items<Interceptor>('interceptors', options.interceptors))
       this.intercept(interceptor)
     // 授权：提供者可在 register / boot 中继续 app.make(Gate).define(...)
     const gate = new Gate()
-    for (const [, policy] of normalizeModules<unknown>(options.policies))
+    for (const [, policy] of this.#items('policies', options.policies))
       gate.register(policy)
     this.container.instance(Gate, gate)
     // 缓存：config/cache.ts，缺省为内存缓存
@@ -190,7 +209,7 @@ export class Application {
     setStorageManager(storage)
     // 队列与定时任务
     const queue = new QueueManager(this)
-    for (const [name, job] of normalizeModules<unknown>(options.jobs))
+    for (const [name, job] of this.#items('jobs', options.jobs))
       queue.register(job as never, name)
     this.container.instance(QueueManager, queue)
     setQueueManager(queue, QueueManager)
@@ -203,16 +222,16 @@ export class Application {
     this.container.instance(MailManager, mail)
     setMailManager(mail)
     const scheduler = new Scheduler(this)
-    for (const [, schedule] of normalizeModules<unknown>(options.schedules))
+    for (const [, schedule] of this.#items('schedules', options.schedules))
       scheduler.register(schedule)
     this.container.instance(Scheduler, scheduler)
     // 事件与监听器（排队监听器注册为队列任务）
     const events = new EventManager(this)
     this.container.instance(EventManager, events)
     setEventManager(events, EventManager)
-    for (const [name, event] of normalizeModules<unknown>(options.events))
+    for (const [name, event] of this.#items('events', options.events))
       events.registerEvent(event, name)
-    for (const [name, listener] of normalizeModules<unknown>(options.listeners))
+    for (const [name, listener] of this.#items('listeners', options.listeners))
       events.registerListener(listener, name)
     // 广播：app/channel 的频道授权，内置接口位于 /broadcasting
     const broadcast = new BroadcastManager(this)
@@ -223,10 +242,10 @@ export class Application {
     this.container.instance(NotificationManager, notifications)
     setNotificationManager(notifications, NotificationManager)
 
-    // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
+    // 4. 提供者 register → setup → boot（模块的提供者在前，项目可覆盖其绑定；已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()
     const providers = [
-      ...normalizeModules<ProviderInput>(options.providers).map(([, provider]) => provider),
+      ...this.#items<ProviderInput>('providers', options.providers).map(([, provider]) => provider),
       ...[
         ...this.#appModules.values(),
       ].flatMap(({ modules }) => modules.providers),
@@ -283,9 +302,48 @@ export class Application {
     return server
   }
 
-  /** 按目录发现的模块：`[文件名, 默认导出]`（如 discovered('sockets')） */
+  /** 按目录发现的模块：`[文件名, 默认导出]`（如 discovered('sockets')），模块的定义在前 */
   discovered<T = unknown>(name: string): Array<[name: string | undefined, value: T]> {
-    return normalizeModules<T>(this.#options.discovered?.[name] as T[] | ModuleRecord | undefined)
+    return [
+      ...this.#modules.flatMap(module => moduleDiscovered(module, name)),
+      ...normalizeModules<unknown>(this.#options.discovered?.[name] as unknown[] | ModuleRecord | undefined),
+    ] as Array<[string | undefined, T]>
+  }
+
+  /** 已启用的模块（按启用顺序，迁移也按此顺序执行） */
+  modules(): readonly ResolvedModule[] {
+    return this.#modules
+  }
+
+  /**
+   * 自定义命令：模块的命令与 app/command 下的命令（`haze <name>` 与 `worker.mjs command` 使用），
+   * 重名时报错
+   */
+  async commands(): Promise<DiscoveredCommand[]> {
+    const found: DiscoveredCommand[] = []
+    for (const module of this.#modules)
+      found.push(...await moduleCommands(module))
+    found.push(...await collectCommands(this.#options.discovered?.commands as ModuleRecord | undefined))
+    const seen = new Map<string, DiscoveredCommand>()
+    const label = (item: DiscoveredCommand): string => [
+      item.module && `module "${item.module}"`,
+      item.file ?? (!item.module && 'inline'),
+    ].filter(Boolean).join(' ')
+    for (const item of found) {
+      const previous = seen.get(item.name)
+      if (previous)
+        throw new Error(`Duplicate command "${item.name}" (${label(previous)} and ${label(item)})`)
+      seen.set(item.name, item)
+    }
+    return found.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** 模块与项目的同类定义：模块在前（按启用顺序），项目在后 */
+  #items<T = unknown>(field: 'interceptors' | 'policies' | 'jobs' | 'schedules' | 'events' | 'listeners' | 'providers', own: unknown[] | ModuleRecord | undefined): Array<[name: string | undefined, value: T]> {
+    return [
+      ...this.#modules.flatMap(module => moduleEntries<T>(module.definition[field])),
+      ...normalizeModules<T>(own as T[] | ModuleRecord | undefined),
+    ]
   }
 
   /**
@@ -331,16 +389,38 @@ export class Application {
   }
 
   #loadConfig(): void {
+    const input = this.#options.config ?? {}
+    const entries = (isModuleRecord(input)
+      ? normalizeModules<ConfigInput<Record<string, any>>>(input)
+      : Object.entries(input))
+      .map(([name, value]): [string, Record<string, any>] => [
+        name!,
+        resolveConfigInput(value as ConfigInput<Record<string, any>>),
+      ])
+    const own = (name: string): Record<string, any> | undefined => entries.find(([key]) => key === name)?.[1]
+
+    // 模块：手动传入 → config/modules.ts 的 modules → modules/<name>/（按目录名）
+    this.#modules = resolveModules({
+      explicit: this.#options.modules,
+      config: own('modules') as ModulesConfig | undefined,
+      local: this.#options.localModules,
+    })
+
+    // 合并顺序：框架默认值 → 模块默认配置（按启用顺序）→ 项目的 config/*.ts
     const defaults = defaultConfig(this.mode)
     for (const [name, value] of Object.entries(defaults))
       this.config.merge(name, value)
-
-    const input = this.#options.config ?? {}
-    const entries = isModuleRecord(input)
-      ? normalizeModules<ConfigInput<Record<string, any>>>(input)
-      : Object.entries(input)
+    for (const module of this.#modules) {
+      for (const [name, value] of moduleConfig(module))
+        this.config.merge(name, value)
+    }
+    // 模块的中间件别名 / 分组（重名报错，项目 config/middleware.ts 中的同名项为显式覆盖）
+    if (this.#modules.length) {
+      this.config.merge('middleware', moduleMiddlewareConfig(this.#modules, own('middleware') as MiddlewareConfig | undefined))
+      this.#moduleGlobal = this.#modules.flatMap(module => module.definition.middleware?.global ?? [])
+    }
     for (const [name, value] of entries)
-      this.config.merge(name!, resolveConfigInput(value as ConfigInput<Record<string, any>>))
+      this.config.merge(name, value)
   }
 
   #createH3(): H3 {
@@ -452,7 +532,10 @@ export class Application {
     h3.use(tenancyMiddleware(this))
 
     const registry = new MiddlewareRegistry(this.config.get('middleware') as MiddlewareConfig)
-    for (const item of registry.resolve(this.config.get('middleware.global') ?? []))
+    for (const item of registry.resolve([
+      ...(this.config.get('middleware.global') ?? []),
+      ...this.#moduleGlobal,
+    ]))
       h3.use(registry.toH3(item))
 
     // 多应用分发：按域名 / 前缀进入应用自己的路由表（在全局中间件之后、全局路由之前）
@@ -487,6 +570,9 @@ export class Application {
     this.router.load(this.container.make(BroadcastManager).routes())
     for (const [, module] of normalizeModules<RouteModule | RouteRegistrar>(this.#options.routes))
       this.router.load(module)
+    // 模块路由：与项目路由同一套编译流程，带模块的前缀、路由名前缀与中间件
+    for (const module of this.#modules.filter(module => !module.app))
+      this.#loadModuleRoutes(this.router, module)
     this.router.compile({
       h3,
       container: this.container,
@@ -503,6 +589,17 @@ export class Application {
     return h3
   }
 
+  #loadModuleRoutes(router: Router, module: ResolvedModule, as = ''): void {
+    for (const [, routes] of moduleEntries<RouteModule | RouteRegistrar>(module.definition.routes)) {
+      router.load(routes, {
+        as: as + module.as,
+        prefix: module.prefix,
+        middleware: module.middleware,
+        module: module.name,
+      })
+    }
+  }
+
   /** 已在 config/app.ts 的 apps 中声明的应用及其目录模块 */
   #enabledApps(): Map<string, EnabledApp> {
     const declared = this.config.get<Record<string, SubAppConfig>>('app.apps', {})
@@ -517,6 +614,10 @@ export class Application {
     assertNoConflicts([
       ...enabled.values(),
     ].map(({ matcher }) => matcher))
+    for (const module of this.#modules) {
+      if (module.app && !enabled.has(module.app))
+        throw new Error(`Module "${module.name}" is mounted into app "${module.app}", which is not declared in config/app.ts (apps)`)
+    }
     return enabled
   }
 
@@ -545,6 +646,9 @@ export class Application {
       const router = new Router()
       for (const module of modules.routes)
         router.load(module, { as: `${matcher.name}.` })
+      // 指定 app 的模块只挂载到这个应用（路由名为 <app>.<模块前缀>...）
+      for (const module of this.#modules.filter(module => module.app === matcher.name))
+        this.#loadModuleRoutes(router, module, `${matcher.name}.`)
       router.compile({ h3, container: this.container, middleware: registry })
 
       const make = <T>(Ctor: Constructor<T> | undefined): T | undefined =>

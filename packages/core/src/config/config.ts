@@ -12,6 +12,7 @@ import type { CsrfConfig } from '../middleware/builtin/csrf'
 import type { SecureHeadersOptions } from '../middleware/builtin/secure-headers'
 import type { ThrottleConfig } from '../middleware/builtin/throttle'
 import type { MiddlewareConfig } from '../middleware/types'
+import type { ModulesConfig } from '../modules'
 import type { NotificationConfig } from '../notification/config'
 import type { ObservabilityConfig } from '../observability/config'
 import type { HealthConfig } from '../observability/health'
@@ -82,6 +83,8 @@ export interface CoreConfig {
   health?: HealthConfig
   observability?: ObservabilityConfig
   tenancy?: TenancyConfig
+  /** 模块（config/modules.ts） */
+  modules?: ModulesConfig
 }
 
 /**

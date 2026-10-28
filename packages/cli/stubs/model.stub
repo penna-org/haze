@@ -1,8 +1,8 @@
 import { Model } from '@hazejs/orm'
-import { {{tableVar}} } from '~/database/schema/{{tableName}}'
+import { {{tableVar}} } from '~/{{schemaDir}}/{{tableName}}'
 
 /**
- * {{name}} 模型：字段与类型来自 database/schema/{{tableName}}.ts，
+ * {{name}} 模型：字段与类型来自 {{schemaDir}}/{{tableName}}.ts，
  * 修改表结构后运行 haze db:generate 生成迁移，再 haze db:migrate。
  */
 export class {{className}} extends Model.define({{tableVar}}) {

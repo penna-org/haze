@@ -48,25 +48,38 @@ export function generateTypes({ root, srcDir, routes, client }: TypegenOptions):
     ? readdirSync(configDir).filter(name => SOURCE_RE.test(name) && !name.endsWith('.d.ts')).sort()
     : []
 
+  const importPath = (file: string): string => {
+    const path = normalizePath(relative(typesDir, file))
+    return JSON.stringify(path.startsWith('.')
+      ? path
+      : `./${path}`)
+  }
   const configs = configFiles.map((name) => {
     const key = name.replace(SOURCE_RE, '')
-    let path = normalizePath(relative(typesDir, join(configDir, key)))
-    if (!path.startsWith('.'))
-      path = `./${path}`
-    return { key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${JSON.stringify(path)}).default>` }
+    return { key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${importPath(join(configDir, key))}).default>` }
   })
+  // 本地模块的默认配置（modules/<name>/config/*.ts，middleware.ts 为中间件声明除外）：项目没有同名配置文件时加入
+  for (const dir of localModuleDirs(srcDir)) {
+    for (const name of sourceFiles(join(dir, 'config'))) {
+      const key = name.replace(SOURCE_RE, '')
+      if (key === 'middleware' || configs.some(item => item.key === key))
+        continue
+      configs.push({ key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${importPath(join(dir, 'config', key))}).default>` })
+    }
+  }
 
-  // app/policy/*.ts：能力名与模型策略的类型
-  const policyDir = join(srcDir, 'app', 'policy')
-  const policies = (existsSync(policyDir)
-    ? readdirSync(policyDir).filter(name => SOURCE_RE.test(name) && !name.endsWith('.d.ts')).sort()
-    : []).map((name) => {
-    const key = name.replace(SOURCE_RE, '')
-    let path = normalizePath(relative(typesDir, join(policyDir, key)))
-    if (!path.startsWith('.'))
-      path = `./${path}`
-    return { key, line: `    ${JSON.stringify(key)}: typeof import(${JSON.stringify(path)}).default` }
-  })
+  // app/policy/*.ts（含本地模块的 modules/<name>/app/policy）：能力名与模型策略的类型
+  const policies: Array<{ key: string, line: string }> = []
+  for (const policyDir of [
+    join(srcDir, 'app', 'policy'),
+    ...localModuleDirs(srcDir).map(dir => join(dir, 'app', 'policy')),
+  ]) {
+    for (const name of sourceFiles(policyDir)) {
+      const key = name.replace(SOURCE_RE, '')
+      if (!policies.some(item => item.key === key))
+        policies.push({ key, line: `    ${JSON.stringify(key)}: typeof import(${importPath(join(policyDir, key))}).default` })
+    }
+  }
 
   const named = routes
     .filter(route => route.name)
@@ -117,6 +130,20 @@ export {}
     routes: named.map(item => item.name),
     policies: policies.map(item => item.key),
   }
+}
+
+/** 本地模块目录 modules/<name>/ */
+export function localModuleDirs(srcDir: string): string[] {
+  const dir = join(srcDir, 'modules')
+  return existsSync(dir)
+    ? readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => join(dir, entry.name)).sort()
+    : []
+}
+
+function sourceFiles(dir: string): string[] {
+  return existsSync(dir)
+    ? readdirSync(dir).filter(name => SOURCE_RE.test(name) && !name.endsWith('.d.ts')).sort()
+    : []
 }
 
 /** 内容变化时才写入，避免触发编辑器与文件监听的无谓刷新 */

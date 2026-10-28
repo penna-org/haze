@@ -1612,3 +1612,59 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - 隔离：缓存键前缀、存储目录前缀（签名链接带前缀路径，FakeDisk 断言仍可用）、Session Cookie 名与密钥；数据库二选一：每租户独立连接（`DatabaseManager.resolveName` 解析为 `<name>@<tenant>`，连接配置按租户计算并缓存），或共享库 + `static belongsToTenant`（`tenant` 全局作用域自动过滤、插入时自动填充，可 `withoutGlobalScope()`）。每租户独立数据库时搜索索引名自动加 `<tenant>_` 前缀；共享库时外部引擎自动按租户列过滤。
 
 已知限制：搜索同步不等待事务提交（ORM 尚无 after-commit 钩子）；租户上下文之外 `belongsToTenant` 不过滤；租户连接池没有 LRU 淘汰；`Queue.fake().drain()` 不携带租户；开启多租户会改变 Session Cookie 名（已有会话失效）。
+
+### M28 实施记录（2026-10-28）：模块化
+
+确认的决策：
+- 两种来源：npm 包（显式启用）与本地目录 `modules/<name>/`（自动发现，目录结构与应用相同），都得到同一种 `defineModule()` 定义；
+- 模块合并进同一个应用，共用容器、守卫、响应格式、异常处理与数据库连接，不做隔离（隔离用多应用）；
+- 脚手架：`haze make:module` 生成本地模块，`create-hazejs --template module` 生成可发布的模块包。
+
+**定义与启用**
+- `defineModule({ name, prefix, as, routeMiddleware, app, connection, config, routes, middleware: { alias, groups, global }, providers, interceptors, jobs, events, listeners, schedules, policies, notifications, channels, commands, discovered, migrations, options })`，返回值可直接启用，也可以带选项调用（`blog({ prefix, as, middleware, app, connection, ...自定义选项 })`）；`options(opts)` 返回的字段与定义合并（列表追加，同名配置深合并）。
+- 启用写在 `config/modules.ts`（`defineModulesConfig({ modules, local })`），没有放进 `config/app.ts`：模块包的 import 会带进控制器等代码，单独一个文件更清楚，也可以用函数形式按环境变量启用。`local` 中 `false` 关闭本地模块、对象为挂载选项，写了不存在的本地模块名直接报错。
+- 挂载选项中路由名前缀用 `as`（与 `r.group({ as })` 一致），没有用草案中的 `name`，避免与模块名混淆；默认 `<模块名>.`，`''` 保留模块自己的路由名。模块级的“额外路由中间件”在定义中叫 `routeMiddleware`，`middleware` 留给别名 / 分组 / 全局中间件（与 config/middleware.ts 同形）。
+- 启用顺序：`createApplication({ modules })` → `config/modules.ts` 的 `modules` → 按目录名排序的本地模块；同名模块报错。
+- 本地模块：清单新增 `modules` 记录（`module.ts`、`route/*`、`config/*`、`schedule/*`、`app/{provider,interceptor,policy,job,event,listener,notification,channel,socket,message}/*` 为 eager，`app/command/**` 按需加载），键去掉 srcDir 前缀；core 的 `groupLocalModules()` 按模块分组并保留文件路径，任务名、事件名、命令名（`db/Prune.ts` → `db:prune`）等按文件名命名的规则不变。`config/middleware.ts` 视为模块的中间件声明，其余 `config/*.ts` 为默认配置；可选的 `module.ts` 覆盖约定（列表追加、配置深合并），本地模块名固定为目录名。
+- 模块包没有文件名：任务、事件、命令等用 `{ 名称: 定义 }` 或定义自身的 `name`。
+
+**加载顺序与冲突**
+- 配置：框架默认值 → 模块默认配置（按启用顺序）→ 项目 config/*.ts，均为深合并；为此 `#loadConfig()` 先求值全部配置文件，读取 `modules` 后再合并。
+- 提供者：模块的先 `register()`，项目可以覆盖模块的绑定；任务 / 事件 / 监听器 / 定时任务 / 策略 / 拦截器同样模块在前（同名任务以项目为准），`app.discovered(name)` 也包含模块的定义（Socket.IO、微服务、通知、频道直接受益）。
+- 中间件：模块的别名与分组合并进 `config.middleware`（子应用的注册表因此也能用）；模块之间、模块与内置中间件同名时报错并给出双方来源，项目 config/middleware.ts 中同名即为显式覆盖。模块的全局中间件在项目全局中间件之后执行。
+- 路由：在项目路由之后加载，走同一套 `Router.load({ as, prefix, middleware, module })` → `compile()`；`RouteDefinition` / `RouteInfo` 新增 `module`，重名报错附带来源（`(the app and module "blog")`）。`app: 'admin'` 时模块路由加载到子应用的路由表（路由名 `admin.<as>…`），只影响路由；子应用未声明时启动报错。
+- 自定义命令：新增 `app.commands()`（模块命令 + app/command，跨来源重名报错），CLI 与 `worker.mjs command` 改用它；CLI 在有本地模块命令或 `config/modules.ts` 时才启动应用加载命令。
+
+**迁移**
+- drizzle 的迁移器只看记录表中最后一条记录的 `created_at`，多个目录共用 `__drizzle_migrations` 时，时间戳较早的目录会被整体跳过（已用“模块时间戳晚于项目”的用例复现）。因此每个模块使用自己的记录表 `__drizzle_migrations_<模块名>`（驼峰转下划线），项目仍为 `__drizzle_migrations`（与 drizzle-kit migrate 兼容）。`migrate({ table })` 透传给 drizzle 的 `migrationsTable`（PG 仍在 `drizzle` schema 下），SQLite / Turso / D1 的自带执行器同样使用该表名。
+- 顺序：每个连接先按启用顺序执行模块迁移，最后执行项目迁移；模块没有迁移目录时跳过；只有模块迁移时项目缺少迁移目录不再报错。`runMigrations` 的结果带 `module`，`db:migrate` 按模块输出。
+- 模块迁移目录：本地模块默认为 `modules/<name>/database/migrations`（相对 srcDir）；模块包用 `new URL('../database/migrations', import.meta.url)`。`databaseProvider()` 把 `app.modules()` 的迁移目录交给 `DatabaseManager`；`refreshDatabase()` 同样先执行模块迁移（`modules: false` 关闭），默认迁移目录改为应用 srcDir 下的 `database/migrations`（宿主应用没有自己的迁移时跳过），相对目录以新增的 `app.srcDir`（清单在开发 / 测试中提供）为基准。
+- 生产构建：`virtual:haze/migrations` 增加本地模块的 glob，并在构建时读取 `"hazejs": { "module": true }` 依赖包中的迁移（键为 `node_modules/<包名>/<包内路径>`）。模块包被打包后 `import.meta.url` 指向产物，插件的 transform 只把指向迁移目录（含 `meta/_journal.json`）的字面量 `new URL(..., import.meta.url)` 改写为该键，其它 `import.meta.url` 不动。没有选择“迁移文件转成 JS 模块”或要求包名重复声明的方案：前者需要模块包自带额外构建步骤，后者容易与 package.json 不一致。
+- `haze db:generate --module <name>` 读写 `modules/<name>/database/{schema,migrations}`，连接取 `--connection`、模块的连接或 default。
+
+**Vite / HMR / 依赖**
+- 模块包的识别：项目 package.json 的依赖中，`package.json` 带 `"hazejs": { "module": true }` 的包。
+- 开发：本地模块在应用的模块图中，新增文件触发清单重算；以 workspace / `link:` 链接的模块包（真实路径不在 node_modules 中）显式加入 `ssr.noExternal`（Vite 对链接包本就内联，这里保证行为明确），修改后热替换；已发布的模块包按普通依赖 external。
+- 构建：node / bun 的 `drivers-external` 与 cloudflare 的全量打包本就会打包模块包；`externals.trace: false`（依赖全部 external）时也把模块包加入 `noExternal`，保证与应用共用同一份 core，且迁移目录可以内嵌。nf3 追踪与驱动 external 不受影响。
+- 预设上下文：定时任务与 WebSocket 的检测也扫描本地模块（`schedule/`、`route/` 中的 `.ws(`）。
+- typegen：模块路由来自 `router.list()` 自然包含；本地模块的 `config/*.ts`（项目没有同名配置时）写入 `GeneratedConfig`，`modules/*/app/policy` 写入能力类型，控制器 / 校验 schema 的扫描覆盖 `modules/*/app`。模块包的配置类型由包自带的 `declare module '@hazejs/core' { interface ConfigSchema }` 提供（模板中有示例，tsdown 的 d.ts 保留该扩充）。
+
+**CLI**
+- `haze make:module <name>`：`module.ts`（默认前缀 `/api/<name>`，全栈模板的后端前缀也能命中）、路由、控制器、`config/<name>.ts`、`tests/<name>.test.ts`。
+- `make:* --module <name>`（`-m`）生成到 `modules/<name>/` 下，测试为 `modules/<name>/tests/`；模块不存在或与 `--app` 同用时报错；`make:model --module` 的表结构写到模块的 `database/schema`（model.stub 的导入路径改为 `{{schemaDir}}` 变量）。
+- `haze module:list [--json]`：启用顺序、来源、前缀、路由名前缀、路由数、迁移目录；`route:list` 有模块路由时增加 MODULE 列；`db:seed` 先执行已启用本地模块的 `database/seeders`。
+
+**create-hazejs 的 module 模板**
+- tsdown 构建（`dist/index.mjs` + `index.d.mts`），`files: ['database', 'dist']`，`"hazejs": { "module": true }`；`defineModule` 入口带路由 + 控制器（ORM 读写 `<name>_posts` 表）+ 中间件别名 + 默认配置（含 ConfigSchema 扩充）+ 迁移 + 带类型的 `perPage` 选项。
+- 测试使用 `tests/app` 作为宿主应用（`defineHazeTestConfig({ haze: { srcDir: 'tests/app' } })`），宿主在 `config/modules.ts` 中以源码启用模块，`refreshDatabase()` 只执行模块的迁移。
+- 模板源码中的占位符只出现在字符串和注释里（如 `'{{moduleName}}': PostsConfig`），保证模板本身能通过 ESLint；新增模板变量 `moduleName`（驼峰）与 `moduleTable`（下划线）。
+
+**验证**
+- core `modules.test.ts`（12 个）：defineModule 与带选项启用、迁移目录归一化、配置优先级、提供者顺序与覆盖、中间件合并与冲突、前缀 / 路由名前缀 / 额外中间件、路由重名来源、子应用挂载、任务 / 事件 / 监听器 / 定时任务 / 命令 / 策略 / 通知 / 频道注册、本地模块分组（manifest 形式的输入）、关闭与未知本地模块、包与本地模块的顺序及重名。
+- orm：三种方言（SQLite、D1、PGlite；MySQL / Turso 按环境变量）上验证模块迁移先于项目迁移、各自的记录表、重复执行为 0、只有模块迁移时不报错；`modules.test.ts` 用真实应用 + `databaseProvider()` 验证 runMigrations 与 refreshDatabase 包含本地模块与模块包。
+- cli：`make:module` 与 `--module` 的生成位置、提示与错误。
+- vite `modules.test.ts`（3 个）：fixture 含本地 `modules/blog` 与链接进 node_modules 的模块包 `@demo/news`：识别模块包、开发服务器提供两者的路由、修改本地模块与链接包后热替换、typegen 输出模块路由与本地模块配置、node 预设产物运行模块路由且迁移目录被改写为内嵌键。
+- 全部测试：77 个文件，886 个通过、37 个跳过（之前为 73 个文件、864 个通过、37 个跳过）。
+- create：module 模板生成 → tsc → 自带测试（3 个）→ tsdown 构建；api 模板中 `make:module` / `make:model --module` / `db:generate --module` / `make:command --module` + 链接安装的 module 模板包：`db:migrate` 两次（包 → 本地模块 → 项目，第二次全为 0）、`module:list`、`route:list`、模块命令、typegen + 类型探针 + tsc、模板测试加模块测试 20 个通过；生产构建后在全新数据库上执行 `migrate.mjs` 两次、启动产物读写模块包的表、`worker.mjs command` 列出模块命令、`worker.mjs schedule:run` 执行模块的定时任务。
+
+已知限制：模块没有隔离（中间件别名、全局中间件、提供者作用于整个应用），`app` 挂载只影响路由；模块不能有自己的异常处理器、响应格式与 `lang/`；`module.ts` 内联的默认配置没有类型；模块迁移先于项目迁移，不能依赖项目的表；生产内嵌要求迁移目录写成字面量 `new URL()`；Cloudflare D1 的 `wrangler d1 migrations apply` 只包含项目的迁移，模块包的定时任务 / WebSocket 不参与 Cloudflare 的自动检测；`db:seed` 不执行模块包的数据填充。

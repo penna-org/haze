@@ -36,6 +36,7 @@ my-app/
 ├─ lang/
 │  ├─ en/               Translations, one folder per locale (auto-discovered)
 │  └─ zh-CN/
+├─ modules/             Local modules, same layout as the app (auto-discovered; optional)
 ├─ route/               Route files (auto-discovered)
 ├─ schedule/            Scheduled tasks (auto-discovered)
 ├─ tests/               Vitest tests
@@ -116,6 +117,7 @@ The Vite plugin builds a manifest of these files with `import.meta.glob`. Patter
 | `app/message/*.ts` | Microservice message handlers, read by `@hazejs/microservices` |
 | `lang/**/*.{ts,json}` | Translations: `lang/<locale>/<file>.ts`; the file path is the first part of the key (`lang/en/admin/users.ts` → `admin.users.*`) |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | Per-app modules for [multiple apps](./multi-app) |
+| `modules/<name>/{module.ts,route/*,config/*,schedule/*,app/<kind>/*}` | [Local modules](./modules): the same kinds as the app (`provider`, `interceptor`, `policy`, `job`, `event`, `listener`, `notification`, `channel`, `socket`, `message`, and `command/**`) |
 
 Adding or deleting one of these files in dev regenerates the manifest — no restart needed.
 
@@ -224,6 +226,10 @@ See [Database](./database).
 ### `schedule/`
 
 Task schedules defined with `defineSchedule((s) => { … })`. See [Task Scheduling](./scheduling).
+
+### `modules/`
+
+[Local modules](./modules): each `modules/<name>/` folder uses the same layout as the app (`route/`, `config/`, `app/…`, `schedule/`, `database/`) plus an optional `module.ts`. They are enabled by default; `config/modules.ts` disables or configures them and enables module packages. Create one with `haze make:module <name>`.
 
 ### `tests/`
 

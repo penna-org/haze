@@ -36,6 +36,7 @@ my-app/
 ├─ lang/
 │  ├─ en/               翻译文件，每种语言一个目录（自动发现）
 │  └─ zh-CN/
+├─ modules/             本地模块，结构与应用相同（自动发现；可选）
 ├─ route/               路由文件（自动发现）
 ├─ schedule/            定时任务（自动发现）
 ├─ tests/               Vitest 测试
@@ -116,6 +117,7 @@ Vite 插件用 `import.meta.glob` 为以下文件生成清单。带 `*` 的路�
 | `app/message/*.ts` | 微服务消息处理器，由 `@hazejs/microservices` 读取 |
 | `lang/**/*.{ts,json}` | 翻译文件：`lang/<语言>/<文件>.ts`，文件路径是翻译键的第一段（`lang/en/admin/users.ts` → `admin.users.*`） |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | [多应用](./multi-app)下各应用自己的模块 |
+| `modules/<name>/{module.ts,route/*,config/*,schedule/*,app/<类型>/*}` | [本地模块](./modules)：与应用相同的各类定义（`provider`、`interceptor`、`policy`、`job`、`event`、`listener`、`notification`、`channel`、`socket`、`message` 与 `command/**`） |
 
 开发时新增或删除这些文件会自动重新生成清单，无需重启。
 
@@ -224,6 +226,10 @@ Socket.IO 命名空间（`defineNamespace()`），注册 `@hazejs/socket.io` 的
 ### `schedule/`
 
 用 `defineSchedule((s) => { … })` 定义的定时任务。详见[定时任务](./scheduling)。
+
+### `modules/`
+
+[本地模块](./modules)：每个 `modules/<name>/` 目录与应用的结构相同（`route/`、`config/`、`app/…`、`schedule/`、`database/`），另有可选的 `module.ts`。本地模块默认启用，`config/modules.ts` 可以关闭或配置它们，并启用模块包。用 `haze make:module <name>` 创建。
 
 ### `tests/`
 

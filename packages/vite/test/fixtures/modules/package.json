@@ -1,0 +1,8 @@
+{
+  "name": "modules-fixture",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@demo/news": "link:./packages/news"
+  }
+}

@@ -4,7 +4,7 @@ import { join, relative } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { KINDS, make, makeAuthTables, makeModel, makeNotificationsTable } from '../src/make/generator'
+import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable } from '../src/make/generator'
 import { camelCase, commandName, kebabCase, parseName, plural } from '../src/make/naming'
 
 const root = fileURLToPath(new URL(`./.tmp/make-${process.pid}`, import.meta.url))
@@ -171,6 +171,117 @@ describe('make', () => {
       'server/app/admin/config/app.ts',
       'tests/admin-user.test.ts',
     ])
+  })
+
+  it('scaffolds a local module and generates into it with --module', async () => {
+    const created = await makeModule({ root, srcDir, name: 'BlogModule' })
+    expect(created.files.map(rel)).toEqual([
+      'server/modules/blog/module.ts',
+      'server/modules/blog/route/blog.ts',
+      'server/modules/blog/app/controller/BlogController.ts',
+      'server/modules/blog/config/blog.ts',
+      'server/modules/blog/tests/blog.test.ts',
+    ])
+    for (const file of created.files)
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(/\{\{\s*\w+\s*\}\}/)
+    expect(readFileSync(created.files[0], 'utf8')).toContain(`prefix: '/api/blog'`)
+    await expect(makeModule({ root, srcDir, name: 'blog' })).rejects.toThrow(/already exists/)
+
+    const results = await Promise.all([
+      make({
+        root,
+        srcDir,
+        kind: 'controller',
+        name: 'Post',
+        module: 'blog',
+      }),
+      make({
+        root,
+        srcDir,
+        kind: 'middleware',
+        name: 'EnsureAuthor',
+        module: 'blog',
+      }),
+      make({
+        root,
+        srcDir,
+        kind: 'job',
+        name: 'SendDigest',
+        module: 'blog',
+      }),
+      make({
+        root,
+        srcDir,
+        kind: 'command',
+        name: 'db/Prune',
+        module: 'blog',
+      }),
+      make({
+        root,
+        srcDir,
+        kind: 'config',
+        name: 'feed',
+        module: 'blog',
+      }),
+      make({
+        root,
+        srcDir,
+        kind: 'seeder',
+        name: 'posts',
+        module: 'blog',
+      }),
+      make({
+        root,
+        srcDir,
+        kind: 'test',
+        name: 'posts',
+        module: 'blog',
+      }),
+    ])
+    expect(results.map(result => rel(result.file))).toEqual([
+      'server/modules/blog/app/controller/PostController.ts',
+      'server/modules/blog/app/middleware/EnsureAuthor.ts',
+      'server/modules/blog/app/job/SendDigest.ts',
+      'server/modules/blog/app/command/db/Prune.ts',
+      'server/modules/blog/config/feed.ts',
+      'server/modules/blog/database/seeders/posts.ts',
+      'server/modules/blog/tests/posts.test.ts',
+    ])
+    // 提示中的目录指向模块
+    expect(results[0].hint).toContain('modules/blog/route/*.ts')
+    expect(results[1].hint).toContain('modules/blog/config/middleware.ts')
+
+    const model = await makeModel({
+      root,
+      srcDir,
+      name: 'Post',
+      module: 'blog',
+    })
+    expect([
+      rel(model.model),
+      rel(model.schema!),
+    ]).toEqual([
+      'server/modules/blog/app/model/Post.ts',
+      'server/modules/blog/database/schema/posts.ts',
+    ])
+    expect(readFileSync(model.model, 'utf8')).toContain(`from '~/modules/blog/database/schema/posts'`)
+    expect(model.hint).toContain('db:generate --module blog')
+
+    await expect(make({
+      root,
+      srcDir,
+      kind: 'controller',
+      name: 'X',
+      module: 'shop',
+    })).rejects.toThrow('haze make:module shop')
+    await expect(make({
+      root,
+      srcDir,
+      kind: 'controller',
+      name: 'X',
+      module: 'blog',
+      app: 'admin',
+    })).rejects.toThrow(/--module/)
   })
 
   it('generates a model with its drizzle schema per dialect', async () => {

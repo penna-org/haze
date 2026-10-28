@@ -75,6 +75,8 @@ export interface DiscoveredCommand {
   command: CommandDefinition<any>
   /** 来源文件（相对 app/command），手动传入的命令为 undefined */
   file?: string
+  /** 来自哪个模块（config/modules.ts 或 modules/<name>/） */
+  module?: string
 }
 
 const COMMAND_PATH_RE = /(?:^|\/)app\/command\/(.+)\.[cm]?[jt]sx?$/

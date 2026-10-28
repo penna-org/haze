@@ -77,6 +77,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
     items: [
       ['fullstack', ['Full-stack with Vite', 'Vite 全栈']],
       ['multi-app', ['Multiple Apps', '多应用']],
+      ['modules', ['Modules', '模块']],
       ['tenancy', ['Multi-tenancy', '多租户']],
       ['testing', ['Testing', '测试']],
       ['deployment', ['Deployment', '部署']],

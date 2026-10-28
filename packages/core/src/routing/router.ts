@@ -51,6 +51,8 @@ export interface RouteInfo {
   app?: string
   /** 绑定的域名（多应用模式） */
   domain?: string
+  /** 注册该路由的模块 */
+  module?: string
   name?: string
   handler: string
   middleware: string[]
@@ -67,6 +69,17 @@ export interface CompileOptions {
   middleware: MiddlewareRegistry
 }
 
+export interface LoadOptions {
+  /** 路由名前缀（多应用时为 `<app>.`，模块默认为 `<模块名>.`） */
+  as?: string
+  /** URL 前缀 */
+  prefix?: string
+  /** 追加到这些路由上的中间件 */
+  middleware?: MiddlewareRef[]
+  /** 标记来源模块（route:list 的 MODULE 列、重名提示） */
+  module?: string
+}
+
 export interface MountOptions {
   app: string
   /** URL 前缀，例如 `/admin`；仅绑定域名时为 `/` */
@@ -81,12 +94,23 @@ export class Router {
   /** compile() 时记录，签名链接在请求之外读取 APP_KEY / APP_URL */
   #container: Container | undefined
 
-  /** 加载路由模块；`as` 为路由名前缀（多应用时为 `<app>.`） */
-  load(module: RouteModule | RouteRegistrar, options: { as?: string } = {}): this {
+  /** 加载路由模块；`as` 为路由名前缀（多应用时为 `<app>.`），模块的路由另带前缀与中间件 */
+  load(module: RouteModule | RouteRegistrar, options: LoadOptions = {}): this {
     const register = isRouteModule(module)
       ? module.register
       : module
-    register(new RouteBuilder(this.#routes, { prefix: '', middleware: [], as: options.as ?? '' }))
+    const start = this.#routes.length
+    register(new RouteBuilder(this.#routes, {
+      prefix: options.prefix ?? '',
+      middleware: [
+        ...(options.middleware ?? []),
+      ],
+      as: options.as ?? '',
+    }))
+    if (options.module) {
+      for (const route of this.#routes.slice(start))
+        route.definition.module = options.module
+    }
     return this
   }
 
@@ -96,10 +120,10 @@ export class Router {
 
   /** 挂载子应用的路由表，使 list() / url() 覆盖所有应用 */
   mount(router: Router, options: MountOptions): this {
-    const own = new Set(this.list().map(route => route.name).filter(Boolean))
+    const own = new Map(this.list().filter(route => route.name).map(route => [route.name, route]))
     const duplicate = router.list().find(route => route.name && own.has(route.name))
     if (duplicate)
-      throw new Error(`Duplicate route name "${duplicate.name}" in app "${options.app}"`)
+      throw new Error(`Duplicate route name "${duplicate.name}" in app "${options.app}"${sources(own.get(duplicate.name)!.module, duplicate.module)}`)
     this.#mounts.push({ router, ...options })
     return this
   }
@@ -191,12 +215,13 @@ export class Router {
 
   compile({ h3, container, middleware }: CompileOptions): void {
     this.#container = container
-    const names = new Set<string>()
+    const names = new Map<string, RouteDefinition>()
     this.#compiled = this.definitions().map((definition) => {
       if (definition.name) {
-        if (names.has(definition.name))
-          throw new Error(`Duplicate route name "${definition.name}"`)
-        names.add(definition.name)
+        const previous = names.get(definition.name)
+        if (previous)
+          throw new Error(`Duplicate route name "${definition.name}"${sources(previous.module, definition.module)}`)
+        names.set(definition.name, definition)
       }
 
       const refs = [...definition.middleware]
@@ -223,6 +248,7 @@ export class Router {
       return {
         method: definition.method,
         path: definition.path,
+        ...(definition.module && { module: definition.module }),
         name: definition.name,
         handler: handlerLabel(definition.handler),
         middleware: resolved.map(item => item.name),
@@ -230,6 +256,16 @@ export class Router {
       }
     })
   }
+}
+
+/** 重名路由的来源说明（涉及模块时才附加） */
+function sources(first: string | undefined, second: string | undefined): string {
+  if (!first && !second)
+    return ''
+  const label = (module: string | undefined): string => module
+    ? `module "${module}"`
+    : 'the app'
+  return ` (${label(first)} and ${label(second)})`
 }
 
 function createHandler(definition: RouteDefinition) {

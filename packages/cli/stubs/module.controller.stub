@@ -1,0 +1,11 @@
+import type { HttpContext } from '@hazejs/core'
+
+export class {{className}}Controller {
+  index(ctx: HttpContext) {
+    return {
+      module: '{{kebabName}}',
+      // 模块的默认配置（modules/{{kebabName}}/config/{{camelName}}.ts），项目的 config/{{camelName}}.ts 可覆盖
+      perPage: ctx.config.get('{{camelName}}.perPage', 20),
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import type { SQL } from 'drizzle-orm'
-import type { Connection, DatabaseManager } from './connection'
+import type { Connection, DatabaseManager, ModuleMigrations } from './connection'
 import type { AnyDatabase } from './types'
 import { readFile as readDiskFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
@@ -30,12 +30,27 @@ export interface MigrateOptions {
   folder: string
   /** 从内嵌文件读取迁移而不是磁盘（Edge / Serverless 产物没有源码目录） */
   files?: MigrationFiles
+  /**
+   * 迁移记录表，默认 `__drizzle_migrations`。drizzle 只按表中最后一条记录的时间戳判断，
+   * 不同目录的迁移共用一张表会互相跳过，所以每个模块使用自己的表（见 migrationsTableOf）
+   */
+  table?: string
   manager?: DatabaseManager
+}
+
+/** 项目自身的迁移记录表（与 drizzle-kit migrate 相同） */
+export const DEFAULT_MIGRATIONS_TABLE = '__drizzle_migrations'
+
+/** 模块的迁移记录表：`__drizzle_migrations_<模块名>`（驼峰转下划线，如 blogPosts → blog_posts） */
+export function migrationsTableOf(module: string): string {
+  return `${DEFAULT_MIGRATIONS_TABLE}_${module.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/\W/g, '_').toLowerCase()}`
 }
 
 export interface MigrateResult {
   connection: string
   folder: string
+  /** 模块名（项目自身的迁移为 undefined） */
+  module?: string
   /** 本次执行的迁移数 */
   applied: number
   /** 迁移总数 */
@@ -53,24 +68,25 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
   if (connection.driver === 'mongodb')
     throw new DatabaseError(`Connection "${connection.name}" is MongoDB, which has no SQL migrations; manage indexes with Mongo.collection().createIndex()`)
 
-  const before = await appliedCount(connection)
+  const table = options.table ?? DEFAULT_MIGRATIONS_TABLE
+  const before = await appliedCount(connection, table)
   const { db } = connection
   switch (connection.driver) {
     case 'sqlite':
     case 'turso':
-      await migrateSqlite(db, migrations, statements => db.session.migrate(statements))
+      await migrateSqlite(db, migrations, table, statements => db.session.migrate(statements))
       break
     case 'd1':
       // D1 不支持 BEGIN：以 batch 原子执行
-      await migrateSqlite(db, migrations, async statements => statements.length && db.session.batch(statements), true)
+      await migrateSqlite(db, migrations, table, async statements => statements.length && db.session.batch(statements), true)
       break
     default:
-      await db.dialect.migrate(migrations, db.session, { migrationsFolder: options.folder })
+      await db.dialect.migrate(migrations, db.session, { migrationsFolder: options.folder, migrationsTable: table })
   }
   return {
     connection: connection.name,
     folder: options.folder,
-    applied: (await appliedCount(connection)) - before,
+    applied: (await appliedCount(connection, table)) - before,
     total: migrations.length,
   }
 }
@@ -82,8 +98,10 @@ export interface RunMigrationsOptions {
   all?: boolean
   /** 内嵌的迁移文件；省略时从 srcDir 读取 */
   files?: MigrationFiles
-  /** 后端源码目录，默认 process.cwd() */
+  /** 后端源码目录，默认为应用的 srcDir（没有应用时为 process.cwd()） */
   srcDir?: string
+  /** 模块的迁移，默认为已启用的模块（app.modules()）；false 只执行项目自身的迁移 */
+  modules?: readonly ModuleMigrations[] | false
   manager?: DatabaseManager
 }
 
@@ -105,12 +123,18 @@ export function migrationsFolder(name?: string, manager: DatabaseManager = useDa
 /**
  * 按 config/database.ts 执行迁移：`haze db:migrate` 与生产构建的迁移入口
  * （`node dist/server/migrate.mjs`、Lambda 的 `index.migrate`）共用。
+ *
+ * 每个连接先按启用顺序执行模块的迁移（各自的迁移记录表），最后执行项目自身的迁移。
  */
 export async function runMigrations(options: RunMigrationsOptions = {}): Promise<RunMigrationsResult[]> {
   const manager = options.manager ?? useDatabaseManager()
   const names = options.all
     ? Object.keys(manager.config.connections)
     : [options.connection ?? manager.defaultConnection]
+  const srcDir = options.srcDir ?? manager.srcDir ?? process.cwd()
+  const locate = (relative: string): string => options.files || isAbsolute(relative)
+    ? relative
+    : resolve(srcDir, relative)
   const results: RunMigrationsResult[] = []
   for (const name of names) {
     const relative = migrationsFolder(name, manager)
@@ -118,12 +142,35 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
       results.push({ connection: name, folder: relative, skipped: 'mongodb' })
       continue
     }
-    const folder = options.files || isAbsolute(relative)
-      ? relative
-      : resolve(options.srcDir ?? process.cwd(), relative)
+    let ranModules = false
+    for (const module of modulesOf(name, manager, options.modules)) {
+      const folder = locate(module.folder)
+      if (!(await readFile(journalPath(folder), options.files))) {
+        results.push({
+          connection: name,
+          folder: module.folder,
+          module: module.module,
+          skipped: 'no-migrations',
+        })
+        continue
+      }
+      ranModules = true
+      results.push({
+        ...await migrate({
+          connection: name,
+          folder,
+          files: options.files,
+          table: migrationsTableOf(module.module),
+          manager,
+        }),
+        folder: module.folder,
+        module: module.module,
+      })
+    }
+    const folder = locate(relative)
     if (!(await readFile(journalPath(folder), options.files))) {
-      // 显式指定的连接没有迁移视为错误
-      if (!options.all)
+      // 显式指定的连接（且没有模块迁移）没有迁移视为错误
+      if (!options.all && !ranModules)
         throw new DatabaseError(`No migrations for connection "${name}" in ${relative}. Run haze db:generate first.`)
       results.push({ connection: name, folder: relative, skipped: 'no-migrations' })
       continue
@@ -139,6 +186,13 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
     })
   }
   return results
+}
+
+/** 某个连接上要执行的模块迁移（按启用顺序） */
+export function modulesOf(connection: string, manager: DatabaseManager, modules?: readonly ModuleMigrations[] | false): ModuleMigrations[] {
+  if (modules === false)
+    return []
+  return (modules ?? manager.moduleMigrations).filter(module => (module.connection ?? manager.defaultConnection) === connection)
 }
 
 /** 与 drizzle 的 readMigrationFiles 相同的解析（哈希为整个文件的 SHA-256），可读取内嵌文件 */
@@ -162,8 +216,8 @@ async function readMigrations(folder: string, files?: MigrationFiles): Promise<M
 }
 
 /** 与 drizzle 的 libsql / d1 迁移器相同：一次批量执行全部未运行的迁移 */
-async function migrateSqlite(db: AnyDatabase, migrations: MigrationEntry[], execute: (statements: unknown[]) => Promise<unknown>, literal = false): Promise<void> {
-  const table = sql.identifier('__drizzle_migrations')
+async function migrateSqlite(db: AnyDatabase, migrations: MigrationEntry[], tableName: string, execute: (statements: unknown[]) => Promise<unknown>, literal = false): Promise<void> {
+  const table = sql.identifier(tableName)
   await db.session.run(sql`CREATE TABLE IF NOT EXISTS ${table} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`)
   const [last] = await db.values(sql`SELECT id, hash, created_at FROM ${table} ORDER BY created_at DESC LIMIT 1`) as unknown[][]
   const statements: unknown[] = []
@@ -181,10 +235,10 @@ async function migrateSqlite(db: AnyDatabase, migrations: MigrationEntry[], exec
 }
 
 /** 已执行的迁移数（迁移表不存在时为 0） */
-async function appliedCount(connection: Connection): Promise<number> {
+async function appliedCount(connection: Connection, name: string): Promise<number> {
   const table: SQL = connection.dialect === 'postgres'
-    ? sql`"drizzle"."__drizzle_migrations"`
-    : sql`${sql.identifier('__drizzle_migrations')}`
+    ? sql`${sql.identifier('drizzle')}.${sql.identifier(name)}`
+    : sql`${sql.identifier(name)}`
   const query = sql`select count(*) as n from ${table}`
   const { db } = connection
   try {

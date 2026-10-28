@@ -259,6 +259,62 @@ describe.each(dialects)('orm on $name', (dialect) => {
     await expect(runMigrations({ files: {} })).rejects.toThrow('No migrations for connection "main"')
   })
 
+  it('runs module migrations before the app, each with its own migrations table', async () => {
+    for (const statement of [
+      'drop table if exists notes',
+      'drop table if exists blog_posts',
+      ...(dialect.name === 'pglite'
+        ? ['drop schema if exists drizzle cascade']
+        : ['drop table if exists __drizzle_migrations', 'drop table if exists __drizzle_migrations_blog']),
+    ])
+      await Db.execute(sql.raw(statement))
+    const journal = (tag: string, when: number) => JSON.stringify({
+      entries: [
+        { tag, when, breakpoints: true },
+      ],
+    })
+    const files = {
+      // 模块迁移的时间戳晚于项目：共用一张记录表时，drizzle 会按最后一条记录跳过项目的迁移
+      'modules/blog/database/migrations/meta/_journal.json': journal('0000_posts', 1800000000000),
+      'modules/blog/database/migrations/0000_posts.sql': 'create table blog_posts (id integer primary key, title varchar(50));',
+      'database/migrations/meta/_journal.json': journal('0000_init', 1700000000000),
+      'database/migrations/0000_init.sql': 'create table notes (id integer primary key, body varchar(50));',
+    }
+    const modules = [
+      { module: 'blog', folder: 'modules/blog/database/migrations' },
+      { module: 'empty', folder: 'modules/empty/database/migrations' },
+      { module: 'other', folder: 'modules/other/database/migrations', connection: 'other' },
+    ]
+    expect(await runMigrations({ files, modules })).toEqual([
+      {
+        connection: 'main',
+        folder: 'modules/blog/database/migrations',
+        module: 'blog',
+        applied: 1,
+        total: 1,
+      },
+      {
+        connection: 'main',
+        folder: 'modules/empty/database/migrations',
+        module: 'empty',
+        skipped: 'no-migrations',
+      },
+      {
+        connection: 'main',
+        folder: 'database/migrations',
+        applied: 1,
+        total: 1,
+      },
+    ])
+    // 再次执行不会重复
+    expect((await runMigrations({ files, modules })).map(result => result.applied)).toEqual([0, undefined, 0])
+    expect(await Db.execute(sql.raw('select count(*) as n from blog_posts'))).toBeDefined()
+    expect(await Db.execute(sql.raw('select count(*) as n from notes'))).toBeDefined()
+    // 只有模块迁移时，项目没有迁移目录也不报错
+    const onlyModule = Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith('modules/')))
+    expect((await runMigrations({ files: onlyModule, modules })).at(-1)).toMatchObject({ skipped: 'no-migrations' })
+  })
+
   it.runIf(dialect.connection.driver === 'd1')('rejects interactive transactions on D1 with a hint', async () => {
     await expect(Db.transaction(async () => {})).rejects.toThrow(DatabaseError)
     await expect(Db.transaction(async () => {})).rejects.toThrow('batch')

@@ -10,7 +10,7 @@ npx haze make:model --help   # 查看某个命令的选项
 
 所有命令都支持 `--root <dir>`，用于指定项目根目录（默认当前目录 `.`）。
 
-需要用到应用本身的命令——`route:list`、`typegen`、`openapi`、`repl`、`db:*`、`queue:*`、`schedule:*`、`search:*`、`microservice:listen` 以及自定义命令——会在与开发服务器相同的 Vite 模块图中启动应用，但不监听端口。它们直接运行 TypeScript 源码，无需事先构建。
+需要用到应用本身的命令——`route:list`、`module:list`、`typegen`、`openapi`、`repl`、`db:*`、`queue:*`、`schedule:*`、`search:*`、`microservice:listen` 以及自定义命令——会在与开发服务器相同的 Vite 模块图中启动应用，但不监听端口。它们直接运行 TypeScript 源码，无需事先构建。
 
 ## 开发与生产
 
@@ -70,7 +70,15 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 
 ### `haze route:list`
 
-列出所有路由的请求方法、路径、名称、处理器与中间件。启用[多应用](./multi-app)时额外显示所属应用与域名。
+列出所有路由的请求方法、路径、名称、处理器与中间件。启用[多应用](./multi-app)时额外显示所属应用与域名；有[模块](./modules)注册的路由时增加 MODULE 列。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 以 JSON 输出 |
+
+### `haze module:list`
+
+按启用顺序（也是迁移的执行顺序）列出已启用的[模块](./modules)：来源（`package` 或 `local`）、URL 前缀、路由名前缀、路由数、迁移目录，以及挂载到的子应用。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -160,6 +168,7 @@ npx haze make:<type> <name> [options]
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
 | `make:notifications-table` | — | `database/schema/notifications.ts`，见[下文](#make-notifications-table) |
 | `make:auth-tables` | — | `database/schema/auth.ts`，见[下文](#make-auth-tables) |
+| `make:module` | `blog` | `modules/blog/`：`module.ts`、路由、控制器、`config/blog.ts` 与测试，见[模块](./modules) |
 
 生成后，大多数命令会打印一行提示：文件需要在哪里注册，或者怎么使用。
 
@@ -179,6 +188,7 @@ npx haze make:<type> <name> [options]
 | `<name>` | 必填，名称，可以带子目录 |
 | `--force` | 文件已存在时覆盖 |
 | `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项，`make:command` 不支持。各应用目录下只会自动发现 `route`、`config`、`provider`、`exception` 和 `response`，因此任务、事件、监听器、策略、通知和频道请放在共用的 `app/` 目录中 |
+| `--module`、`-m` | [本地模块](./modules)：生成到 `modules/<module>/…` 下，目录结构与应用相同（`make:test` 写入 `modules/<module>/tests/`）。模块需已存在（`haze make:module <name>`），不能与 `--app` 同时使用 |
 
 ### `make:controller`
 
@@ -200,6 +210,7 @@ npx haze make:<type> <name> [options]
 | `--dialect` | `sqlite`、`postgres`、`mysql` 或 `mongodb`。默认按已安装的驱动推断：`mysql2` → mysql，`postgres` 或 `@electric-sql/pglite` → postgres，只装了 `mongodb` → mongodb，其余为 sqlite |
 | `--soft-delete` | 为模型启用软删除 |
 | `--app`、`-a` | 模型生成到 `app/<app>/model` |
+| `--module`、`-m` | 模型与表结构生成到 `modules/<module>/app/model` 与 `modules/<module>/database/schema` |
 | `--force` | 模型文件已存在时覆盖 |
 
 使用 `--dialect mongodb` 时生成 `MongoModel`，不生成表结构文件。SQL 方言生成后，接着运行 `haze db:generate` 和 `haze db:migrate`。
@@ -229,7 +240,8 @@ npx haze make:<type> <name> [options]
 
 | 选项 | 说明 |
 | --- | --- |
-| `--connection`、`-c` | 连接名，默认为 `config/database.ts` 中的 `default` |
+| `--connection`、`-c` | 连接名，默认为 `config/database.ts` 中的 `default`（带 `--module` 时为模块的连接） |
+| `--module`、`-m` | 本地模块：读取 `modules/<module>/database/schema`，写入 `modules/<module>/database/migrations` |
 | `--name` | 迁移名称，例如 `create_posts` |
 | `--custom` | 生成空白迁移，手写 SQL |
 
@@ -237,7 +249,7 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 
 ### `haze db:migrate`
 
-执行尚未运行的迁移。实现与生产环境的 `migrate.mjs` 入口相同，只是从源码目录读取迁移文件。
+执行尚未运行的迁移。实现与生产环境的 `migrate.mjs` 入口相同，只是从源码目录读取迁移文件。每个连接先按启用顺序执行[模块的迁移](./modules#迁移)（各自记录在自己的表中），最后执行项目自身的迁移。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -246,7 +258,7 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 
 ### `haze db:seed`
 
-按文件名顺序执行 `database/seeders` 下的文件。每个文件必须默认导出一个函数，参数为应用实例。
+按文件名顺序执行 `database/seeders` 下的文件，在此之前先执行已启用本地模块的 `modules/<name>/database/seeders`。每个文件必须默认导出一个函数，参数为应用实例。
 
 | 选项 | 说明 |
 | --- | --- |

@@ -1,7 +1,7 @@
 import type { DevServer } from '@hazejs/vite'
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
@@ -84,12 +84,26 @@ export const generateCommand = defineCommand({
   args: {
     ...rootArg,
     ...connectionArg,
+    module: { type: 'string', alias: 'm', description: '本地模块：读取 modules/<module>/database/schema，写入 modules/<module>/database/migrations' },
     name: { type: 'string', description: '迁移名称' },
     custom: { type: 'boolean', description: '生成空白迁移，手写 SQL', default: false },
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const target = await withApp(root, async (_server, database, srcDir) => targetOf(database, srcDir, args.connection))
+    const target = await withApp(root, async (server, database, srcDir) => {
+      if (!args.module)
+        return targetOf(database, srcDir, args.connection)
+      // 模块的表结构与迁移在模块目录内，连接取 --connection、模块声明的连接或 default
+      const module = server.app!.modules().find(item => item.name === args.module)
+      if (!module || module.source !== 'local')
+        throw new Error(`Local module "${args.module}" is not enabled (modules/${args.module}/)`)
+      const target = targetOf(database, srcDir, args.connection ?? module.connection)
+      return {
+        ...target,
+        schema: resolve(srcDir, 'modules', module.name, 'database/schema'),
+        migrations: resolve(srcDir, module.migrations ?? `modules/${module.name}/database/migrations`),
+      }
+    })
     const kit = binOf(root, 'drizzle-kit')
     const kitArgs = [
       'generate',
@@ -123,20 +137,26 @@ export const migrateCommand = defineCommand({
       // 与生产迁移入口（migrate.mjs / Lambda index.migrate）相同的实现，只是从源码目录读取迁移
       const orm = await server.import<typeof import('@hazejs/orm')>('@hazejs/orm')
       const results = await orm.runMigrations({ srcDir, connection: args.connection, all: args.all })
+      // 每个连接先执行模块的迁移（按启用顺序，各自的记录表），最后是项目自身的迁移
       for (const result of results) {
+        const label = result.module
+          ? `[${result.connection}] module ${result.module}:`
+          : `[${result.connection}]`
         if (result.skipped === 'mongodb')
-          consola.info(`[${result.connection}] MongoDB has no migrations, skipped`)
+          consola.info(`${label} MongoDB has no migrations, skipped`)
+        else if (result.skipped && result.module)
+          consola.info(`${label} no migrations in ${result.folder}`)
         else if (result.skipped)
-          consola.warn(`[${result.connection}] no migrations in ${result.folder}, run haze db:generate first`)
+          consola.warn(`${label} no migrations in ${result.folder}, run haze db:generate first`)
         else
-          consola.success(`[${result.connection}] migrated: ${result.applied} of ${result.total} applied (${result.folder})`)
+          consola.success(`${label} migrated: ${result.applied} of ${result.total} applied (${result.folder})`)
       }
     })
   },
 })
 
 export const seedCommand = defineCommand({
-  meta: { name: 'db:seed', description: '按文件名顺序执行 database/seeders 下的数据填充' },
+  meta: { name: 'db:seed', description: '按文件名顺序执行 database/seeders 下的数据填充（已启用本地模块的 seeders 在前）' },
   args: {
     ...rootArg,
     file: { type: 'string', description: '只执行指定文件（不含扩展名）' },
@@ -144,20 +164,27 @@ export const seedCommand = defineCommand({
   async run({ args }) {
     const root = resolveRoot(args.root)
     await withApp(root, async (server, _database, srcDir) => {
-      const dir = join(srcDir, 'database', 'seeders')
-      const files = existsSync(dir)
-        ? readdirSync(dir).filter(file => /\.[cm]?[jt]s$/.test(file) && (!args.file || file.replace(/\.[^.]+$/, '') === args.file)).sort()
-        : []
+      const dirs = [
+        ...server.app!.modules().filter(module => module.source === 'local').map(module => join(srcDir, 'modules', module.name, 'database', 'seeders')),
+        join(srcDir, 'database', 'seeders'),
+      ]
+      const files = dirs.flatMap(dir => existsSync(dir)
+        ? readdirSync(dir).filter(file => /\.[cm]?[jt]s$/.test(file) && (!args.file || file.replace(/\.[^.]+$/, '') === args.file)).sort().map(file => join(dir, file))
+        : [])
       if (!files.length) {
-        consola.warn(`No seeders found in ${relative(root, dir)}`)
+        consola.warn(`No seeders found in ${relative(root, dirs.at(-1)!)}`)
         return
       }
       for (const file of files) {
-        const module = await server.import<{ default?: (app: unknown) => unknown }>(join(dir, file))
+        const module = await server.import<{ default?: (app: unknown) => unknown }>(file)
         if (typeof module.default !== 'function')
-          throw new TypeError(`${file} must export a default function`)
+          throw new TypeError(`${relative(srcDir, file)} must export a default function`)
         await module.default(server.app)
-        consola.success(`Seeded ${file}`)
+        // 项目的 seeder 只显示文件名，模块的显示相对 srcDir 的路径
+        const label = dirname(file) === dirs.at(-1)
+          ? basename(file)
+          : relative(srcDir, file)
+        consola.success(`Seeded ${label}`)
       }
     })
   },

@@ -2,6 +2,10 @@
 
 A single hazejs project can host several applications — say a public API, an admin console and a mobile backend — each with its own routes, config, middleware, exception handler and response format, while sharing models, services and the deployment. Apps are directory-based and selected per request by URL prefix or domain.
 
+::: tip Modules vs. apps
+Apps split one project into separately configured front doors. To package a feature — routes, config, migrations, jobs — for reuse in this or other projects, use a [module](./modules) instead. Modules merge into the shared application (no per-module config, middleware or exception handler), and a module can be mounted into a single app with `app: 'admin'`.
+:::
+
 ## Declaring apps
 
 List the apps in `config/app.ts` (in full-stack projects, `server/config/app.ts`). Each app needs a `prefix`, a `domain`, or both:

@@ -158,6 +158,11 @@ async function scanExports(srcDir: string, importer: Importer): Promise<Map<unkn
     }
   }
   walk(join(srcDir, 'app'), false)
+  // 本地模块的控制器与校验 schema
+  if (existsSync(join(srcDir, 'modules'))) {
+    for (const entry of readdirSync(join(srcDir, 'modules'), { withFileTypes: true }).filter(entry => entry.isDirectory()))
+      walk(join(srcDir, 'modules', entry.name, 'app'), false)
+  }
 
   for (const file of files.sort()) {
     const module = await importer(file).catch(() => undefined)

@@ -40,10 +40,23 @@ function connections(): Map<string, Entry> {
   })
 }
 
+/** 模块的迁移目录（config/modules.ts 或 modules/<name>/） */
+export interface ModuleMigrations {
+  module: string
+  /** 绝对路径，或相对后端源码目录的路径（生产构建中为内嵌文件的键） */
+  folder: string
+  /** 迁移使用的连接，默认 default 连接 */
+  connection?: string
+}
+
 export interface DatabaseManagerOptions {
   logger?: Logger
   /** 解析 sqlite 相对路径的基准目录，默认 process.cwd() */
   rootDir?: string
+  /** 后端源码目录：解析相对的迁移目录（本地模块等），默认 rootDir */
+  srcDir?: string
+  /** 已启用模块的迁移，按启用顺序（由 databaseProvider 从 app.modules() 读取） */
+  modules?: ModuleMigrations[]
 }
 
 export class DatabaseManager {
@@ -61,6 +74,16 @@ export class DatabaseManager {
 
   get defaultConnection(): string {
     return this.config.default
+  }
+
+  /** 解析相对迁移目录的基准目录 */
+  get srcDir(): string | undefined {
+    return this.#options.srcDir ?? this.#options.rootDir
+  }
+
+  /** 已启用模块的迁移（按启用顺序） */
+  get moduleMigrations(): readonly ModuleMigrations[] {
+    return this.#options.modules ?? []
   }
 
   connectionConfig(name = this.config.default): ConnectionConfig {

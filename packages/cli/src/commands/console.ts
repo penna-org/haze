@@ -3,7 +3,7 @@ import type { ArgsDef, CommandDef } from 'citty'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
-import { createDevServer, loadHazeConfig, VIRTUAL_MODULES } from '@hazejs/vite'
+import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { resolveRoot, rootArg } from '../args'
@@ -19,7 +19,7 @@ export interface UserCommands {
 }
 
 /**
- * app/command 下的自定义命令。只在需要时加载：第一个参数不是内置命令（自定义命令或未知命令），
+ * app/command 与模块的自定义命令。只在需要时加载：第一个参数不是内置命令（自定义命令或未知命令），
  * 或未指定命令（打印帮助）。加载时在开发服务器的模块图中启动应用（与 queue:work 相同），命令共用这个应用。
  */
 export async function loadUserCommands(argv: string[], builtin: Set<string>): Promise<UserCommands> {
@@ -34,8 +34,16 @@ export async function loadUserCommands(argv: string[], builtin: Set<string>): Pr
   if (!existsSync(root))
     return none
   const { srcDir } = await loadHazeConfig(root)
-  if (!hasSources(join(srcDir, 'app/command')))
+  // 没有 app/command、本地模块的命令与 config/modules.ts（模块包可能带命令）时不启动应用
+  const moduleDirs = existsSync(join(srcDir, 'modules'))
+    ? readdirSync(join(srcDir, 'modules')).map(name => join(srcDir, 'modules', name, 'app/command'))
+    : []
+  if (![
+    join(srcDir, 'app/command'),
+    ...moduleDirs,
+  ].some(dir => hasSources(dir)) && !hasSources(join(srcDir, 'config'), /^modules\.[cm]?[jt]s$/)) {
     return none
+  }
 
   let server: DevServer | undefined
   let closed = false
@@ -48,11 +56,14 @@ export async function loadUserCommands(argv: string[], builtin: Set<string>): Pr
   try {
     server = await createDevServer({ root, listen: false })
     const core = await server.import<Core>('@hazejs/core')
-    const manifest = await server.import<{ discovered: { commands?: Record<string, unknown> } }>(VIRTUAL_MODULES.manifest)
+    if (!server.app)
+      throw new Error('Application failed to start')
     const commands: Record<string, CommandDef<any>> = {}
-    for (const { name, command, file } of await core.collectCommands(manifest.discovered.commands)) {
+    for (const { name, command, file, module } of await server.app.commands()) {
       if (builtin.has(name)) {
-        consola.warn(`app/command/${file} is ignored: "${name}" is a built-in command`)
+        consola.warn(`${module
+          ? `module "${module}" command ${file ?? name}`
+          : `app/command/${file}`} is ignored: "${name}" is a built-in command`)
         continue
       }
       commands[name] = toCitty(name, command, server, core, close)
@@ -117,9 +128,9 @@ function withoutRoot(argv: string[]): string[] {
 }
 
 /** 目录（含子目录）下是否有源码文件 */
-function hasSources(dir: string): boolean {
+function hasSources(dir: string, pattern = SOURCE_RE): boolean {
   if (!existsSync(dir))
     return false
   return readdirSync(dir, { recursive: true, encoding: 'utf8' })
-    .some(file => SOURCE_RE.test(file) && !file.endsWith('.d.ts'))
+    .some(file => pattern.test(file) && !file.endsWith('.d.ts'))
 }

@@ -10,7 +10,7 @@ npx haze make:model --help   # options of one command
 
 Every command accepts `--root <dir>` to run against a project other than the current directory (default `.`).
 
-Commands that need the application — `route:list`, `typegen`, `openapi`, `repl`, `db:*`, `queue:*`, `schedule:*`, `search:*`, `microservice:listen` and your own commands — boot it in the same Vite module graph as the dev server, without opening a port. They run your TypeScript source directly; no build is needed.
+Commands that need the application — `route:list`, `module:list`, `typegen`, `openapi`, `repl`, `db:*`, `queue:*`, `schedule:*`, `search:*`, `microservice:listen` and your own commands — boot it in the same Vite module graph as the dev server, without opening a port. They run your TypeScript source directly; no build is needed.
 
 ## Development and production
 
@@ -70,11 +70,19 @@ npx haze test run tests/user     # run once, filtered
 
 ### `haze route:list`
 
-Print every route with its method, path, name, handler and middleware. With [multiple apps](./multi-app) the app and domain columns are added.
+Print every route with its method, path, name, handler and middleware. With [multiple apps](./multi-app) the app and domain columns are added, and a MODULE column shows routes registered by [modules](./modules).
 
 | Option | Description |
 | --- | --- |
 | `--json` | Print the routes as JSON |
+
+### `haze module:list`
+
+List the enabled [modules](./modules) in enable order — the order their migrations run in — with their source (`package` or `local`), URL prefix, route name prefix, number of routes, migrations folder and, when mounted into a sub-app, the app.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print the modules as JSON |
 
 ### `haze typegen`
 
@@ -160,6 +168,7 @@ Paths are relative to `srcDir` (except tests). Examples show the file generated 
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
 | `make:notifications-table` | — | `database/schema/notifications.ts`; see [below](#make-notifications-table) |
 | `make:auth-tables` | — | `database/schema/auth.ts`; see [below](#make-auth-tables) |
+| `make:module` | `blog` | `modules/blog/` with `module.ts`, a route, a controller, `config/blog.ts` and a test; see [Modules](./modules) |
 
 After generating, most commands print a hint — where to register the file, or how to use it.
 
@@ -179,6 +188,7 @@ All `make:*` commands that take a name accept:
 | `<name>` | Required. Name, optionally with subdirectories |
 | `--force` | Overwrite the file if it exists |
 | `--app`, `-a` | [Multiple apps](./multi-app): generate into `app/<app>/…` (for example `app/admin/controller`). Ignored by `make:test`; not supported by `make:command`. Per app, only `route`, `config`, `provider`, `exception` and `response` are discovered, so keep jobs, events, listeners, policies, notifications and channels in the shared `app/` folders |
+| `--module`, `-m` | [Local module](./modules): generate into `modules/<module>/…` with the same layout as the app (`make:test` writes `modules/<module>/tests/`). The module must exist (`haze make:module <name>`); cannot be combined with `--app` |
 
 ### `make:controller`
 
@@ -200,6 +210,7 @@ Generates a model in `app/model` and its drizzle table in `database/schema`. An 
 | `--dialect` | `sqlite`, `postgres`, `mysql` or `mongodb`. Inferred from the installed driver: `mysql2` → mysql, `postgres` or `@electric-sql/pglite` → postgres, only `mongodb` → mongodb, otherwise sqlite |
 | `--soft-delete` | Enable soft deletes on the model |
 | `--app`, `-a` | Generate the model into `app/<app>/model` |
+| `--module`, `-m` | Generate the model and table into `modules/<module>/app/model` and `modules/<module>/database/schema` |
 | `--force` | Overwrite the model if it exists |
 
 With `--dialect mongodb` a `MongoModel` is generated and no schema file is written. For SQL dialects, run `haze db:generate` and `haze db:migrate` afterwards.
@@ -229,7 +240,8 @@ Generate a migration from changes to the schema files, using drizzle-kit (it mus
 
 | Option | Description |
 | --- | --- |
-| `--connection`, `-c` | Connection name. Defaults to `default` in `config/database.ts` |
+| `--connection`, `-c` | Connection name. Defaults to `default` in `config/database.ts` (with `--module`, the module's connection) |
+| `--module`, `-m` | Local module: read `modules/<module>/database/schema` and write `modules/<module>/database/migrations` |
 | `--name` | Migration name, for example `create_posts` |
 | `--custom` | Generate an empty migration to write SQL by hand |
 
@@ -237,7 +249,7 @@ MongoDB connections have no SQL schema or migrations.
 
 ### `haze db:migrate`
 
-Run pending migrations. This is the same implementation as the production `migrate.mjs` entry, reading migrations from the source directory.
+Run pending migrations. This is the same implementation as the production `migrate.mjs` entry, reading migrations from the source directory. For each connection, the enabled [modules'](./modules#migrations) migrations run first, in enable order and each tracked in its own table; the app's migrations run last.
 
 | Option | Description |
 | --- | --- |
@@ -246,7 +258,7 @@ Run pending migrations. This is the same implementation as the production `migra
 
 ### `haze db:seed`
 
-Run the files in `database/seeders` in file-name order. Each file must default-export a function; it receives the application.
+Run the files in `database/seeders` in file-name order, after the seeders of enabled local modules (`modules/<name>/database/seeders`). Each file must default-export a function; it receives the application.
 
 | Option | Description |
 | --- | --- |

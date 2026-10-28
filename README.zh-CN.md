@@ -110,7 +110,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 
 | 领域 | 内容 |
 | --- | --- |
-| HTTP | 集中路由、分组、资源路由、命名路由、按域名 / 前缀的多应用、类与函数中间件、出站拦截器、统一响应格式、异常处理与开发错误页 |
+| HTTP | 集中路由、分组、资源路由、命名路由、按域名 / 前缀的多应用、可复用的模块（本地 `modules/<name>/` 或带路由、配置与迁移的 npm 包）、类与函数中间件、出站拦截器、统一响应格式、异常处理与开发错误页 |
 | 校验 | Standard Schema（`validate()`、路由级 `.validate({ body, query, params })`），类型化的 `ctx.validated`，校验错误消息多语言 |
 | API | OpenAPI 3.1 与 Scalar / Swagger 界面、由 typegen 生成的类型安全 HTTP 客户端、API 资源、签名链接；`@hazejs/graphql` 提供 GraphQL |
 | 容器 | `inject()`，Singleton / Request / Transient 作用域，服务提供者，跨热更新的持久资源 |
@@ -120,7 +120,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | 实时通信 | 基于 crossws 的 WebSocket（Redis 多实例广播，Workers 上使用 Durable Object）；`@hazejs/socket.io` 集成 Socket.IO（Node 与 Bun、Guard 鉴权、Redis 适配器）；私有 / Presence 频道广播（WS / SSE / Socket.IO）；`@hazejs/microservices` 提供服务间通信（Redis、NATS、gRPC） |
 | 文件与邮件 | 磁盘：local / S3（AWS SDK v3、分片上传、预签名）/ R2 / memory，签名临时链接；邮件：SMTP / Resend / Postmark / Mailgun / SES，排队发送，布局辅助 |
 | AI | `@hazejs/ai`：OpenAI、Anthropic、Gemini、Azure、Bedrock、Workers AI 与 11 个 OpenAI 兼容厂商，不依赖厂商 SDK；流式输出、工具循环、结构化输出、Embedding 与 RAG、带记忆的 Agent、图像、语音、MCP 客户端与服务端、Vue / React 的 `useChat`、`AI.fake()` |
-| 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`typegen`、`make:*`、`db:*`、`queue:*`、`schedule:*`、`openapi`、`repl`、`key:generate`，以及 `app/command` 下的自定义命令 |
+| 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`module:list`、`typegen`、`make:*`、`db:*`、`queue:*`、`schedule:*`、`openapi`、`repl`、`key:generate`，以及 `app/command` 下的自定义命令 |
 | 可观测性 | 健康检查、OpenTelemetry 链路与指标、日志通道（文件、HTTP、JSON）、`/__haze` 开发面板与队列面板 |
 | 部署 | node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda，提供迁移与 worker 入口 |
 

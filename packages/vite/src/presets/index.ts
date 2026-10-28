@@ -105,20 +105,21 @@ const rel = (context: FinalizeContext, path: string): string => normalizePath(re
  * 队列 worker、定时任务与自定义命令（worker.mjs）：
  * `node worker.mjs queue [--queue a,b] [--concurrency 5] [--connection redis]`、
  * `node worker.mjs schedule`（常驻）、`node worker.mjs schedule:run`（执行一次到期任务）、
- * `node worker.mjs command <name> [args]`（app/command 下的命令，不带名称时列出全部）
+ * `node worker.mjs command <name> [args]`（app/command 与模块的命令，不带名称时列出全部）
  */
 export function workerEntryCode(): string {
   return `import process from 'node:process'
 import { parseArgs } from 'node:util'
-import { collectCommands, QueueManager, runConsole, Scheduler } from '@hazejs/core'
-import { createApp, manifest } from '${VIRTUAL_MODULES.app}'
+import { QueueManager, runConsole, Scheduler } from '@hazejs/core'
+import { createApp } from '${VIRTUAL_MODULES.app}'
 
 // 自定义命令的参数由命令自己的定义解析，不经过下面的 parseArgs
 if (process.argv[2] === 'command') {
   const app = await createApp({ mode: 'production' })
   let code = 1
   try {
-    code = await runConsole(app, await collectCommands(manifest.discovered.commands), process.argv.slice(3))
+    // app/command 与已启用模块的命令
+    code = await runConsole(app, await app.commands(), process.argv.slice(3))
   }
   catch (error) {
     app.logger.error(error)

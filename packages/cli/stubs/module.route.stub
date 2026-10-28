@@ -1,0 +1,7 @@
+import { defineRoutes } from '@hazejs/core'
+import { {{className}}Controller } from '~/modules/{{kebabName}}/app/controller/{{className}}Controller'
+
+// 挂载在 module.ts 的 prefix 下；路由名自动带 '{{kebabName}}.' 前缀：router.url('{{kebabName}}.index')
+export default defineRoutes((r) => {
+  r.get('/', [{{className}}Controller, 'index']).name('index')
+})

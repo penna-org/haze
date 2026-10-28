@@ -243,6 +243,8 @@ export interface MakeOptions {
   variant?: string
   /** 多应用：生成到 app/<app>/ 下 */
   app?: string
+  /** 本地模块：生成到 modules/<module>/ 下（需先 haze make:module） */
+  module?: string
 }
 
 export interface MakeResult {
@@ -260,6 +262,9 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
     throw new Error(`${kind.dir}/ 只自动加载第一层文件，${options.kind} 名称不能包含子目录：${options.name}`)
   if (kind.global && options.app)
     throw new Error(`${options.kind} 不区分应用，不支持 --app（统一放在 ${kind.dir}/）`)
+  const moduleDir = options.module === undefined
+    ? undefined
+    : localModuleDir(options.srcDir, options.module, options.app)
   const vars: StubVariables = {
     name,
     className: name + (kind.file === 'class'
@@ -280,11 +285,14 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
   const base = kind.base === 'root'
     ? options.root
     : options.srcDir
-  // 多应用：app/controller → app/<app>/controller，config → app/<app>/config
+  // 多应用：app/controller → app/<app>/controller，config → app/<app>/config；
+  // 模块：目录结构与项目相同，整体位于 modules/<module>/ 下（测试为 modules/<module>/tests）
   const kindDir = options.app && kind.base === 'src'
     ? `app/${kebabCase(options.app)}/${kind.dir.replace(/^app\//, '')}`
     : kind.dir
-  const file = join(base, kindDir, dir, fileName + (kind.ext ?? '.ts'))
+  const file = moduleDir
+    ? join(options.srcDir, moduleDir, kind.dir, dir, fileName + (kind.ext ?? '.ts'))
+    : join(base, kindDir, dir, fileName + (kind.ext ?? '.ts'))
   if (existsSync(file) && !options.force)
     throw new Error(`${file} already exists. Use --force to overwrite.`)
 
@@ -296,9 +304,65 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
     file,
     stub: stubName,
     custom,
-    hint: options.app
-      ? kind.hint?.(vars)?.replace('route/*.ts', `app/${kebabCase(options.app)}/route/*.ts`)
-      : kind.hint?.(vars),
+    hint: moduleDir
+      ? kind.hint?.(vars)?.replace(/(?<![\w/])(route\/\*\.ts|config\/middleware\.ts|app\/\w+|database\/seeders)/g, `${moduleDir}/$1`)
+      : options.app
+        ? kind.hint?.(vars)?.replace('route/*.ts', `app/${kebabCase(options.app)}/route/*.ts`)
+        : kind.hint?.(vars),
+  }
+}
+
+/** `--module <name>` 对应的目录（相对 srcDir），模块需已存在 */
+function localModuleDir(srcDir: string, name: string, app: string | undefined): string {
+  if (app)
+    throw new Error('--app 与 --module 不能同时使用（模块挂载到哪个应用由 config/modules.ts 的 app 决定）')
+  const dir = `modules/${kebabCase(name)}`
+  if (!existsSync(join(srcDir, dir)))
+    throw new Error(`Module "${name}" not found (${dir}). Create it first: haze make:module ${name}`)
+  return dir
+}
+
+export interface MakeModuleOptions {
+  root: string
+  srcDir: string
+  name: string
+  force?: boolean
+}
+
+/** 本地模块骨架：module.ts、路由、控制器、默认配置与测试 */
+export async function makeModule(options: MakeModuleOptions): Promise<{ files: string[], hint: string }> {
+  const { dir, name } = parseName(options.name, 'Module')
+  if (dir)
+    throw new Error(`Module names cannot contain directories: ${options.name}`)
+  const vars: StubVariables = {
+    name,
+    className: name,
+    camelName: camelCase(name),
+    kebabName: kebabCase(name),
+    envName: kebabCase(name).replace(/-/g, '_').toUpperCase(),
+    routePath: plural(kebabCase(name)),
+    commandName: commandName('', name),
+  }
+  const moduleDir = join(options.srcDir, 'modules', vars.kebabName)
+  if (existsSync(moduleDir) && !options.force)
+    throw new Error(`${moduleDir} already exists. Use --force to overwrite.`)
+  const files: Array<[stub: string, path: string]> = [
+    ['module', 'module.ts'],
+    ['module.route', `route/${vars.kebabName}.ts`],
+    ['module.controller', `app/controller/${name}Controller.ts`],
+    ['module.config', `config/${vars.camelName}.ts`],
+    ['module.test', `tests/${vars.kebabName}.test.ts`],
+  ]
+  const written: string[] = []
+  for (const [stub, path] of files) {
+    const file = join(moduleDir, path)
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, render(readStub(options.root, stub).content, vars))
+    written.push(file)
+  }
+  return {
+    files: written,
+    hint: `模块默认启用（config/modules.ts 的 local.${vars.kebabName} 可关闭或改前缀）；在模块中生成代码：haze make:controller Post --module ${vars.kebabName}`,
   }
 }
 
@@ -331,6 +395,8 @@ export interface MakeModelOptions {
   dialect?: Dialect
   softDelete?: boolean
   app?: string
+  /** 本地模块：模型与表结构生成到 modules/<module>/ 下 */
+  module?: string
   force?: boolean
 }
 
@@ -338,23 +404,27 @@ export interface MakeModelOptions {
 export async function makeModel(options: MakeModelOptions): Promise<{ model: string, schema?: string, hint: string }> {
   const { dir, name } = parseName(options.name, 'Model')
   const tableName = options.table ?? plural(kebabCase(name)).replace(/-/g, '_')
+  const moduleDir = options.module === undefined
+    ? ''
+    : `${localModuleDir(options.srcDir, options.module, options.app)}/`
   const vars = {
     name,
     className: name,
     tableName,
     tableVar: camelCase(tableName),
     softDelete: String(options.softDelete ?? false),
+    schemaDir: `${moduleDir}database/schema`,
   }
   const modelDir = options.app
     ? `app/${kebabCase(options.app)}/model`
-    : 'app/model'
+    : `${moduleDir}app/model`
   const model = join(options.srcDir, modelDir, dir, `${name}.ts`)
   if (existsSync(model) && !options.force)
     throw new Error(`${model} already exists. Use --force to overwrite.`)
 
   // MongoDB 没有表结构文件，模型中声明文档类型
   const mongo = options.dialect === 'mongodb'
-  const schema = join(options.srcDir, 'database/schema', `${tableName}.ts`)
+  const schema = join(options.srcDir, vars.schemaDir, `${tableName}.ts`)
   const writeSchema = !mongo && !existsSync(schema)
   await mkdir(dirname(model), { recursive: true })
   await writeFile(model, render(readStub(options.root, mongo ? 'model.mongodb' : 'model').content, vars as unknown as StubVariables))
@@ -367,7 +437,9 @@ export async function makeModel(options: MakeModelOptions): Promise<{ model: str
     schema: writeSchema ? schema : undefined,
     hint: mongo
       ? 'MongoDB 无需迁移；索引可通过 (await Mongo.db()).collection(...).createIndex() 管理'
-      : '修改表结构后运行：haze db:generate && haze db:migrate',
+      : options.module
+        ? `修改表结构后运行：haze db:generate --module ${kebabCase(options.module)} && haze db:migrate`
+        : '修改表结构后运行：haze db:generate && haze db:migrate',
   }
 }
 

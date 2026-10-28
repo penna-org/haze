@@ -33,6 +33,8 @@ export interface RouteDefinition {
   /** OpenAPI 文档信息（`.doc()`） */
   doc?: RouteDoc
   meta: RouteMeta
+  /** 由哪个模块注册（config/modules.ts 或 modules/<name>/） */
+  module?: string
 }
 
 export function isControllerAction(handler: RouteHandler): handler is ControllerAction<any> {

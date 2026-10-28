@@ -44,6 +44,7 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | 全文搜索 | ✅ `@hazejs/search` | 🧩 | 🧩 | ✅ Scout | 🧩 |
 | 多租户 | ✅ | 🧩 | 🧩 | 🧩 | 🧩 |
 | GraphQL、微服务传输 | ✅ `@hazejs/graphql`、`@hazejs/microservices` | ✅ | 🧩 | 🧩 | 🧩 |
+| 模块 / 扩展包（路由、配置、迁移、任务） | ✅ 本地 `modules/` 与 npm 模块 | ◐ 模块（无迁移） | ✅ 扩展包 | ✅ 扩展包 | ◐ Fastify 插件 |
 | 文档站 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## 已完成
@@ -66,6 +67,7 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | M25 | **认证扩展**：OAuth 社交登录、个人访问令牌、邮箱验证与重置密码流程、TOTP 双因素认证、Passkey |
 | M26 | **搜索**（数据库全文检索、Meilisearch、Typesense、Elasticsearch / OpenSearch）与多租户 |
 | M27 | 可选包：GraphQL、微服务传输（Redis、NATS、gRPC） |
+| M28 | **模块**：以本地 `modules/<name>/` 目录或 npm 包（`defineModule`）提供可复用的功能单元，包含路由、中间件、默认配置、提供者、迁移、任务、事件、命令与授权策略；`make:module`、`module:list` 与 `module` 模板 |
 
 ## 后续计划
 

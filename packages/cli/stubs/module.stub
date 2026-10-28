@@ -1,0 +1,10 @@
+import { defineModule } from '@hazejs/core'
+
+/**
+ * 本地模块 {{kebabName}}：modules/{{kebabName}}/ 下的 route、config、app/{provider,job,event,listener,command,policy,...}
+ * 按与项目相同的约定自动加载，数据库迁移位于 database/migrations（haze db:generate --module {{kebabName}}）。
+ * 这里覆盖约定：URL 前缀、路由名前缀（默认 '{{kebabName}}.'）、默认中间件等；config/modules.ts 的 local 可以再覆盖或关闭
+ */
+export default defineModule({
+  prefix: '/api/{{kebabName}}',
+})

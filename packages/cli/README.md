@@ -18,6 +18,7 @@ haze make:controller Post --resource
 haze db:generate && haze db:migrate
 haze queue:work                # schedule:work, schedule:run, queue:failed, …
 haze route:list
+haze make:module blog          # local module in modules/blog; haze module:list
 ```
 
 Part of [hazejs](https://github.com/penna-org/haze) — see the main README for documentation.

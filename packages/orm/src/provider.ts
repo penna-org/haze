@@ -32,6 +32,13 @@ export function databaseProvider(options: DatabaseProviderOptions = {}): Service
       const manager = new DatabaseManager(config, {
         logger: container.make(Logger),
         rootDir: app.rootDir,
+        srcDir: app.srcDir,
+        // 模块的迁移在项目的迁移之前执行（db:migrate、refreshDatabase、生产迁移入口）
+        modules: app.modules().filter(module => module.migrations).map(module => ({
+          module: module.name,
+          folder: module.migrations!,
+          connection: module.connection,
+        })),
       })
       container.instance(DatabaseManager, manager)
       setDatabaseManager(manager)
