@@ -16,6 +16,16 @@ export class DatabaseError extends Error {
   override name = 'DatabaseError'
 }
 
+/** 乐观锁冲突：保存时记录已被其他请求修改，渲染为 409 */
+export class OptimisticLockException extends ConflictException {
+  readonly model: string
+
+  constructor(model: string) {
+    super(`${model} 已被修改，请刷新后重试`)
+    this.model = model
+  }
+}
+
 /** 违反唯一约束（重复数据），渲染为 409 */
 export class UniqueConstraintException extends ConflictException {
   constructor(cause: unknown) {

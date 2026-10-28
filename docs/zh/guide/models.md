@@ -1,4 +1,4 @@
-# 模型与查询
+# 模型
 
 一个模型对应一张 drizzle 表，字段和类型直接来自表结构，不需要重复声明。
 
@@ -43,10 +43,14 @@ haze make:model Article --dialect mongodb
 | 属性 | 默认值 | 说明 |
 |------|--------|------|
 | `connection` | 默认连接 | `config/database.ts` 中的连接名 |
-| `hidden` | `[]` | `toJSON()` 时隐藏的字段 |
+| `hidden` | `[]` | `toJSON()` 时隐藏的字段；`'posts.title'` 隐藏已加载关联中的字段 |
+| `visible` | `[]` | 不为空时只输出这些字段 |
 | `append` | `[]` | `toJSON()` 时追加的虚拟字段（需要定义对应的 `getXxxAttr`） |
 | `softDelete` | `false` | `true` 使用 `deletedAt` 列，传字符串则使用指定列 |
 | `timestamps` | `true` | 列存在时自动维护 `createdAt` / `updatedAt`。`{ createdAt: 'addedAt', updatedAt: false }` 可改名或关闭其中一个，`false` 全部关闭 |
+| `readonly` | `[]` | 只读字段：新增时写入，之后不再更新 |
+| `optimLock` | `false` | [乐观锁](#乐观锁)：`true` 使用 `lockVersion` 列，传字符串则使用指定列 |
+| `globalScope` | `[]` | 对所有查询生效的[全局作用域](#全局作用域) |
 
 时间戳按列类型写入 `Date`、字符串或毫秒数。
 
@@ -75,7 +79,7 @@ const page = await User.where('role', 'member').order('id', 'desc').paginate(1, 
 
 ## 构造查询
 
-`Model.where()`、`Model.query()` 和 `Db.table()` 返回的是同一个链式查询构造器。条件写法：
+`Model.where()`、`Model.query()` 和 `Db.table()` 返回的是同一个链式查询构造器；连接查询、子查询、分组、JSON 字段、时间条件、查询缓存等见[查询构造器](./query-builder)。基础写法：
 
 ```ts
 User.where('role', 'admin')                        // 等于
@@ -108,7 +112,7 @@ User.where(eq(users.id, 1))                        // 任意 drizzle 表达式
 | `increment(column, step)` / `decrement(column, step)` | 原子自增 / 自减 |
 | `toSQL()` | 生成的 SQL 与参数，调试用 |
 
-`field(...columns)`（只查询指定列）以及 `insert()` / `insertGetId()`（不经过模型事件的插入）通常配合 `Db.table()` 使用。
+完整列表见[查询构造器](./query-builder)。`insert()` / `upsert()`（不经过模型事件的插入）通常配合 `Db.table()` 使用。
 
 一个典型的筛选接口：
 
@@ -141,7 +145,54 @@ await user.delete()
 await User.destroy([1, 2, 3]) // 按主键删除，返回删除数量
 ```
 
-其他实例方法：`isDirty(key?)`、`getDirty()`、`getOriginal(key?)`、`refresh()`（从数据库重新读取），以及 `exists` 属性。
+更多写入方式：
+
+```ts
+await user.save({ name: 'Ada' })                        // 赋值并保存
+await User.create(input, ['name', 'email'])             // 只从 input 中取这些字段
+await user.allowField(['name', 'bio']).save(input)      // 同上，作用于实例
+await user.force().save()                               // 即使没有修改也执行更新（刷新 updatedAt）
+await post.inc('views').save()                          // 原子更新 views = views + 1（还有 dec()）
+
+await User.update({ status: 0 }, { role: 'guest' })     // 查出匹配的模型并逐个保存
+await User.update({ id: 1, name: 'Ada' })               // 按数据中的主键
+await User.saveAll([{ id: 1, name: 'Ada' }, { name: 'Bob' }]) // 有主键则更新，否则新增，在事务中执行
+await User.destroy({ status: 0 })                       // 或 destroy(q => q.where('age', '<', 18))
+
+const user = await User.findOrEmpty(id)                 // 不会是 undefined
+if (user.isEmpty()) { /* ... */ }
+```
+
+静态的 `update()`、`saveAll()` 和 `destroy()` 会逐个处理模型，因此事件、时间戳和软删除都会生效。需要多次写入保持原子性时使用 `User.transaction(...)`，见[事务](./transactions)。
+
+其他实例方法：`isDirty(key?)`、`getDirty()`、`getOriginal(key?)`、`getData()`、`refresh()`（从数据库重新读取），以及 `exists` 属性。
+
+### 只读字段
+
+```ts
+export class User extends Model.define(users) {
+  static override readonly = ['email']
+}
+```
+
+只读字段在新增时写入，之后的 `save()` 会忽略对它的修改。
+
+### 乐观锁
+
+开启 `optimLock` 后，每次更新都会检查数据在读取之后没有被修改过，并递增版本号：
+
+```ts
+export class Article extends Model.define(articles) {
+  static override optimLock = true // 需要整数列 lockVersion（默认 0）
+}
+
+const a = await Article.findOrFail(1)
+const b = await Article.findOrFail(1)
+a.title = 'One'
+await a.save()      // lockVersion 0 → 1
+b.title = 'Two'
+await b.save()      // 抛出 OptimisticLockException（409）
+```
 
 查询上的批量 `update()` / `delete()` 是一条 SQL 语句：不触发模型事件、不维护时间戳；没有任何条件时会拒绝执行，除非传入 `{ all: true }`。
 
@@ -187,11 +238,22 @@ export class User extends Model.define(users) {
 }
 ```
 
-需要跳过访问器读取原始值时用 `getRaw(key)`。
+需要跳过访问器读取原始值时用 `getRaw(key)`。`withAttr('name', (value, data) => ...)` 为单个实例添加访问器，也可以作用于查询的每个结果：`User.query().withAttr('name', ...)`。
 
 ## 序列化
 
-`toJSON()` 会应用访问器、去掉 `hidden` 字段、加上 `append` 字段，并包含已加载的关联。控制器返回模型或分页结果时会自动序列化，所以模板中的 `password` 列不会出现在响应里。
+`toJSON()`（别名 `toArray()`）会应用访问器、去掉 `hidden` 字段、加上 `append` 字段，并包含已加载的关联。控制器返回模型或分页结果时会自动序列化，所以模板中的 `password` 列不会出现在响应里。
+
+可以按实例或按查询覆盖这些设置：
+
+```ts
+user.hidden(['email']).toJSON()
+user.visible(['id', 'name', 'posts.title']).toJSON()   // 点号作用于已加载的关联
+user.append(['initials']).toJSON()
+user.hidden(['phone'], true)                            // true：与模型上的 hidden 合并
+
+await User.query().visible(['id', 'name']).select()     // 作用于每个结果
+```
 
 ## 查询作用域
 
@@ -210,6 +272,47 @@ await Post.scope('published').order('id', 'desc').paginate(1, 20)
 
 多余的参数会透传：`scope('ofAuthor', userId)` 调用 `scopeOfAuthor(query, userId)`。
 
+## 全局作用域
+
+在 `globalScope` 中列出作用域名称，模型的所有查询（包括关联查询）都会自动应用：
+
+```ts
+export class Post extends Model.define(posts) {
+  static override globalScope = ['tenant']
+
+  static scopeTenant(query: ModelQuery<Post>) {
+    query.where('tenantId', currentTenantId())
+  }
+}
+
+await Post.all()                                    // WHERE tenant_id = ?
+await Post.withoutGlobalScope(['tenant']).select()  // 关闭其中一个
+await Post.withoutGlobalScope().select()            // 全部关闭
+```
+
+全局作用域与其他条件以 AND 连接，`orWhere()` 不会绕过它。全局作用域只用于条件，其中设置的排序、预加载等会被忽略。
+
+## 搜索器
+
+`withSearch(fields, data)` 把筛选表单转换为查询条件：对每个字段，模型定义了 `static searchXxxAttr(query, value, data)` 时调用它，否则在值非空时按相等查询：
+
+```ts
+export class User extends Model.define(users) {
+  static searchNameAttr(query: ModelQuery<User>, value: string) {
+    if (value)
+      query.whereLike('name', `${value}%`)
+  }
+
+  static searchCreatedAtAttr(query: ModelQuery<User>, value: string | undefined) {
+    if (value)
+      query.whereDay('createdAt', value)
+  }
+}
+
+// GET /users?name=Ad&status=1&createdAt=2024-05-01
+await User.withSearch(['name', 'status', 'createdAt'], ctx.query()).paginate(1, 20)
+```
+
 ## 模型事件
 
 在模型上定义以下实例方法即可（可以是异步的）：`onBeforeWrite`、`onAfterWrite`、`onBeforeInsert`、`onAfterInsert`、`onBeforeUpdate`、`onAfterUpdate`、`onBeforeDelete`、`onAfterDelete`、`onBeforeRestore`、`onAfterRestore`。
@@ -219,12 +322,20 @@ export class Post extends Model.define(posts) {
   onBeforeInsert() {
     this.slug ??= slugify(this.title)
   }
+
+  onBeforeDelete() {
+    // before 事件返回 false 时取消写入
+    if (this.locked)
+      return false
+  }
 }
 ```
 
+before 事件返回 `false` 时，`save()` 不写入直接返回，`delete()` 返回 `false`。
+
 ## 关联
 
-关联定义为返回 `hasMany`、`hasOne` 或 `belongsTo` 的方法：
+关联定义为模型方法。这里介绍基础用法；多对多、远程一对多、多态关联、预加载约束、关联统计与 `has()` 查询见[模型关联](./relations)。
 
 ```ts
 // app/model/User.ts
@@ -254,10 +365,15 @@ user.getRelation('posts')                        // 已加载的结果
 
 本地键 / 所属键默认为主键，可以通过第三个参数指定。
 
+```ts
+await User.withCount('posts').has('posts', '>=', 3).select()   // 见模型关联
+```
+
 ## 异常
 
 - `ModelNotFoundException`：`findOrFail()` 抛出，渲染为 `404`。
 - `UniqueConstraintException`：任意驱动的唯一键冲突，渲染为 `409`。
+- `OptimisticLockException`：开启[乐观锁](#乐观锁)时保存了过期的模型，渲染为 `409`。
 
 ## MongoDB
 

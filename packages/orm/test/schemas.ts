@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { setPlatformBindings } from '@hazejs/core'
-import { int as myInt, serial as mySerial, mysqlTable, text as myText, timestamp as myTimestamp, varchar } from 'drizzle-orm/mysql-core'
-import { integer as pgInt, pgTable, text as pgText, timestamp as pgTimestamp, serial } from 'drizzle-orm/pg-core'
+import { int as myInt, json as myJson, serial as mySerial, mysqlTable, text as myText, timestamp as myTimestamp, varchar } from 'drizzle-orm/mysql-core'
+import { jsonb, integer as pgInt, pgTable, text as pgText, timestamp as pgTimestamp, serial } from 'drizzle-orm/pg-core'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { Miniflare } from 'miniflare'
 
@@ -29,6 +29,36 @@ const sqlite = {
     userId: integer('user_id').notNull(),
     bio: text('bio'),
   }),
+  tags: sqliteTable('tags', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+  }),
+  postTag: sqliteTable('post_tag', {
+    postId: integer('post_id').notNull(),
+    tagId: integer('tag_id').notNull(),
+    weight: integer('weight').notNull().default(0),
+  }),
+  comments: sqliteTable('comments', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    postId: integer('post_id').notNull(),
+    body: text('body').notNull(),
+  }),
+  images: sqliteTable('images', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    imageableType: text('imageable_type'),
+    imageableId: integer('imageable_id'),
+    url: text('url').notNull(),
+  }),
+  articles: sqliteTable('articles', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    title: text('title').notNull(),
+    slug: text('slug'),
+    lockVersion: integer('lock_version').notNull().default(0),
+    meta: text('meta', { mode: 'json' }).$type<{ city?: string, rank?: number, author?: { name: string } }>(),
+    labels: text('labels', { mode: 'json' }).$type<string[]>(),
+    tags: text('tags'),
+    publishedAt: integer('published_at', { mode: 'timestamp' }),
+  }),
 }
 
 const postgres = {
@@ -52,6 +82,36 @@ const postgres = {
     id: serial('id').primaryKey(),
     userId: pgInt('user_id').notNull(),
     bio: pgText('bio'),
+  }),
+  tags: pgTable('tags', {
+    id: serial('id').primaryKey(),
+    name: pgText('name').notNull(),
+  }),
+  postTag: pgTable('post_tag', {
+    postId: pgInt('post_id').notNull(),
+    tagId: pgInt('tag_id').notNull(),
+    weight: pgInt('weight').notNull().default(0),
+  }),
+  comments: pgTable('comments', {
+    id: serial('id').primaryKey(),
+    postId: pgInt('post_id').notNull(),
+    body: pgText('body').notNull(),
+  }),
+  images: pgTable('images', {
+    id: serial('id').primaryKey(),
+    imageableType: pgText('imageable_type'),
+    imageableId: pgInt('imageable_id'),
+    url: pgText('url').notNull(),
+  }),
+  articles: pgTable('articles', {
+    id: serial('id').primaryKey(),
+    title: pgText('title').notNull(),
+    slug: pgText('slug'),
+    lockVersion: pgInt('lock_version').notNull().default(0),
+    meta: jsonb('meta'),
+    labels: jsonb('labels'),
+    tags: pgText('tags'),
+    publishedAt: pgTimestamp('published_at'),
   }),
 }
 
@@ -77,6 +137,36 @@ const mysql = {
     userId: myInt('user_id').notNull(),
     bio: myText('bio'),
   }),
+  tags: mysqlTable('tags', {
+    id: mySerial('id').primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+  }),
+  postTag: mysqlTable('post_tag', {
+    postId: myInt('post_id').notNull(),
+    tagId: myInt('tag_id').notNull(),
+    weight: myInt('weight').notNull().default(0),
+  }),
+  comments: mysqlTable('comments', {
+    id: mySerial('id').primaryKey(),
+    postId: myInt('post_id').notNull(),
+    body: myText('body').notNull(),
+  }),
+  images: mysqlTable('images', {
+    id: mySerial('id').primaryKey(),
+    imageableType: varchar('imageable_type', { length: 255 }),
+    imageableId: myInt('imageable_id'),
+    url: varchar('url', { length: 255 }).notNull(),
+  }),
+  articles: mysqlTable('articles', {
+    id: mySerial('id').primaryKey(),
+    title: varchar('title', { length: 255 }).notNull(),
+    slug: varchar('slug', { length: 255 }),
+    lockVersion: myInt('lock_version').notNull().default(0),
+    meta: myJson('meta'),
+    labels: myJson('labels'),
+    tags: varchar('tags', { length: 255 }),
+    publishedAt: myTimestamp('published_at'),
+  }),
 }
 
 /** 测试只使用 SQLite 表的类型；运行时按方言切换（列名与语义一致） */
@@ -87,17 +177,32 @@ const ddl = {
     'create table users (id integer primary key autoincrement, name text not null, email text, status integer not null default 1, age integer, created_at integer, updated_at integer, deleted_at integer)',
     'create table posts (id integer primary key autoincrement, user_id integer not null, title text not null, views integer not null default 0)',
     'create table profiles (id integer primary key autoincrement, user_id integer not null, bio text)',
+    'create table tags (id integer primary key autoincrement, name text not null)',
+    'create table post_tag (post_id integer not null, tag_id integer not null, weight integer not null default 0, primary key (post_id, tag_id))',
+    'create table comments (id integer primary key autoincrement, post_id integer not null, body text not null)',
+    'create table images (id integer primary key autoincrement, imageable_type text, imageable_id integer, url text not null)',
+    'create table articles (id integer primary key autoincrement, title text not null, slug text unique, lock_version integer not null default 0, meta text, labels text, tags text, published_at integer)',
   ],
   postgres: [
     'create table users (id serial primary key, name text not null, email text, status integer not null default 1, age integer, created_at timestamp, updated_at timestamp, deleted_at timestamp)',
     'create table posts (id serial primary key, user_id integer not null, title text not null, views integer not null default 0)',
     'create table profiles (id serial primary key, user_id integer not null, bio text)',
+    'create table tags (id serial primary key, name text not null)',
+    'create table post_tag (post_id integer not null, tag_id integer not null, weight integer not null default 0, primary key (post_id, tag_id))',
+    'create table comments (id serial primary key, post_id integer not null, body text not null)',
+    'create table images (id serial primary key, imageable_type text, imageable_id integer, url text not null)',
+    'create table articles (id serial primary key, title text not null, slug text unique, lock_version integer not null default 0, meta jsonb, labels jsonb, tags text, published_at timestamp)',
   ],
   mysql: [
-    'drop table if exists users, posts, profiles',
+    'drop table if exists users, posts, profiles, tags, post_tag, comments, images, articles',
     'create table users (id serial primary key, name varchar(255) not null, email varchar(255), status int not null default 1, age int, created_at timestamp null, updated_at timestamp null, deleted_at timestamp null)',
     'create table posts (id serial primary key, user_id int not null, title text not null, views int not null default 0)',
     'create table profiles (id serial primary key, user_id int not null, bio text)',
+    'create table tags (id serial primary key, name varchar(255) not null)',
+    'create table post_tag (post_id int not null, tag_id int not null, weight int not null default 0, primary key (post_id, tag_id))',
+    'create table comments (id serial primary key, post_id int not null, body text not null)',
+    'create table images (id serial primary key, imageable_type varchar(255), imageable_id int, url varchar(255) not null)',
+    'create table articles (id serial primary key, title varchar(255) not null, slug varchar(255) unique, lock_version int not null default 0, meta json, labels json, tags varchar(255), published_at timestamp null)',
   ],
 }
 
@@ -139,6 +244,11 @@ export const dialects: TestDialect[] = [
       'drop table if exists users',
       'drop table if exists posts',
       'drop table if exists profiles',
+      'drop table if exists tags',
+      'drop table if exists post_tag',
+      'drop table if exists comments',
+      'drop table if exists images',
+      'drop table if exists articles',
       ...ddl.sqlite,
     ],
     setup: setupD1,
@@ -155,6 +265,11 @@ export const dialects: TestDialect[] = [
             'drop table if exists users',
             'drop table if exists posts',
             'drop table if exists profiles',
+            'drop table if exists tags',
+            'drop table if exists post_tag',
+            'drop table if exists comments',
+            'drop table if exists images',
+            'drop table if exists articles',
             ...ddl.sqlite,
           ],
         },

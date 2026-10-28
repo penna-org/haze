@@ -32,7 +32,10 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
     text: ['Database', '数据库'],
     items: [
       ['database', ['Getting Started', '快速开始']],
-      ['models', ['Models & Queries', '模型与查询']],
+      ['query-builder', ['Query Builder', '查询构造器']],
+      ['transactions', ['Transactions', '事务']],
+      ['models', ['Models', '模型']],
+      ['relations', ['Relations', '模型关联']],
     ],
   },
   {

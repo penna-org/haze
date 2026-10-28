@@ -63,7 +63,7 @@ export default defineDatabaseConfig(() => ({
 | `postgres` | PostgreSQL via postgres-js | `postgres` |
 | `pglite` | Embedded PostgreSQL (WASM) for local development and tests. `url` is a data directory; omit it for an in-memory database | `@electric-sql/pglite` |
 | `mysql` | MySQL via mysql2 | `mysql2` |
-| `mongodb` | MongoDB, used through `@hazejs/orm/mongo` (see [Models & Queries](./models#mongodb)) | `mongodb` |
+| `mongodb` | MongoDB, used through `@hazejs/orm/mongo` (see [Models](./models#mongodb)) | `mongodb` |
 
 Drivers are optional peer dependencies and load only when a connection uses them. Install the one you need:
 
@@ -120,7 +120,7 @@ export const users = sqliteTable('users', {
 Schema files are read directly by drizzle-kit. Import only from `drizzle-orm` here and do not use the `~` alias.
 :::
 
-`haze make:model Post` creates both `app/model/Post.ts` and a matching `database/schema/posts.ts` for your dialect. See [Models & Queries](./models).
+`haze make:model Post` creates both `app/model/Post.ts` and a matching `database/schema/posts.ts` for your dialect. See [Models](./models).
 
 ## Migrations
 
@@ -217,7 +217,7 @@ export default defineHazeConfig({
 
 ## Running queries
 
-Models cover most needs (see [Models & Queries](./models)). For table-level access, use the `Db` facade with any drizzle table:
+Models cover most needs (see [Models](./models)). For table-level access, use the `Db` facade with any drizzle table:
 
 ```ts
 import { Db } from '@hazejs/orm'
@@ -236,7 +236,7 @@ const rows = await Db.execute(sql`select count(*) as n from users`)
 const db = await Db.drizzle()
 ```
 
-`Db.table()` returns the same query builder that models use, with `where`, `order`, `paginate`, `count`, `insert`, `update`, `delete` and more. The full list is in [Models & Queries](./models#building-queries).
+`Db.table()` returns the same query builder that models use, with `where`, `order`, `paginate`, `count`, `insert`, `update`, `delete` and more. Joins, subqueries, grouping, JSON fields, upserts and the full list of methods are in [Query Builder](./query-builder).
 
 ::: tip Safety nets
 - `update()` and `delete()` without any condition throw. Pass `{ all: true }` to really touch every row.
@@ -246,19 +246,13 @@ const db = await Db.drizzle()
 ## Transactions
 
 ```ts
-import { Db } from '@hazejs/orm'
-
 await Db.transaction(async () => {
   const user = await User.create({ name: 'Ada', email: 'ada@example.com' })
   await Db.table(profiles).insert({ userId: user.id })
 })
 ```
 
-Every `Db` and `Model` query inside the callback joins the transaction automatically; you don't have to pass a transaction object around (the callback still receives the drizzle transaction if you need it). Nested `Db.transaction()` calls use savepoints. If the callback throws, everything is rolled back.
-
-::: warning D1
-Cloudflare D1 does not support interactive transactions: `Db.transaction()` throws on a `d1` connection. Use drizzle's batch API for atomic writes: `(await Db.drizzle()).batch([...])`.
-:::
+Every `Db` and `Model` query inside the callback joins the transaction automatically. Manual `Db.startTrans()` / `Db.commit()` / `Db.rollback()`, nesting with savepoints, isolation levels and row locks are covered in [Transactions](./transactions).
 
 ## Multiple connections
 

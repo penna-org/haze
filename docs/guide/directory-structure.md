@@ -118,7 +118,7 @@ Optional data-access layer, generated with `haze make:repository`. Not part of t
 
 ### `app/model`
 
-ORM models built on the drizzle tables in `database/schema`, for example `class User extends Model.define(users)`. See [Models & Queries](./models).
+ORM models built on the drizzle tables in `database/schema`, for example `class User extends Model.define(users)`. See [Models](./models).
 
 ### `app/validate`
 

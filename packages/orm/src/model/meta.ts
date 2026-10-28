@@ -17,6 +17,8 @@ export interface ModelSettings {
   timestamps: boolean | TimestampOptions
   hidden: readonly string[]
   append: readonly string[]
+  readonly?: readonly string[]
+  optimLock?: boolean | string
 }
 
 export interface ModelMeta {
@@ -27,6 +29,8 @@ export interface ModelMeta {
   softDelete: string | undefined
   createdAt: string | undefined
   updatedAt: string | undefined
+  /** 乐观锁版本列 */
+  lockVersion: string | undefined
 }
 
 const cache = new WeakMap<object, ModelMeta>()
@@ -69,6 +73,11 @@ export function metaOf(model: ModelSettings): ModelMeta {
     // 时间戳列不存在时自动忽略
     createdAt: pick(timestamps.createdAt, 'createdAt', false),
     updatedAt: pick(timestamps.updatedAt, 'updatedAt', false),
+    lockVersion: model.optimLock
+      ? pick(typeof model.optimLock === 'string'
+          ? model.optimLock
+          : undefined, 'lockVersion', true)
+      : undefined,
   }
   cache.set(model, meta)
   return meta
