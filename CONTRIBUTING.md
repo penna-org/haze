@@ -30,7 +30,7 @@ packages/testing/   @hazejs/testing   Vitest integration and HTTP test client
 packages/socketio/  @hazejs/socket.io Socket.IO integration
 packages/create/    create-hazejs     scaffolding and the api / vue / react templates
 playground/         example app (user CRUD), also used as an integration test
-docs/               design notes (docs/design.md) and roadmap
+docs/               documentation site (VitePress, English + docs/zh), design notes (docs/design.md)
 ```
 
 Try the framework against the playground:
@@ -65,7 +65,7 @@ Cloudflare bindings (D1, KV, R2, Queues, Durable Objects) run in Miniflare and n
 2. Add tests for behavior changes — every module has a Vitest suite under `packages/*/test`.
 3. Run `pnpm lint`, `pnpm typecheck` and `pnpm test`.
 4. Add a changeset for changes to published packages: `pnpm changeset` (pick packages and bump type, write a user-facing summary).
-5. Update docs when behavior changes: the root README, the template READMEs (`packages/create/templates/*/README.md`) and, for design decisions, `docs/design.md`.
+5. Update docs when behavior changes: the documentation site (`docs/guide/*.md` and the Chinese `docs/zh/guide/*.md` — keep both in sync), the template READMEs (`packages/create/templates/*/README.md`) and, for design decisions, `docs/design.md`. Preview the site with `pnpm docs:dev`.
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`, `docs:`, `chore:` …).
 

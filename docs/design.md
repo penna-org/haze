@@ -1429,3 +1429,11 @@ HAZE_TEST_MYSQL_URL='mysql://root:haze@127.0.0.1:3307/haze_test' pnpm vitest run
 monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - **pnpm 11 拒绝未声明的安装脚本**：drizzle-kit、tsx 引入的 esbuild 带安装脚本，pnpm 11 未声明时 `pnpm install` 报 `ERR_PNPM_IGNORED_BUILDS`，并且 `pnpm run` 前的依赖检查会再次失败，新项目的 `pnpm dev` / `pnpm test` 都无法运行。pnpm 11 不再读取 package.json 中的 pnpm 字段，因此脚手架生成 `pnpm-workspace.yaml`（`allowBuilds: { esbuild: false }`，esbuild 的二进制来自平台可选依赖）。目标目录已位于某个 pnpm workspace 内时不生成，避免嵌套 workspace。
 - **未安装的数据库驱动导致构建失败**：drizzle-orm 的各驱动模块静态导入 mysql2、pglite 等；真实项目只安装用到的驱动，Vite 会把缺失的可选 peer 依赖替换为没有导出的空模块，构建报 `MISSING_EXPORT`。monorepo 中这些驱动经 devDependencies 都能解析，因此之前没有暴露。drivers-external 预设现在把驱动等外部包直接加入 Rolldown 的 `external`（`externalPattern()`），导入原样保留，未安装的驱动只在真正使用时才报错（ORM 按需动态加载驱动）。
+
+### 文档站（2026-10-28）：GitHub Pages
+
+- VitePress 站点位于 `docs/`，发布到 https://penna-org.github.io/haze/（`base: '/haze/'`）；英文在根路径，中文在 `/zh/`，两种语言共用同一份页面结构（`docs/.vitepress/config.ts` 中的 `guide` 列表），本地搜索带中文界面。
+- 指南共 29 页 × 2 种语言：介绍（什么是 hazejs、快速开始、目录结构、配置）、基础（路由、控制器、服务容器、中间件、请求与校验、响应、异常与日志）、数据库（快速开始、模型与查询）、安全（认证、授权、Session / CSRF 等）、进阶（缓存、队列、定时任务、事件、WebSocket、Socket.IO、文件存储、邮件）、全栈与部署（Vite 全栈、多应用、测试、部署、命令行参考）；路线图移入站点（`docs/roadmap.md`、`docs/zh/roadmap.md`），`design.md` 不参与构建。
+- 版本：VitePress 1.6 依赖 vite 5.4.21，被 pnpm `trustPolicy: no-downgrade` 拦截（该版本发布时 vite 已启用 trusted publisher，而它本身没有）；改用 2.0.0-alpha.20，它基于 Vite 8，与仓库共用同一个 vite，未放宽安全策略。
+- `docs.yml`：PR 中只构建（VitePress 遇到失效的站内链接会构建失败）；`main` 上构建后用 configure-pages / upload-pages-artifact / deploy-pages 发布，action 均固定到提交 SHA。需要在仓库 Settings → Pages 中把 Source 设为 GitHub Actions。
+- 编写文档时核对出的设计文档与实现不一致之处（以代码为准）：`ctx.json()`、中间件 `priority`、路由分组的 `domain` 并不存在（域名路由通过多应用配置实现）；URL 生成为 `router.url(name, params, query)`；框架不会自动读取 `APP_URL`，需在 `config/app.ts` 中设置 `url: env('APP_URL')`；`Disk.url()` 在未配置 url 时抛错。

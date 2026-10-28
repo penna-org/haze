@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="haze" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8b7cff"/>
+      <stop offset="1" stop-color="#3fb6e8"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#haze)"/>
+  <path d="M16 24c5-4 11-4 16 0s11 4 16 0M16 34c5-4 11-4 16 0s11 4 16 0M16 44c5-4 11-4 16 0s11 4 16 0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+</svg>

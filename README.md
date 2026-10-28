@@ -20,6 +20,8 @@
 hazejs gives you the productivity of Laravel / ThinkPHP and the ergonomics of a modern Vite toolchain in one coherent TypeScript framework. It is built on [h3 v2](https://h3.dev), so the same app runs on Node, Bun, Deno, Docker, Cloudflare Workers, Vercel, Netlify and AWS Lambda — and it can serve your Vue / React / any-Vite frontend from the same port, with one build.
 
 > **Status:** pre-release (`0.x`). APIs may still change. Packages are not on npm yet — see [Contributing](./CONTRIBUTING.md) to try it from source.
+>
+> 📖 **[Read the documentation](https://penna-org.github.io/haze/)**
 
 ## Highlights
 
@@ -119,7 +121,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | Tooling | `haze` CLI: `dev`, `build`, `preview`, `start`, `test`, `route:list`, `typegen`, `make:*` (16 generators), `db:*`, `queue:*`, `schedule:*`, `key:generate` |
 | Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda — with migration and worker entries |
 
-See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](./docs/roadmap.md).
+See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](https://penna-org.github.io/haze/roadmap).
 
 ## Packages
 
@@ -135,9 +137,9 @@ See how this compares with other Node.js frameworks, and what is coming next, in
 
 ## Documentation
 
-- [Roadmap & comparison](./docs/roadmap.md)
+- **[Documentation site](https://penna-org.github.io/haze/)** — guides for every module, in English and 简体中文
+- [Roadmap & comparison](https://penna-org.github.io/haze/roadmap)
 - [Design notes](./docs/design.md) (Chinese, includes per-milestone implementation records)
-- Template READMEs (`packages/create/templates/*/README.md`) document every module with examples
 
 ## Contributing
 

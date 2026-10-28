@@ -20,6 +20,8 @@
 hazejs 把 Laravel / ThinkPHP 式的开发效率和现代 Vite 工具链放进同一个 TypeScript 框架。它基于 [h3 v2](https://h3.dev)，同一个应用可以运行在 Node、Bun、Deno、Docker、Cloudflare Workers、Vercel、Netlify 和 AWS Lambda 上，还能与 Vue / React 等任意 Vite 前端共用一个端口、一次构建。
 
 > **状态：** 预发布（`0.x`），API 仍可能调整。包尚未发布到 npm，从源码体验见[贡献指南](./CONTRIBUTING.md)。
+>
+> 📖 **[阅读文档](https://penna-org.github.io/haze/zh/)**
 
 ## 亮点
 
@@ -119,7 +121,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`typegen`、`make:*`（16 种生成器）、`db:*`、`queue:*`、`schedule:*`、`key:generate` |
 | 部署 | node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda，提供迁移与 worker 入口 |
 
-与其它 Node.js 框架的对比和后续规划见[路线图](./docs/roadmap.zh-CN.md)。
+与其它 Node.js 框架的对比和后续规划见[路线图](https://penna-org.github.io/haze/zh/roadmap)。
 
 ## 包
 
@@ -135,9 +137,9 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 
 ## 文档
 
-- [路线图与框架对比](./docs/roadmap.zh-CN.md)
+- **[文档站](https://penna-org.github.io/haze/zh/)**：每个模块的指南，中英双语
+- [路线图与框架对比](https://penna-org.github.io/haze/zh/roadmap)
 - [设计文档](./docs/design.md)（含每个里程碑的实施记录）
-- 模板 README（`packages/create/templates/*/README.md`）带示例介绍每个模块
 
 ## 参与贡献
 

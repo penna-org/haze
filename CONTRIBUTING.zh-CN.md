@@ -30,7 +30,7 @@ packages/testing/   @hazejs/testing   Vitest 集成与 HTTP 测试客户端
 packages/socketio/  @hazejs/socket.io Socket.IO 集成
 packages/create/    create-hazejs     脚手架与 api / vue / react 模板
 playground/         示例项目（用户 CRUD），也作为集成测试
-docs/               设计文档（docs/design.md）与路线图
+docs/               文档站（VitePress，英文 + docs/zh 中文）与设计文档（docs/design.md）
 ```
 
 在 playground 中体验：`cd playground && pnpm dev`（`haze dev`，修改代码即时生效）、`pnpm routes`、`npx haze make:controller Order --resource`。也可以从源码创建项目：`node packages/create/bin/create-hazejs.mjs my-app -t vue`。
@@ -45,7 +45,7 @@ docs/               设计文档（docs/design.md）与路线图
 2. 行为变化需要补测试（各模块的测试在 `packages/*/test`）。
 3. 运行 `pnpm lint`、`pnpm typecheck`、`pnpm test`。
 4. 修改已发布的包时添加 changeset：`pnpm changeset`。
-5. 行为变化时同步文档：根 README、模板 README（`packages/create/templates/*/README.md`），设计决策写入 `docs/design.md`。
+5. 行为变化时同步文档：文档站（`docs/guide/*.md` 与中文 `docs/zh/guide/*.md`，两种语言保持一致）、模板 README（`packages/create/templates/*/README.md`），设计决策写入 `docs/design.md`。用 `pnpm docs:dev` 预览文档站。
 
 提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org)（`feat:`、`fix:`、`docs:`、`chore:` 等）。
 

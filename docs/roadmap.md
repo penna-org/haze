@@ -1,7 +1,5 @@
 # Roadmap & comparison
 
-English · [简体中文](./roadmap.zh-CN.md)
-
 hazejs aims to be the most complete backend framework in the Node.js ecosystem: everything a production application needs, first-party, consistent, typed and deployable anywhere — without giving up a fast, modern toolchain.
 
 This page compares where hazejs stands today with other popular choices, and lists what is planned to close every remaining gap.

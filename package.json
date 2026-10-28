@@ -26,7 +26,10 @@
     "lint:fix": "eslint . --fix",
     "changeset": "changeset",
     "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:",
@@ -37,6 +40,7 @@
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
+    "vitepress": "catalog:",
     "vitest": "catalog:"
   }
 }
