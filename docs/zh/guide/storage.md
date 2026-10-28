@@ -197,16 +197,11 @@ const link = await Storage.disk('s3').temporaryUrl('invoices/42.pdf', '10m', { d
 - **s3**：返回原生预签名链接；
 - **local / r2 / memory**：返回框架签名的链接 `/__haze/storage/<disk>/<path>?expires=…&signature=…`。签名是以 `APP_KEY` 计算的 HMAC，覆盖磁盘、路径、过期时间与下载文件名；被篡改或已过期的链接返回 `403`。
 
-签名链接默认是站内路径。需要绝对地址时，在 `config/app.ts` 中设置 `url`：
+签名链接默认是站内路径。设置 `APP_URL`（或 `config/app.ts` 中的 `url`，见[配置](./configuration#app-url)）即可得到绝对地址：
 
-```ts
-// config/app.ts
-import { defineConfig, env } from '@hazejs/core'
-
-export default defineConfig(() => ({
-  name: env('APP_NAME', 'my-app'),
-  url: env('APP_URL', '') || undefined, // https://example.com/__haze/storage/...
-}))
+```sh
+# .env.production → https://example.com/__haze/storage/...
+APP_URL=https://example.com
 ```
 
 ## 文件响应

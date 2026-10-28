@@ -177,19 +177,14 @@ Set `APP_KEY` as a real environment variable in production. Setting `key` in `co
 
 ### `APP_URL`
 
-The framework does not read `APP_URL` on its own — wire it into `url` so absolute links (for example `Storage.temporaryUrl()` on local disks) use your public address:
+`app.url` — the public address used for absolute links such as `Storage.temporaryUrl()` on local disks — defaults to the `APP_URL` environment variable:
 
-```ts
-// config/app.ts
-import { defineConfig, env } from '@hazejs/core'
-
-export default defineConfig(() => ({
-  name: env('APP_NAME', 'my-app'),
-  url: env('APP_URL'),
-}))
+```sh
+# .env.production
+APP_URL=https://example.com
 ```
 
-Without it, those links are site-relative paths.
+Set `url` in `config/app.ts` to override it (an empty `APP_URL` counts as unset). Without either, those links are site-relative paths.
 
 ## `haze.config.ts` {#haze-config-ts}
 

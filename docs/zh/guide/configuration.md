@@ -177,19 +177,14 @@ npx haze key:generate --show    # 只输出新密钥，不写入文件
 
 ### `APP_URL`
 
-框架不会自动读取 `APP_URL`，需要把它接到 `url` 上，绝对链接（例如本地磁盘的 `Storage.temporaryUrl()`）才会使用对外地址：
+`app.url` 是生成绝对链接（例如本地磁盘的 `Storage.temporaryUrl()`）时使用的对外地址，默认读取环境变量 `APP_URL`：
 
-```ts
-// config/app.ts
-import { defineConfig, env } from '@hazejs/core'
-
-export default defineConfig(() => ({
-  name: env('APP_NAME', 'my-app'),
-  url: env('APP_URL'),
-}))
+```sh
+# .env.production
+APP_URL=https://example.com
 ```
 
-不设置时，这些链接是站内相对路径。
+在 `config/app.ts` 中设置 `url` 可以覆盖它（`APP_URL` 为空字符串时视为未设置）。两者都没有时，这些链接是站内相对路径。
 
 ## `haze.config.ts` {#haze-config-ts}
 

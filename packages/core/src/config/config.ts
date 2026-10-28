@@ -15,6 +15,7 @@ import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
 import type { FilesystemConfig } from '../storage/config'
 import type { WebSocketConfig } from '../websocket/server'
+import process from 'node:process'
 import { deepMerge, isPlainObject } from '../utils'
 
 export interface ResponseConfig {
@@ -35,7 +36,7 @@ export interface AppConfig {
   requestIdHeader: string | false
   /** 多应用：`{ admin: { prefix: '/admin' }, api: { domain: 'api.example.com' } }`，目录为 app/<name>/ */
   apps?: Record<string, SubAppConfig>
-  /** 应用的外部访问地址（APP_URL），用于生成绝对链接（如存储的签名临时链接） */
+  /** 应用的外部访问地址，默认读取 APP_URL；用于生成绝对链接（如存储的签名临时链接） */
   url?: string
   /** 应用密钥（默认读取 APP_KEY）：签名 Cookie、加密 Session、JWT 默认密钥 */
   key?: string
@@ -124,6 +125,8 @@ export function defaultConfig(mode: 'development' | 'production' | 'test'): Core
     app: {
       name: 'hazejs',
       mode,
+      // 在 .env 加载之后求值；空字符串视为未设置
+      url: process.env.APP_URL || undefined,
       debug: mode === 'development',
       requestIdHeader: 'x-request-id',
       bodyLimit: '1mb',

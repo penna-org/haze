@@ -92,6 +92,31 @@ describe('config', () => {
     expect(app.config.get('database.url')).toBe('sqlite://memory')
   })
 
+  it('defaults app.url to APP_URL, which config/app.ts can override', async () => {
+    touched.push('APP_URL')
+    const fromEnv = await createApplication({
+      mode: 'test',
+      env: { APP_URL: 'https://example.test' },
+    })
+    expect(fromEnv.config.get('app.url')).toBe('https://example.test')
+
+    const overridden = await createApplication({
+      mode: 'test',
+      env: { APP_URL: 'https://example.test' },
+      config: {
+        app: { url: 'https://cdn.example.test' },
+      },
+    })
+    expect(overridden.config.get('app.url')).toBe('https://cdn.example.test')
+
+    // 空字符串视为未设置
+    const empty = await createApplication({
+      mode: 'test',
+      env: { APP_URL: '' },
+    })
+    expect(empty.config.get('app.url')).toBeUndefined()
+  })
+
   it('accepts import.meta.glob style module records', async () => {
     const app = await createApplication({
       mode: 'test',

@@ -197,16 +197,11 @@ const link = await Storage.disk('s3').temporaryUrl('invoices/42.pdf', '10m', { d
 - **s3** returns a native presigned URL.
 - **local / r2 / memory** return a framework-signed URL: `/__haze/storage/<disk>/<path>?expires=…&signature=…`. The signature is an HMAC with `APP_KEY` over the disk, path, expiry and download name. Tampered or expired links get a `403`.
 
-Signed URLs are site paths by default. To get absolute URLs, set `url` in `config/app.ts`:
+Signed URLs are site paths by default. Set `APP_URL` (or `url` in `config/app.ts`, see [configuration](./configuration#app-url)) to get absolute URLs:
 
-```ts
-// config/app.ts
-import { defineConfig, env } from '@hazejs/core'
-
-export default defineConfig(() => ({
-  name: env('APP_NAME', 'my-app'),
-  url: env('APP_URL', '') || undefined, // https://example.com/__haze/storage/...
-}))
+```sh
+# .env.production → https://example.com/__haze/storage/...
+APP_URL=https://example.com
 ```
 
 ## File responses
