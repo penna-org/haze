@@ -3,6 +3,7 @@ import type { ValidationIssue } from '../exception/exceptions'
 import type { HttpContext, ValidationTargets } from './context'
 import { getQuery } from 'h3'
 import { ValidationException } from '../exception/exceptions'
+import { localizeIssue } from '../i18n/validation'
 
 type Target = keyof ValidationTargets
 
@@ -22,9 +23,10 @@ export async function validateRequest(ctx: HttpContext, schemas: ValidationTarge
     const schema = schemas[target]
     if (!schema)
       continue
-    const result = await schema['~standard'].validate(await sources[target](ctx))
+    const input = await sources[target](ctx)
+    const result = await schema['~standard'].validate(input)
     if (result.issues)
-      issues.push(...result.issues.map(issue => toIssue(issue, target)))
+      issues.push(...result.issues.map(issue => toIssue(issue, target, input)))
     else
       validated[target] = result.value
   }
@@ -38,15 +40,20 @@ export async function validateRequest(ctx: HttpContext, schemas: ValidationTarge
 export async function validate<S extends StandardSchemaV1>(schema: S, value: unknown): Promise<StandardSchemaV1.InferOutput<S>> {
   const result = await schema['~standard'].validate(value)
   if (result.issues)
-    throw new ValidationException(result.issues.map(issue => toIssue(issue)))
+    throw new ValidationException(result.issues.map(issue => toIssue(issue, undefined, value)))
   return result.value
 }
 
-function toIssue(issue: StandardSchemaV1.Issue, target?: string): ValidationIssue {
+function toIssue(issue: StandardSchemaV1.Issue, target: string | undefined, input: unknown): ValidationIssue {
   const path = (issue.path ?? [])
     .map(segment => String(typeof segment === 'object'
       ? segment.key
       : segment))
     .join('.')
-  return { target, path, message: issue.message }
+  // 配置了 config/i18n.ts 时把校验库的默认消息翻译为当前语言
+  return {
+    target,
+    path,
+    message: localizeIssue(issue, path, target, input),
+  }
 }

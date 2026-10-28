@@ -51,6 +51,8 @@ export class TooManyRequestsException extends createHttpException(429, 'Too Many
 /** CSRF token 缺失或不匹配（与 Laravel 一致使用 419，前端可据此刷新 token 后重试） */
 export class CsrfTokenMismatchException extends createHttpException(419, 'Page Expired') {}
 export class InternalServerErrorException extends createHttpException(500, 'Internal Server Error') {}
+/** 签名链接无效、被篡改或已过期（`signed` 中间件） */
+export class InvalidSignatureException extends createHttpException(403, 'Invalid signature.') {}
 
 export interface ValidationIssue {
   /** 校验目标：body / query / params / headers */

@@ -14,13 +14,16 @@ describe('users', () => {
     const ada = created.body.data
     expect(ada).toMatchObject({ name: 'Ada', email: 'ada@example.com' })
 
+    // 列表经过 API 资源（app/resource/UserResource.ts）：分页信息在 meta / links，未登录时不输出邮箱
     const list = await t.get('/api/users')
     expect(list.body.data).toMatchObject({
-      total: 1,
       data: [
-        { id: ada.id },
+        { id: ada.id, name: 'Ada' },
       ],
+      meta: { total: 1, page: 1, lastPage: 1 },
+      links: { next: null },
     })
+    expect(list.body.data.data[0]).not.toHaveProperty('email')
 
     // 修改 / 删除需要登录且为本人（app/policy/UserPolicy.ts）
     const asAda = await t.actingAs(await User.findOrFail(ada.id))

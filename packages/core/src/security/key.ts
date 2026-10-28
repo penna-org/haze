@@ -19,6 +19,19 @@ export function appKey(config?: Config): string {
   return key
 }
 
+/**
+ * 轮换前的旧密钥（`app.previousKeys` 或逗号分隔的 `APP_PREVIOUS_KEYS`）：只用于解密与校验签名链接，
+ * 新的加密与签名始终使用 APP_KEY。
+ */
+export function previousAppKeys(config?: Config): string[] {
+  const keys = config?.get<string | string[] | undefined>('app.previousKeys', undefined) ?? process.env.APP_PREVIOUS_KEYS
+  return (Array.isArray(keys)
+    ? keys
+    : (keys ?? '').split(','))
+    .map(key => key.trim())
+    .filter(Boolean)
+}
+
 /** 生成新的应用密钥（base64url，256 位） */
 export function generateKey(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(32)))

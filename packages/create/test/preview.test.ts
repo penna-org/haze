@@ -126,7 +126,7 @@ describe('vite preview runs the build output of every preset', () => {
     await server!.close()
     server = await previewServer({ root: project!.root, port: await freePort() })
     const again = server.resolvedUrls!.local[0].replace(/\/$/, '')
-    expect((await (await fetch(`${again}/api/users`)).json() as any).data.total).toBe(1)
+    expect((await (await fetch(`${again}/api/users`)).json() as any).data.meta.total).toBe(1)
   })
 
   it('api template: haze preview serves a backend-only build', async () => {

@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { normalizePath } from 'vite'
 import { PLUGIN_NAME } from './constants'
+import { writeI18nTypes } from './typegen-i18n'
 import { generateRouteTypes } from './typegen-routes'
 
 export interface TypegenOptions {
@@ -131,6 +132,8 @@ export async function writeTypes(options: TypegenOptions): Promise<TypegenResult
   const changed = [
     await writeIfChanged(result.file, content),
     await writeIfChanged(routesFile(options.root), client.manifest),
+    // lang/<locale>/*.ts 的翻译键（.haze/types/i18n.d.ts）
+    (await writeI18nTypes({ root: options.root, srcDir: options.srcDir })).changed,
   ].some(Boolean)
   return { ...result, changed }
 }

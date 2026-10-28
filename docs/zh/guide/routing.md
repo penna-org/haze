@@ -186,6 +186,41 @@ router.url('api.user.show', { id: 1 }) // 类型错误：路由名不存在
 
 也可以手动执行 `pnpm typegen`（`haze typegen`），例如在 CI 里先生成类型再跑 `tsc`。
 
+## 签名链接
+
+签名链接带有一个对路径与查询参数计算的 HMAC-SHA256 签名（密钥为 `APP_KEY`），可以直接发给用户（比如放在邮件里），之后无需存储任何状态即可校验。常见用途有退订链接、邀请链接和下载链接。
+
+```ts
+import { inject, Router } from '@hazejs/core'
+
+const router = inject(Router)
+
+await router.signedUrl('unsubscribe', { id: user.id })
+// https://example.com/unsubscribe/42?signature=...
+
+await router.temporarySignedUrl('invitations.accept', '7d', { id: invitation.id })
+await router.signedUrl('downloads.show', { file }, { expiresIn: '30m', query: { as: 'report.csv' } })
+```
+
+| 选项 | 说明 |
+|------|------|
+| `expiresIn` | 有效期（`'30m'`、`'7d'` 或秒数），会追加 `expires` 参数；不设置时永久有效 |
+| `expiresAt` | 过期时间（`Date` 或时间戳），与 `expiresIn` 二选一 |
+| `query` | 附加的查询参数，同样受签名保护 |
+| `absolute` | 是否以 `app.url`（`APP_URL`）为前缀生成绝对链接；设置了 `APP_URL` 时默认为 `true` |
+
+`temporarySignedUrl(name, expiresIn, params?, options?)` 与之相同，只是有效期为必填（时长或 `Date`）。签名前查询参数会排序，因此参数顺序不影响校验；`expires` 与 `signature` 为保留参数。
+
+路由上加内置的 `signed` 中间件即可保护。被篡改、没有签名或已过期的链接返回 `403`（`InvalidSignatureException`，配置了[多语言](./localization)时消息会被翻译）：
+
+```ts
+r.get('/unsubscribe/:id', [NewsletterController, 'unsubscribe']).middleware('signed').name('unsubscribe')
+// 忽略签名之后追加的参数，例如统计用的标记
+r.get('/downloads/:file', [DownloadController, 'show']).middleware('signed:utm_source,utm_medium').name('downloads.show')
+```
+
+也可以手动调用 `await ctx.hasValidSignature()` 校验（同样支持 `{ ignore: [...] }`）。轮换 `APP_KEY` 后，用 `app.previousKeys` / `APP_PREVIOUS_KEYS` 中的旧密钥签发的链接仍然有效（见[加密](./security#加密)）。
+
 ## WebSocket 路由
 
 `r.ws()` 注册 WebSocket 端点。升级请求和普通 GET 一样经过全局中间件与路由中间件，因此可以直接加上 `auth`：

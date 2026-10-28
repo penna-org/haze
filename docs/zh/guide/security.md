@@ -21,7 +21,8 @@ export default defineMiddlewareConfig({
 - 签名 Cookie（HMAC-SHA256）；
 - Session：`cookie` 驱动用 AES-GCM 加密会话数据（密钥由 `APP_KEY` 经 HKDF 派生），其他驱动对会话 ID 签名；
 - `HS*` 算法 JWT Guard 的默认密钥；
-- `local`、`r2` 存储磁盘的签名临时链接。
+- `local`、`r2` 存储磁盘的签名临时链接；
+- [路由签名链接](./routing#签名链接)与[加密](#加密)。
 
 新建项目时会自动生成独立的密钥。生成或更换密钥：
 
@@ -235,6 +236,38 @@ export default defineThrottleConfig(() => ({
 ```ts
 api: { max: 60, window: '1m', binding: 'API_RATE_LIMITER' },
 ```
+
+## 加密
+
+`Crypt` 通过 Web Crypto 使用 AES-256-GCM 加密，在 Node、Bun、Deno 与 Cloudflare Workers 上表现一致。密钥由 `APP_KEY` 经 HKDF 派生，与签名、Session 使用的密钥相互隔离。
+
+```ts
+import { Crypt } from '@hazejs/core'
+
+const token = await Crypt.encrypt({ userId: 1, scope: 'export' })
+const data = await Crypt.decrypt<{ userId: number, scope: string }>(token)
+
+const secret = await Crypt.encryptString('sk_live_...')   // 不做 JSON 序列化
+const plain = await Crypt.decryptString(secret)
+```
+
+- `encrypt()` 先把值序列化为 JSON（日期会变成字符串）；`encryptString()` 直接加密字符串。
+- 每次加密都使用随机 IV，相同的输入不会得到相同的密文。
+- 密文是带版本号、URL 安全的字符串（`v1.<base64url>`），可以直接放进 URL、Cookie 或数据库字段。
+- 密文被篡改、截断或不是用本应用的密钥加密时，抛出 `DecryptException`。
+
+### 密钥轮换
+
+直接更换 `APP_KEY` 会导致已有的密文无法解密。把旧密钥放进 `APP_PREVIOUS_KEYS`（逗号分隔）或 `config/app.ts` 的 `previousKeys`：解密时先用当前密钥，再依次尝试旧密钥；新数据始终用当前密钥加密。旧密钥同样让[签名链接](./routing#签名链接)保持有效。
+
+```bash
+APP_KEY=new-key...
+APP_PREVIOUS_KEYS=old-key...,older-key...
+```
+
+需要自定义密钥时，直接创建 `Encrypter`：`new Encrypter(key, previousKeys)`。
+
+密码应该哈希而不是加密，请使用 [`Hash`](./authentication)。
 
 ## 请求体限制
 

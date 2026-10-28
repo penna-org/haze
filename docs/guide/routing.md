@@ -186,6 +186,41 @@ router.url('api.user.show', { id: 1 }) // type error: unknown route name
 
 Run `pnpm typegen` (`haze typegen`) to regenerate the types manually, for example in CI before `tsc`.
 
+## Signed URLs
+
+A signed URL carries an HMAC-SHA256 signature (keyed with `APP_KEY`) over its path and query string, so it can be handed out — in an email, say — and verified later without storing anything. Typical uses are unsubscribe links, invitations and downloads.
+
+```ts
+import { inject, Router } from '@hazejs/core'
+
+const router = inject(Router)
+
+await router.signedUrl('unsubscribe', { id: user.id })
+// https://example.com/unsubscribe/42?signature=...
+
+await router.temporarySignedUrl('invitations.accept', '7d', { id: invitation.id })
+await router.signedUrl('downloads.show', { file }, { expiresIn: '30m', query: { as: 'report.csv' } })
+```
+
+| Option | Description |
+|--------|-------------|
+| `expiresIn` | Lifetime (`'30m'`, `'7d'` or seconds); adds an `expires` parameter. Without it the link never expires |
+| `expiresAt` | Expiry as a `Date` or timestamp, instead of `expiresIn` |
+| `query` | Extra query parameters, covered by the signature |
+| `absolute` | Prefix with `app.url` (`APP_URL`); defaults to `true` when `APP_URL` is set |
+
+`temporarySignedUrl(name, expiresIn, params?, options?)` is the same with a required lifetime (a duration or a `Date`). The query parameters are sorted before signing, so their order doesn't matter; `expires` and `signature` are reserved.
+
+Protect the route with the built-in `signed` middleware. Tampered, unsigned and expired links get a `403` (`InvalidSignatureException`, message translated when [localization](./localization) is configured):
+
+```ts
+r.get('/unsubscribe/:id', [NewsletterController, 'unsubscribe']).middleware('signed').name('unsubscribe')
+// ignore parameters added after signing, such as tracking tags
+r.get('/downloads/:file', [DownloadController, 'show']).middleware('signed:utm_source,utm_medium').name('downloads.show')
+```
+
+Or check by hand with `await ctx.hasValidSignature()` (`{ ignore: [...] }` works there too). Links signed with a key listed in `app.previousKeys` / `APP_PREVIOUS_KEYS` stay valid after you rotate `APP_KEY` (see [Encryption](./security#encryption)).
+
 ## WebSocket routes
 
 `r.ws()` registers a WebSocket endpoint. The upgrade request goes through global and route middleware like a normal GET, so you can protect it with `auth`:

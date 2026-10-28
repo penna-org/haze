@@ -21,7 +21,8 @@ Each middleware reads its options from the config file of the same name (`config
 - signed cookies (HMAC-SHA256),
 - sessions: the `cookie` driver encrypts session data with AES-GCM (a key derived from `APP_KEY` via HKDF), and the other drivers sign the session id,
 - the default secret of `HS*` JWT guards,
-- signed temporary URLs for the `local` and `r2` storage disks.
+- signed temporary URLs for the `local` and `r2` storage disks,
+- [signed route URLs](./routing#signed-urls) and [encryption](#encryption).
 
 New projects get their own key when they are scaffolded. To create or rotate one:
 
@@ -235,6 +236,38 @@ On Cloudflare Workers, prefer a Rate Limiting binding, which is atomic and globa
 ```ts
 api: { max: 60, window: '1m', binding: 'API_RATE_LIMITER' },
 ```
+
+## Encryption
+
+`Crypt` encrypts values with AES-256-GCM through Web Crypto, so it works the same on Node, Bun, Deno and Cloudflare Workers. The key is derived from `APP_KEY` with HKDF and is separate from the keys used for signing and sessions.
+
+```ts
+import { Crypt } from '@hazejs/core'
+
+const token = await Crypt.encrypt({ userId: 1, scope: 'export' })
+const data = await Crypt.decrypt<{ userId: number, scope: string }>(token)
+
+const secret = await Crypt.encryptString('sk_live_...')   // no JSON serialization
+const plain = await Crypt.decryptString(secret)
+```
+
+- `encrypt()` serializes the value as JSON (dates become strings); `encryptString()` encrypts a string as is.
+- Every call uses a random IV, so the same input never produces the same payload.
+- The payload is a versioned, URL-safe string (`v1.<base64url>`), ready for URLs, cookies and database columns.
+- Tampered, truncated or foreign payloads throw `DecryptException`.
+
+### Key rotation
+
+Rotating `APP_KEY` would make existing payloads unreadable. Keep the old keys in `APP_PREVIOUS_KEYS` (comma-separated) or `previousKeys` in `config/app.ts`: decryption tries the current key first, then each previous key, while new data is always encrypted with the current key. Previous keys also keep [signed URLs](./routing#signed-urls) valid.
+
+```bash
+APP_KEY=new-key...
+APP_PREVIOUS_KEYS=old-key...,older-key...
+```
+
+For a custom key, create an `Encrypter` directly: `new Encrypter(key, previousKeys)`.
+
+Passwords are hashed, not encrypted: use [`Hash`](./authentication) for those.
 
 ## Request body limit
 

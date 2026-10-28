@@ -1,0 +1,20 @@
+import { defineResource, when } from '@hazejs/core'
+
+/** 换成模型类型：import type { {{name}} } from '~/app/model/{{name}}' */
+interface {{name}}Like {
+  id: number
+  createdAt?: Date | null
+}
+
+/**
+ * API 资源：把模型转换为接口输出（字段可以是 Promise、嵌套资源或条件字段）。
+ * - 单个：return {{className}}.make({{camelName}})
+ * - 列表 / 分页：return {{className}}.collection(await {{name}}.paginate(page, 20))（保留 meta 与 links）
+ * - 条件字段：when(条件, 值)、whenLoaded('关联', OtherResource)、...merge(条件, { ... })
+ */
+export const {{className}} = defineResource(({{camelName}}: {{name}}Like, ctx) => ({
+  id: {{camelName}}.id,
+  createdAt: {{camelName}}.createdAt,
+  // 示例：只在请求带 ?include=debug 时输出
+  debug: when(ctx.query('include') === 'debug', () => ({ requestId: ctx.requestId })),
+}))

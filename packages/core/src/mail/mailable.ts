@@ -8,6 +8,8 @@ export interface MailOptions {
   name?: string
   /** 使用的邮件驱动（config/mail.ts 的 mailers），默认 default */
   mailer?: string
+  /** 渲染时使用的语言（内容中的 t() 按此翻译），`Mail.to(...).locale()` 优先 */
+  locale?: string
 }
 
 export interface MailDefinition<P = void> extends MailOptions {
