@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { loadThinkConfig } from '@think-h3/vite'
+import { loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { resolveRoot, rootArg, serverArgs } from '../args'
 
@@ -14,14 +14,14 @@ export default defineCommand({
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const { outDir } = await loadThinkConfig(root, 'production')
+    const { outDir } = await loadHazeConfig(root, 'production')
     // 纯后端：dist/index.mjs；全栈：dist/server/index.mjs
     const entry = [
       join(outDir, 'index.mjs'),
       join(outDir, 'server', 'index.mjs'),
     ].find(file => existsSync(file))
     if (!entry)
-      throw new Error(`No build output found in ${relative(process.cwd(), outDir) || '.'}. Run \`think-h3 build\` first.`)
+      throw new Error(`No build output found in ${relative(process.cwd(), outDir) || '.'}. Run \`haze build\` first.`)
 
     process.env.NODE_ENV = 'production'
     if (args.port)

@@ -4,14 +4,14 @@ import type { PresetName } from './presets'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { createBuilder, mergeConfig } from 'vite'
-import { loadThinkConfig } from './config'
-import { thinkH3 } from './plugin'
+import { loadHazeConfig } from './config'
+import { haze } from './plugin'
 
 export interface BuildServerOptions {
   root?: string
-  /** 覆盖 think.config.ts 中的 outDir */
+  /** 覆盖 haze.config.ts 中的 outDir */
   outDir?: string
-  /** 部署预设，默认读取 think.config.ts，否则为 node */
+  /** 部署预设，默认读取 haze.config.ts，否则为 node */
   preset?: PresetName
   minify?: boolean
   sourcemap?: boolean
@@ -27,11 +27,11 @@ export interface BuildServerResult extends BuildInfo {
  */
 export async function buildServer(options: BuildServerOptions = {}): Promise<BuildServerResult> {
   const root = resolve(options.root ?? process.cwd())
-  const config = await loadThinkConfig(root, 'production')
+  const config = await loadHazeConfig(root, 'production')
   const outDir = options.outDir
     ? resolve(root, options.outDir)
     : config.outDir
-  const plugin = thinkH3({
+  const plugin = haze({
     srcDir: config.srcDir,
     outDir,
     port: config.port,

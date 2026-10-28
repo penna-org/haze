@@ -1,4 +1,4 @@
-import { defineProvider, Logger } from '@think-h3/core'
+import { defineProvider, Logger } from '@hazejs/core'
 import { UserRepository } from '~/app/repository/UserRepository'
 
 export default defineProvider({

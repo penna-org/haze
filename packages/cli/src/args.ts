@@ -13,7 +13,7 @@ export const serverArgs = {
   port: {
     type: 'string',
     alias: 'p',
-    description: '监听端口（默认读取 PORT 或 think.config.ts）',
+    description: '监听端口（默认读取 PORT 或 haze.config.ts）',
   },
   host: {
     type: 'string',

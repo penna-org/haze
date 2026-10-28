@@ -4,7 +4,7 @@ import type { MaybePromise } from '../utils'
 import { parseDuration } from '../utils'
 import { useQueueManager } from './context'
 
-const kJob = Symbol.for('think-h3.job')
+const kJob = Symbol.for('hazejs.job')
 
 /** 任务执行时的上下文 */
 export interface JobContext {

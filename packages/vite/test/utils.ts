@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 const testDir = dirname(fileURLToPath(import.meta.url))
 let counter = 0
 
-/** 复制 fixture 到 test/.tmp 下（仍可沿目录向上解析到 @think-h3/core） */
+/** 复制 fixture 到 test/.tmp 下（仍可沿目录向上解析到 @hazejs/core） */
 export function copyFixture(name: string): { root: string, write: (file: string, content: string) => void, edit: (file: string, from: string, to: string) => void, cleanup: () => void } {
   const root = join(testDir, '.tmp', `${name}-${process.pid}-${++counter}`)
   rmSync(root, { recursive: true, force: true })

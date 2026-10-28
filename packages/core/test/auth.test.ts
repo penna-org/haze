@@ -301,7 +301,7 @@ async function authConfig(api: Record<string, unknown> = {}) {
           driver: 'jwt',
           provider: 'users',
           expiresIn: '15m',
-          issuer: 'think-h3',
+          issuer: 'hazejs',
           ...api,
         },
         web: { driver: 'session', provider: 'users' },
@@ -321,7 +321,7 @@ describe('jwt guard', () => {
     })
     const { data } = await login.json() as any
     expect(data).toMatchObject({ type: 'Bearer', expiresIn: 900 })
-    expect(decodeJwt(data.token)).toMatchObject({ sub: '1', iss: 'think-h3', role: 'admin' })
+    expect(decodeJwt(data.token)).toMatchObject({ sub: '1', iss: 'hazejs', role: 'admin' })
 
     const headers = { authorization: `Bearer ${data.token}` }
     expect((await (await app.request('/me', { headers })).json() as any).data).toEqual({ email: 'ada@example.com', guard: 'api' })

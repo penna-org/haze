@@ -1,9 +1,28 @@
 {
-  "name": "create-think-h3",
+  "name": "create-hazejs",
   "type": "module",
   "version": "0.0.0",
-  "description": "Scaffold a think-h3 project (API or Vue full-stack)",
+  "description": "Create a hazejs project (API, Vue or React full-stack)",
   "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/create#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/create"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "create",
+    "scaffold",
+    "template",
+    "starter"
+  ],
   "exports": {
     ".": {
       "types": "./dist/scaffold.d.mts",
@@ -12,7 +31,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "create-think-h3": "./bin/create-think-h3.mjs"
+    "create-hazejs": "./bin/create-hazejs.mjs"
   },
   "files": [
     "bin",
@@ -30,13 +49,13 @@
     "consola": "catalog:"
   },
   "devDependencies": {
+    "@hazejs/cli": "workspace:*",
+    "@hazejs/core": "workspace:*",
+    "@hazejs/orm": "workspace:*",
+    "@hazejs/socket.io": "workspace:*",
+    "@hazejs/testing": "workspace:*",
+    "@hazejs/vite": "workspace:*",
     "@libsql/client": "catalog:",
-    "@think-h3/cli": "workspace:*",
-    "@think-h3/core": "workspace:*",
-    "@think-h3/orm": "workspace:*",
-    "@think-h3/socket.io": "workspace:*",
-    "@think-h3/testing": "workspace:*",
-    "@think-h3/vite": "workspace:*",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",

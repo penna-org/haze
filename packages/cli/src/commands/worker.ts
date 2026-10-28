@@ -1,11 +1,11 @@
-import type { DevServer } from '@think-h3/vite'
+import type { DevServer } from '@hazejs/vite'
 import process from 'node:process'
-import { createDevServer } from '@think-h3/vite'
+import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { resolveRoot, rootArg } from '../args'
 
-type Core = typeof import('@think-h3/core')
+type Core = typeof import('@hazejs/core')
 
 /** 在应用的模块图中运行（不监听端口）；keepAlive 时保持运行，文件变化后应用热替换 */
 async function withApp<T>(root: string, run: (server: DevServer, core: Core) => Promise<T>, keepAlive = false): Promise<T> {
@@ -14,7 +14,7 @@ async function withApp<T>(root: string, run: (server: DevServer, core: Core) => 
     await server.close()
     throw new Error('Application failed to start')
   }
-  const core = await server.import<Core>('@think-h3/core')
+  const core = await server.import<Core>('@hazejs/core')
   try {
     return await run(server, core)
   }

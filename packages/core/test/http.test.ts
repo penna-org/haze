@@ -509,7 +509,7 @@ describe('static files', () => {
     const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const dir = mkdtempSync(join(tmpdir(), 'think-static-'))
+    const dir = mkdtempSync(join(tmpdir(), 'haze-static-'))
     mkdirSync(join(dir, 'assets'))
     writeFileSync(join(dir, 'index.html'), '<div id="app"></div>')
     writeFileSync(join(dir, 'assets', 'main-abc123.js'), 'console.log(1)')
@@ -642,11 +642,11 @@ describe('debug error page details', () => {
 
   it('hides framework-only stacks for client errors but keeps them for server errors', () => {
     const error = new NotFoundException()
-    error.stack = 'Error\n    at eval (/app/node_modules/@think-h3/core/dist/index.mjs:10:5)'
+    error.stack = 'Error\n    at eval (/app/node_modules/@hazejs/core/dist/index.mjs:10:5)'
     expect(renderErrorPage({ error, status: 404, message: 'Not Found' })).not.toContain('调用栈')
 
     const crash = new Error('boom')
-    crash.stack = 'Error: boom\n    at eval (/app/node_modules/@think-h3/core/dist/index.mjs:10:5)'
+    crash.stack = 'Error: boom\n    at eval (/app/node_modules/@hazejs/core/dist/index.mjs:10:5)'
     expect(renderErrorPage({ error: crash, status: 500, message: 'boom' })).toContain('<details open>')
   })
 })

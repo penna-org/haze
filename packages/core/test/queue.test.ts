@@ -198,14 +198,14 @@ describe('queue.fake()', () => {
   })
 })
 
-// 真实 Redis（BullMQ）：THINK_TEST_REDIS_URL=redis://127.0.0.1:6379
-describe.runIf(process.env.THINK_TEST_REDIS_URL)('queue (redis / BullMQ)', () => {
+// 真实 Redis（BullMQ）：HAZE_TEST_REDIS_URL=redis://127.0.0.1:6379
+describe.runIf(process.env.HAZE_TEST_REDIS_URL)('queue (redis / BullMQ)', () => {
   const connection = () => ({
     default: 'redis',
     connections: {
       redis: {
         driver: 'redis',
-        url: process.env.THINK_TEST_REDIS_URL,
+        url: process.env.HAZE_TEST_REDIS_URL,
         prefix: `test-${crypto.randomUUID()}`,
         queues: ['default', 'emails'],
       },

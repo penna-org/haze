@@ -1,9 +1,9 @@
-import type { DevServer } from '@think-h3/vite'
+import type { DevServer } from '@hazejs/vite'
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import process from 'node:process'
-import { createDevServer, loadThinkConfig } from '@think-h3/vite'
+import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { resolveRoot, rootArg } from '../args'
@@ -32,7 +32,7 @@ interface Target {
 
 /** 启动（不监听端口的）开发服务器以读取配置；db:migrate / db:seed 也在应用的模块图中执行 */
 async function withApp<T>(root: string, run: (server: DevServer, database: DatabaseConfig, srcDir: string) => Promise<T>): Promise<T> {
-  const { srcDir } = await loadThinkConfig(root)
+  const { srcDir } = await loadHazeConfig(root)
   const server = await createDevServer({ root, listen: false })
   try {
     if (!server.app)
@@ -121,13 +121,13 @@ export const migrateCommand = defineCommand({
     const root = resolveRoot(args.root)
     await withApp(root, async (server, _database, srcDir) => {
       // 与生产迁移入口（migrate.mjs / Lambda index.migrate）相同的实现，只是从源码目录读取迁移
-      const orm = await server.import<typeof import('@think-h3/orm')>('@think-h3/orm')
+      const orm = await server.import<typeof import('@hazejs/orm')>('@hazejs/orm')
       const results = await orm.runMigrations({ srcDir, connection: args.connection, all: args.all })
       for (const result of results) {
         if (result.skipped === 'mongodb')
           consola.info(`[${result.connection}] MongoDB has no migrations, skipped`)
         else if (result.skipped)
-          consola.warn(`[${result.connection}] no migrations in ${result.folder}, run think-h3 db:generate first`)
+          consola.warn(`[${result.connection}] no migrations in ${result.folder}, run haze db:generate first`)
         else
           consola.success(`[${result.connection}] migrated: ${result.applied} of ${result.total} applied (${result.folder})`)
       }

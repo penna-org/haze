@@ -1,4 +1,4 @@
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 import { HelloController } from '~/app/controller/HelloController'
 
 export default defineRoutes((r) => {

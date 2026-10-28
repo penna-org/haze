@@ -1,4 +1,4 @@
-import { defineThinkTestConfig } from '@think-h3/testing/config'
+import { defineHazeTestConfig } from '@hazejs/testing/config'
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig(defineThinkTestConfig())
+export default defineConfig(defineHazeTestConfig())

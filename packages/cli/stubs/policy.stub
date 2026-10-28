@@ -1,4 +1,4 @@
-import { allowGuest, definePolicy, deny } from '@think-h3/core'
+import { allowGuest, definePolicy, deny } from '@hazejs/core'
 import { {{name}} } from '~/app/model/{{name}}'
 
 /**

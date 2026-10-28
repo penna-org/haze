@@ -1,7 +1,7 @@
-import { defineSchedule } from '@think-h3/core'
+import { defineSchedule } from '@hazejs/core'
 
 /**
- * 定时任务：think-h3 schedule:work（开发 / 常驻），或系统 cron 每分钟执行 think-h3 schedule:run；
+ * 定时任务：haze schedule:work（开发 / 常驻），或系统 cron 每分钟执行 haze schedule:run；
  * 构建产物：node dist/…/worker.mjs schedule，Workers 为 Cron Triggers，Lambda 为 index.schedule。
  */
 export default defineSchedule((s) => {

@@ -1,7 +1,7 @@
-# think-h3 框架设计与实现方案
+# hazejs 框架设计与实现方案
 
 > 状态：草案 v0.1（2026-10-26）
-> 命令名暂定 `think-h3`，包名暂定 `@think-h3/*`。产品名定下来后只需改一处常量和包 scope。
+> 框架名 hazejs，命令 `haze`，包名 `@hazejs/*`（2026-10-28 由 think-h3 更名，见文末记录）。
 
 ---
 
@@ -13,15 +13,15 @@
 
 | # | 诉求 | 方案要点 |
 |---|------|----------|
-| 1 | 脚手架一条命令启动项目 | `think-h3 dev / build / start / test / make:*`，`create-think-h3` 初始化项目 |
+| 1 | 脚手架一条命令启动项目 | `haze dev / build / start / test / make:*`，`create-hazejs` 初始化项目 |
 | 2 | 热更新，不重启进程 | Vite Environment API + ModuleRunner 重新加载应用，**外层 HTTP 监听不变，只热替换 fetch handler** |
 | 3 | 依赖注入 | 自研轻量 IoC 容器，`inject()` 函数式注入，支持 singleton / request / transient 三种作用域 |
 | 4 | 中间件 | 全局 / 分组 / 路由 / 别名中间件，类中间件可注入依赖，底层映射到 h3 的 `(event, next)` |
 | 5 | 集中错误处理 | `HttpException` 体系 + `app/exception/Handler.ts`（report / render），统一响应格式 |
 | 6 | 路由统一管理 | `route/*.ts` 集中定义，支持 group / resource / 中间件 / 校验 / 命名路由，`route:list` 查看 |
 | 7 | 分层 | Controller → Service → Repository/Model，DTO/Validate、Provider、Event/Listener |
-| 8 | 集成 Vitest | `@think-h3/testing`：`createTestApp()` 免监听端口测试，支持替换容器绑定 |
-| 9 | 作为 Vite 插件服务 Vue 项目 | `@think-h3/vite`：开发时挂到 Vite dev server 的 `/api/**`，构建时同时产出 client + server |
+| 8 | 集成 Vitest | `@hazejs/testing`：`createTestApp()` 免监听端口测试，支持替换容器绑定 |
+| 9 | 作为 Vite 插件服务 Vue 项目 | `@hazejs/vite`：开发时挂到 Vite dev server 的 `/api/**`，构建时同时产出 client + server |
 
 非目标（第一期不做）：ORM 本体、前端 UI、多运行时部署预设（先只保证 Node，h3 本身跨运行时，后续可扩展）。
 
@@ -57,24 +57,24 @@ Nitro 同样基于 h3，并自带 dev/build/HMR/部署预设。但它的约定�
 ┌────────────────────────────────────────────────────────────────┐
 │                        开发者项目 (my-app)                      │
 │  app/ controller service repository middleware exception ...   │
-│  route/  config/  tests/  .env  think.config.ts                │
+│  route/  config/  tests/  .env  haze.config.ts                │
 └──────────────┬───────────────────────────────┬─────────────────┘
-               │ think-h3 dev/build/test       │ vite.config.ts 中 thinkH3()
+               │ haze dev/build/test       │ vite.config.ts 中 haze()
 ┌──────────────▼──────────────┐  ┌─────────────▼──────────────────┐
-│ @think-h3/cli               │  │ @think-h3/vite                 │
+│ @hazejs/cli               │  │ @hazejs/vite                 │
 │ citty 命令 / make:* 生成器   │──▶ Vite 插件：虚拟模块、dev 挂载、 │
 │ route:list / typegen        │  │ 热替换 runner、client+server 构建│
 └──────────────┬──────────────┘  └─────────────┬──────────────────┘
                │                               │
 ┌──────────────▼───────────────────────────────▼─────────────────┐
-│ @think-h3/core                                                  │
+│ @hazejs/core                                                  │
 │  Application(生命周期) · Container(DI) · Config/Env             │
 │  Router(集中路由→h3) · Middleware 管线 · HttpContext            │
 │  Exception(Handler/HttpException) · Validation · Event · Logger │
 └──────────────┬──────────────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────┐      ┌─────────────────────────────┐
-│ h3 v2 (H3 / HTTPError /     │      │ @think-h3/testing (vitest)   │
+│ h3 v2 (H3 / HTTPError /     │      │ @hazejs/testing (vitest)   │
 │ utils / serve via srvx)     │      │ createTestApp / 容器 override │
 └─────────────────────────────┘      └─────────────────────────────┘
 ```
@@ -82,13 +82,13 @@ Nitro 同样基于 h3，并自带 dev/build/HMR/部署预设。但它的约定�
 ### 3.1 框架仓库（monorepo）结构
 
 ```
-think-h3/
+hazejs/
 ├─ packages/
-│  ├─ core/            # @think-h3/core       运行时内核
-│  ├─ vite/            # @think-h3/vite       Vite 插件 + dev 运行时
-│  ├─ cli/             # @think-h3/cli        bin: think-h3
-│  ├─ testing/         # @think-h3/testing    vitest 集成
-│  └─ create/          # create-think-h3      项目初始化
+│  ├─ core/            # @hazejs/core       运行时内核
+│  ├─ vite/            # @hazejs/vite       Vite 插件 + dev 运行时
+│  ├─ cli/             # @hazejs/cli        bin: hazejs
+│  ├─ testing/         # @hazejs/testing    vitest 集成
+│  └─ create/          # create-hazejs      项目初始化
 ├─ templates/
 │  ├─ api/             # 纯后端模板
 │  └─ fullstack-vue/   # Vue + 后端一体模板
@@ -121,14 +121,14 @@ my-app/
 ├─ route/                # api.ts web.ts ... 集中路由
 ├─ tests/
 ├─ .env / .env.development / .env.production
-└─ think.config.ts       # 框架/工具链配置（目录、端口、前缀等）
+└─ haze.config.ts       # 框架/工具链配置（目录、端口、前缀等）
 ```
 
 全栈 Vue 项目时，后端整体放在 `server/` 下（`server/app`、`server/route`、`server/config`），前端仍是标准 Vue 项目 `src/`。
 
 ### 3.3 ThinkPHP 概念映射
 
-| ThinkPHP | think-h3 | 说明 |
+| ThinkPHP | hazejs | 说明 |
 |----------|----------|------|
 | 容器 Container `bind/make/invoke` | `Container` `bind/singleton/make/call` | 自研，见 §4 |
 | 服务 Service（系统服务） | `ServiceProvider` `register()/boot()` | 生命周期两阶段 |
@@ -139,7 +139,7 @@ my-app/
 | 验证器 `validate` | `validate/` + Standard Schema | 路由声明式校验 |
 | 配置 `config()` / `env()` | `config('db.host')` / `env('DB_HOST')` | 类型安全 |
 | 事件 Event | `EventBus` + listener 自动发现 | 第二期 |
-| 命令行 `php think make:controller` | `think-h3 make:controller` | 见 §9 |
+| 命令行 `php think make:controller` | `haze make:controller` | 见 §9 |
 
 ---
 
@@ -160,9 +160,9 @@ NestJS 风格的“构造函数参数自动注入”依赖 `emitDecoratorMetadat
 
 ```ts
 // app/service/UserService.ts
-import { inject, Scope } from '@think-h3/core'
+import { inject, Scope } from '@hazejs/core'
 import { UserRepository } from '../repository/UserRepository'
-import { Logger } from '@think-h3/core'
+import { Logger } from '@hazejs/core'
 
 export class UserService {
   static scope = Scope.Singleton            // 默认 Singleton，可省略
@@ -213,7 +213,7 @@ export default defineProvider({
 export const pool = definePersistent('db-pool', () => createPool(...))
 ```
 
-实现上挂在 `globalThis.__THINK_PERSIST__`（同一进程内跨重载存活），仅在真正退出或配置变更时销毁。
+实现上挂在 `globalThis.__HAZE_PERSIST__`（同一进程内跨重载存活），仅在真正退出或配置变更时销毁。
 
 ---
 
@@ -223,7 +223,7 @@ export const pool = definePersistent('db-pool', () => createPool(...))
 
 ```ts
 // route/api.ts
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 import { HomeController } from '~/app/controller/HomeController'
 import { UserController } from '~/app/controller/UserController'
 import { CreateUserSchema } from '~/app/validate/user'
@@ -257,7 +257,7 @@ RouteDefinition[] ──► 展开 group(前缀/中间件合并) ──► 解�
   ──► app.on(method, path, handler, { middleware: [...resolved] })
 ```
 
-好处：路由表是数据，因此可以 `think-h3 route:list` 打印、生成 OpenAPI、生成前端类型安全的 API 客户端。
+好处：路由表是数据，因此可以 `haze route:list` 打印、生成 OpenAPI、生成前端类型安全的 API 客户端。
 
 ### 5.3 控制器
 
@@ -388,7 +388,7 @@ serve: srvx serve({ fetch }) + 优雅停机（SIGTERM → 停止接收 → 等�
 不在运行时扫描文件系统，而是由 Vite 插件生成虚拟模块：
 
 ```ts
-// virtual:think/manifest（插件生成）
+// virtual:haze/manifest（插件生成）
 export const configs   = import.meta.glob('/config/*.ts', { eager: true })
 export const routes    = import.meta.glob('/route/*.ts', { eager: true })
 export const providers = import.meta.glob('/app/provider/*.ts', { eager: true })
@@ -403,35 +403,35 @@ export const handler   = import.meta.glob('/app/exception/Handler.ts', { eager: 
 
 ## 9. 脚手架 / CLI
 
-基于 unjs 生态：`citty`（命令）、`consola`（输出）、`c12`（加载 `think.config.ts`）、`giget`（拉模板）。
+基于 unjs 生态：`citty`（命令）、`consola`（输出）、`c12`（加载 `haze.config.ts`）、`giget`（拉模板）。
 
 | 命令 | 作用 |
 |------|------|
-| `pnpm create think-h3 my-app` | 交互选择模板（api / fullstack-vue）、包管理器、是否带 ORM |
-| `think-h3 dev` | 启动开发服务器，热替换 |
-| `think-h3 build` | 产出 `dist/server/index.mjs`（全栈时另有 `dist/client`） |
-| `think-h3 start` | 运行生产产物（等同 `node dist/server/index.mjs`） |
-| `think-h3 test` | 调用 vitest（自动注入框架配置） |
-| `think-h3 make:controller User --resource` | 生成器：controller/service/middleware/provider/validate/exception |
-| `think-h3 route:list` | 表格打印路由、方法、中间件、处理器 |
-| `think-h3 typegen` | 生成 `.think/types`：config 键、路由名、中间件别名的类型 |
+| `pnpm create hazejs my-app` | 交互选择模板（api / fullstack-vue）、包管理器、是否带 ORM |
+| `haze dev` | 启动开发服务器，热替换 |
+| `haze build` | 产出 `dist/server/index.mjs`（全栈时另有 `dist/client`） |
+| `haze start` | 运行生产产物（等同 `node dist/server/index.mjs`） |
+| `haze test` | 调用 vitest（自动注入框架配置） |
+| `haze make:controller User --resource` | 生成器：controller/service/middleware/provider/validate/exception |
+| `haze route:list` | 表格打印路由、方法、中间件、处理器 |
+| `haze typegen` | 生成 `.haze/types`：config 键、路由名、中间件别名的类型 |
 
 ### 9.1 `dev` 热更新实现（核心）
 
 ```ts
-// @think-h3/vite 内部 dev 运行时（示意）
+// @hazejs/vite 内部 dev 运行时（示意）
 const vite = await createServer({
   configFile: false,
   root,
   appType: 'custom',
   server: { middlewareMode: true },
-  plugins: [thinkH3(options)],
+  plugins: [haze(options)],
 })
 const env = vite.environments.ssr                 // RunnableDevEnvironment
 
-let current: ThinkApp | undefined
+let current: HazeApp | undefined
 async function load() {
-  const { createApplication } = await env.runner.import('virtual:think/entry')
+  const { createApplication } = await env.runner.import('virtual:haze/entry')
   return createApplication({ mode: 'development' })
 }
 
@@ -457,14 +457,14 @@ serve({ port, fetch: req => current!.fetch(req) })
 - **进程不重启、端口不断开**：只换 `current` 引用，毫秒级生效；
 - TS 直接运行，无需预编译；路径别名、`.env`、插件与 Vue 项目共享同一套 Vite 配置；
 - 持久资源通过 `definePersistent` 跨重载保留（§4.4）；
-- 只有 `.env`、`think.config.ts` 变更时才重建 Vite 实例（仍不需要手动重启）；
+- 只有 `.env`、`haze.config.ts` 变更时才重建 Vite 实例（仍不需要手动重启）；
 - 后续可以做“细粒度 HMR”：仅路由文件变化时只重建 Router，不重建容器。
 
 ### 9.2 `build`
 
 使用 Vite 的 `builder.buildApp()`（Environment API）：
 
-- `ssr`（server）环境：入口为 `virtual:think/server-entry`，生成 `dist/server/index.mjs`，内含 `createApplication + serve + 优雅停机`；
+- `ssr`（server）环境：入口为 `virtual:haze/server-entry`，生成 `dist/server/index.mjs`，内含 `createApplication + serve + 优雅停机`；
 - `client` 环境（全栈模式）：Vue 正常构建到 `dist/client`，server 端用 h3 `serveStatic` 托管并做 SPA fallback；
 - 依赖默认 external（保留 `node_modules`），可配置全量打包以便 Docker 精简镜像。
 
@@ -475,12 +475,12 @@ serve({ port, fetch: req => current!.fetch(req) })
 ```ts
 // vite.config.ts（Vue 项目）
 import vue from '@vitejs/plugin-vue'
-import { thinkH3 } from '@think-h3/vite'
+import { haze } from '@hazejs/vite'
 
 export default defineConfig({
   plugins: [
     vue(),
-    thinkH3({ root: 'server', prefix: '/api' }),
+    haze({ root: 'server', prefix: '/api' }),
   ],
 })
 ```
@@ -495,11 +495,11 @@ export default defineConfig({
 
 ```ts
 // vitest.config.ts
-import { defineThinkTestConfig } from '@think-h3/testing/config'
-export default defineThinkTestConfig()   // 自动加 thinkH3 插件，node 环境
+import { defineHazeTestConfig } from '@hazejs/testing/config'
+export default defineHazeTestConfig()   // 自动加 haze 插件，node 环境
 
 // tests/user.test.ts
-import { createTestApp } from '@think-h3/testing'
+import { createTestApp } from '@hazejs/testing'
 
 it('获取用户', async () => {
   const app = await createTestApp({
@@ -525,8 +525,8 @@ it('获取用户', async () => {
 |------|------|-------------|
 | **M0 基础设施**（~1 周） | monorepo、tsdown、vitest、eslint、changesets；升级 Node 22 | `pnpm build && pnpm test` 通过 |
 | **M1 内核**（~2 周） | Container（作用域/循环检测/ALS）、Config/Env、Application 生命周期、Router（group/resource/name）、中间件管线、HttpContext、异常体系与 Handler | 用 `app.request()` 跑通 playground 的 CRUD 示例 + 单测覆盖 |
-| **M2 工具链**（~2 周） | Vite 插件（虚拟模块）、dev 热替换 runner、build/start、CLI 基础命令、`definePersistent` | `think-h3 dev` 改控制器/服务/路由即时生效，进程不重启 |
-| **M3 Vue 集成 + 脚手架**（~1.5 周） | dev 挂载 `/api/**`、client+server 构建、`create-think-h3` 两个模板、`@think-h3/testing` | 一个命令创建并启动全栈项目 |
+| **M2 工具链**（~2 周） | Vite 插件（虚拟模块）、dev 热替换 runner、build/start、CLI 基础命令、`definePersistent` | `haze dev` 改控制器/服务/路由即时生效，进程不重启 |
+| **M3 Vue 集成 + 脚手架**（~1.5 周） | dev 挂载 `/api/**`、client+server 构建、`create-hazejs` 两个模板、`@hazejs/testing` | 一个命令创建并启动全栈项目 |
 | **M4 体验增强**（持续） | 校验（Standard Schema）、Logger、make:* 生成器、route:list、typegen、错误页 | 文档站（VitePress） |
 | **M5 生态** | ORM provider（drizzle 优先）、缓存（unstorage）、Session/Auth、事件、队列/定时任务、OpenAPI、前端类型安全 API 客户端 | 按业务需要排期 |
 
@@ -537,7 +537,7 @@ it('获取用户', async () => {
 | HMR 后旧定时器/连接泄漏 | Provider `shutdown` + `dispose({reason:'hmr'})`；资源统一走 `definePersistent`；开发模式下检测未清理的 interval 并警告 |
 | 装饰器/元数据兼容性 | 核心不依赖装饰器，`inject()` 为主；装饰器做可选插件 |
 | ALS 性能开销 | Node 22 下 ALS 开销已很低；仅在请求入口 `run` 一次 |
-| h3 v2 API 变化 | 通过 `@think-h3/core` 内部适配层隔离，用户代码不直接依赖 h3 内部 |
+| h3 v2 API 变化 | 通过 `@hazejs/core` 内部适配层隔离，用户代码不直接依赖 h3 内部 |
 | 产品改名 | 名称、bin、配置文件名、虚拟模块前缀集中在 `packages/core/src/constants.ts`，包 scope 一次性替换 |
 
 ---
@@ -556,7 +556,7 @@ it('获取用户', async () => {
 
 ### M0 + M1（2026-10-26）
 
-已完成 `@think-h3/core` 运行时内核与 playground，56 个测试通过。与原方案相比的调整与默认值：
+已完成 `@hazejs/core` 运行时内核与 playground，56 个测试通过。与原方案相比的调整与默认值：
 
 | 项 | 结论 |
 |----|------|
@@ -568,23 +568,23 @@ it('获取用户', async () => {
 | ESLint | 包代码要求显式返回类型；playground / 测试关闭该规则（业务代码依赖返回类型推导，为后续类型安全 API 客户端做准备） |
 | 其余待确认项 | ORM、多应用模式、部署目标、发布仓库：M1 不涉及，仍待定 |
 
-下一步：M2（Vite 插件虚拟模块 `virtual:think/manifest`、dev 热替换 runner、CLI `dev / build / start`）。
+下一步：M2（Vite 插件虚拟模块 `virtual:haze/manifest`、dev 热替换 runner、CLI `dev / build / start`）。
 
 ### M2（2026-10-26）
 
-新增 `@think-h3/vite` 与 `@think-h3/cli`，65 个测试通过（含真实文件修改的热更新集成测试）。实测 playground：启动约 170ms，修改服务文件后 10–15ms 生效，PID 与端口不变。
+新增 `@hazejs/vite` 与 `@hazejs/cli`，65 个测试通过（含真实文件修改的热更新集成测试）。实测 playground：启动约 170ms，修改服务文件后 10–15ms 生效，PID 与端口不变。
 
 **虚拟模块**
 
 | 模块 | 内容 |
 |------|------|
-| `virtual:think/manifest` | `import.meta.glob` 发现 `config/*`、`route/*`、`app/provider/*`、`app/exception/Handler` |
-| `virtual:think/app` | `createApp(options)`，dev / build / vitest 共用（类型：`@think-h3/vite/client`） |
-| `virtual:think/server-entry` | 生产入口：`createApp({ mode: 'production' }).serve()` |
+| `virtual:haze/manifest` | `import.meta.glob` 发现 `config/*`、`route/*`、`app/provider/*`、`app/exception/Handler` |
+| `virtual:haze/app` | `createApp(options)`，dev / build / vitest 共用（类型：`@hazejs/vite/client`） |
+| `virtual:haze/server-entry` | 生产入口：`createApp({ mode: 'production' }).serve()` |
 
 **热替换机制要点**（实现于 `packages/vite/src/dev.ts`）
 
-- 外层 srvx 监听只创建一次，`fetch` 转发给当前应用；变化时 `runner.clearCache()` + 重新 import `virtual:think/app` 并 boot，成功后原子替换。
+- 外层 srvx 监听只创建一次，`fetch` 转发给当前应用；变化时 `runner.clearCache()` + 重新 import `virtual:haze/app` 并 boot，成功后原子替换。
 - 触发点用插件的 `hotUpdate` 钩子（ssr 环境），而不是直接监听 watcher：Vite 的模块失效是异步的，`hotUpdate` 保证在失效之后执行。
 - `server.hmr` 必须保持开启（`hmr: false` 会跳过 `hotUpdate`），用 `server.ws: false` 关闭 WebSocket 端口。
 - `envDir: false`：否则 Vite 在 `.env` 变化时会重启整个开发服务器；`.env` 由框架在每次 boot 时重新加载。**M3 的 Vue 模式需要重新评估**（前端需要 `VITE_*` 变量）。
@@ -594,32 +594,32 @@ it('获取用户', async () => {
 
 **其它**
 
-- `think.config.ts`（可选）：`srcDir`、`port`、`host`、`outDir`、`vite`。
-- 生产构建依赖保持 external；monorepo 内 `@think-h3/core` 为链接包，会被打进产物（真实安装时不会）。
+- `haze.config.ts`（可选）：`srcDir`、`port`、`host`、`outDir`、`vite`。
+- 生产构建依赖保持 external；monorepo 内 `@hazejs/core` 为链接包，会被打进产物（真实安装时不会）。
 - srvx 默认的信号处理已关闭（`gracefulShutdown: false`），由 `Application.serve()` / CLI 统一执行停机流程。
 - 当前每次变化都重新执行全部应用代码（毫秒级）；细粒度 HMR（只重建路由等）暂无必要。
 
-下一步：M3（Vue 项目集成：dev 挂载 `/api/**`、client + server 一次构建、`create-think-h3` 模板、`@think-h3/testing`）。
+下一步：M3（Vue 项目集成：dev 挂载 `/api/**`、client + server 一次构建、`create-hazejs` 模板、`@hazejs/testing`）。
 
 ### M3（2026-10-26）
 
-新增 `@think-h3/testing` 与 `create-think-h3`，`thinkH3()` 支持 Vue 全栈模式；77 个测试通过（含模板端到端：生成 → 类型检查 → 模板自带测试 → dev 热更新 → 构建 → 生产运行）。并用真实 CLI + 浏览器验证了 Vue 模板的开发与生产流程。
+新增 `@hazejs/testing` 与 `create-hazejs`，`haze()` 支持 Vue 全栈模式；77 个测试通过（含模板端到端：生成 → 类型检查 → 模板自带测试 → dev 热更新 → 构建 → 生产运行）。并用真实 CLI + 浏览器验证了 Vue 模板的开发与生产流程。
 
-**Vue 全栈模式**（`vite.config.ts` 中 `plugins: [vue(), thinkH3()]`）
+**Vue 全栈模式**（`vite.config.ts` 中 `plugins: [vue(), haze()]`）
 
 - 开发：插件在 Vite 内置中间件之前挂载 `/api/**`（`prefix` 可配），经 srvx `toNodeHandler` 交给热替换的应用；前后端同端口，无需代理。后端文件变化走 `hotUpdate`（ssr 环境）整体重载，前端 HMR 不受影响。
 - `.env`：全栈模式保留 Vite 的 `envDir`（前端需要 `VITE_*`），`.env` 变化时 Vite 自行重启，插件通过包装 `server.close()` 释放旧应用，实测新值立即生效。纯后端模式仍为 `envDir: false`。
 - 构建：插件配置 `builder.buildApp`，`vite build` 依次构建 `client → dist/client`、`ssr → dist/server`；生产入口通过 core 新增的 `static` 选项托管 `dist/client`（`/assets/` 长期缓存、HTML 请求回退 index.html、`/api` 排除在外返回 JSON 404）。
-- `srcDir` / `outDir` 统一从 `think.config.ts` 读取，`vite.config.ts` 与 `think-h3` 命令共用。
-- `think-h3 dev / build` 检测到 `vite.config.*` 时交给用户的 Vite 配置；`start` 自动查找 `dist/index.mjs` 或 `dist/server/index.mjs`。
+- `srcDir` / `outDir` 统一从 `haze.config.ts` 读取，`vite.config.ts` 与 `hazejs` 命令共用。
+- `haze dev / build` 检测到 `vite.config.*` 时交给用户的 Vite 配置；`start` 自动查找 `dist/index.mjs` 或 `dist/server/index.mjs`。
 
-**@think-h3/testing**
+**@hazejs/testing**
 
 - `useTestApp(options)`：每个用例前创建全新应用、用例后释放；`createTestApp()` 手动管理。
 - 客户端：`get / post / put / patch / delete` 自动 JSON 编解码，`withHeaders()` 派生带默认头的客户端；`override: c => c.instance(...)` 替换绑定。
-- `defineThinkTestConfig()`：注册 `thinkH3({ standalone: true })` 并内联 `@think-h3/testing`（它需要导入 `virtual:think/app`）。
+- `defineHazeTestConfig()`：注册 `haze({ standalone: true })` 并内联 `@hazejs/testing`（它需要导入 `virtual:haze/app`）。
 
-**create-think-h3**
+**create-hazejs**
 
 - 模板放在 `packages/create/templates/{api,vue}`（与原方案的仓库根 `templates/` 不同，便于随包发布）；`_gitignore` → `.gitignore`，`{{name}}` / `{{version}}` 占位替换。
 - Vue 模板的 TypeScript 拆分为 `tsconfig.app.json`（DOM + Vue）与 `tsconfig.server.json`（Node + 虚拟模块类型），`vue-tsc --build` 统一检查。
@@ -650,14 +650,14 @@ it('获取用户', async () => {
 
 **typegen**
 
-- 生成 `.think/types/think.d.ts`：`GeneratedConfig`（`typeof import('config/x').default`，仅依赖文件列表）与 `RouteNames`（路由名 → 路径参数）。dev 每次成功重载后写入（内容不变不写），`think-h3 typegen` 手动执行，`think.config.ts` 中 `typegen: false` 可关闭。
+- 生成 `.haze/types/haze.d.ts`：`GeneratedConfig`（`typeof import('config/x').default`，仅依赖文件列表）与 `RouteNames`（路由名 → 路径参数）。dev 每次成功重载后写入（内容不变不写），`haze typegen` 手动执行，`haze.config.ts` 中 `typegen: false` 可关闭。
 - `GeneratedConfig` 与手写的 `ConfigSchema` 在类型层深合并（直接扩充 `ConfigSchema` 会与内置 `app: AppConfig` 冲突）。
 - 生成后配置键变为严格模式：未知键报错，读取任意键需传默认值 `config.get('x', fallback)`；`router.url()` 校验路由名与必填参数。通过“带 / 去掉 `@ts-expect-error` 各跑一次 tsc”验证类型确实生效。
 
 **make:* 生成器**
 
 - `make:controller [--resource] / service / repository / middleware / provider / validate / test / config / route`，名称支持子目录（`admin/User`）并自动去除重复后缀；`config`、`route` 只按第一层自动发现，带子目录时报错。
-- stub 为 CLI 包内的 `.stub` 文件；项目 `stubs/<name>.stub` 优先（`think-h3 stub:publish` 导出）；仅安装 zod 时 `make:validate` 使用 zod 版本。
+- stub 为 CLI 包内的 `.stub` 文件；项目 `stubs/<name>.stub` 优先（`haze stub:publish` 导出）；仅安装 zod 时 `make:validate` 使用 zod 版本。
 - 模板端到端测试：生成全部类型 → typegen → 类型探针 → tsc → vitest（含生成的测试）。
 
 **已知限制**
@@ -684,17 +684,17 @@ it('获取用户', async () => {
 |------|------|
 | M5 | 响应格式化器（ResponseFormatter）+ 出站拦截器 + `raw()` 跳过格式化 |
 | M6 | 目录多应用（前缀 / 域名 / 应用级配置、中间件、异常处理、响应格式，路由名带应用前缀） |
-| M7 | `@think-h3/orm`：drizzle 之上的 Db + Model（MySQL / PostgreSQL / SQLite），迁移与 make:model |
+| M7 | `@hazejs/orm`：drizzle 之上的 Db + Model（MySQL / PostgreSQL / SQLite），迁移与 make:model |
 | M8 | MongoDB 适配器 |
-| M9 | 部署预设：`think-h3 build --preset node|bun|deno|cloudflare|vercel|netlify|aws-lambda|docker` |
+| M9 | 部署预设：`haze build --preset node|bun|deno|cloudflare|vercel|netlify|aws-lambda|docker` |
 | M10 | 补齐 M9 的已知限制：生产迁移入口、Cloudflare D1 / Turso HTTP 驱动 |
-| M11 | 参考 Nitro：依赖追踪进产物（nf3）、`vite preview` / `think-h3 preview` 运行产物、React 模板与多框架验证 |
+| M11 | 参考 Nitro：依赖追踪进产物（nf3）、`vite preview` / `haze preview` 运行产物、React 模板与多框架验证 |
 | M12 | 内置中间件（CORS、限流、安全头、压缩、请求体上限）、文件上传、Cookie / Session、认证（JWT / Session Guard） |
 | M13 | 授权（Gate / Policy、ctx.can / authorize、can: 中间件）与 CSRF 同步令牌 |
 | M14 | 缓存（memory / redis / upstash / kv）、原子锁、响应缓存，限流与 Session 的共享存储，Cloudflare 限流绑定 |
 | M15 | 队列（sync / memory / redis(BullMQ) / Cloudflare Queues，重试、延迟、超时、失败任务）与定时任务（croner，onOneServer / withoutOverlapping） |
 | M16 | 事件 / 监听器（同步与排队）、WebSocket（crossws：开发热替换、各运行时、Redis 多实例广播、Cloudflare Durable Object） |
-| M17 | Socket.IO 兼容：`@think-h3/socket.io`（官方 socket.io 服务端，Node / Bun，Guard 鉴权，redis-adapter） |
+| M17 | Socket.IO 兼容：`@hazejs/socket.io`（官方 socket.io 服务端，Node / Bun，Guard 鉴权，redis-adapter） |
 | M18 | 文件存储（local / s3 / r2 / memory 磁盘，签名临时链接，UploadedFile.store 接入）与邮件（log / array / smtp / resend / postmark / mailgun / ses，排队发送） |
 
 ### M5 实施记录（2026-10-26）
@@ -714,11 +714,11 @@ it('获取用户', async () => {
 
 ### M7 实施记录（2026-10-26）
 
-新增 `@think-h3/orm`，150 个测试通过；同一套 ORM 用例（17 个场景）在 SQLite（libsql）、PostgreSQL（PGlite）与 MySQL 8.4.13（Docker）上全部通过。MySQL 用例只在设置 `THINK_TEST_MYSQL_URL` 时执行：
+新增 `@hazejs/orm`，150 个测试通过；同一套 ORM 用例（17 个场景）在 SQLite（libsql）、PostgreSQL（PGlite）与 MySQL 8.4.13（Docker）上全部通过。MySQL 用例只在设置 `HAZE_TEST_MYSQL_URL` 时执行：
 
 ```bash
-docker run -d --name think-h3-mysql -e MYSQL_ROOT_PASSWORD=think -e MYSQL_DATABASE=think_test -p 3307:3306 mysql:8
-THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest run --project orm
+docker run -d --name hazejs-mysql -e MYSQL_ROOT_PASSWORD=haze -e MYSQL_DATABASE=haze_test -p 3307:3306 mysql:8
+HAZE_TEST_MYSQL_URL='mysql://root:haze@127.0.0.1:3307/haze_test' pnpm vitest run --project orm
 ```
 
 尚未覆盖：MySQL / PostgreSQL 下的 `db:generate` / `db:migrate` 命令流程（模板端到端测试只覆盖 SQLite）。
@@ -732,7 +732,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 **连接**：`config/database.ts`（`sqlite | postgres | pglite | mysql`），驱动为可选 peer 依赖、按需动态加载；连接懒建立、跨 HMR 复用、应用关闭时释放；唯一约束冲突统一转换为 `UniqueConstraintException`（409）。
 
-**迁移与命令**：表结构在 `database/schema/*.ts`，`think-h3 db:generate`（调用 drizzle-kit）、`db:migrate`（drizzle 运行时迁移器）、`db:seed`（在应用模块图中执行 `database/seeders/*.ts`）、`make:model`（模型 + 对应方言的表结构）、`make:seeder`；测试用 `refreshDatabase()` 配合 `.env.test` 的 `DATABASE_URL=:memory:`。
+**迁移与命令**：表结构在 `database/schema/*.ts`，`haze db:generate`（调用 drizzle-kit）、`db:migrate`（drizzle 运行时迁移器）、`db:seed`（在应用模块图中执行 `database/seeders/*.ts`）、`make:model`（模型 + 对应方言的表结构）、`make:seeder`；测试用 `refreshDatabase()` 配合 `.env.test` 的 `DATABASE_URL=:memory:`。
 
 **模板**：api / vue 模板默认集成 SQLite、User 模型与 CRUD 控制器、初始迁移、数据填充与测试。
 
@@ -740,7 +740,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 ### M8 实施记录（2026-10-26）
 
-新增 `@think-h3/orm/mongo`（独立入口，只有使用时才加载 `mongodb` 驱动），165 个测试通过；MongoDB 用例运行在 mongodb-memory-server 启动的单节点副本集上（首次运行下载 mongod 二进制，之后离线可用），事务真实提交 / 回滚。
+新增 `@hazejs/orm/mongo`（独立入口，只有使用时才加载 `mongodb` 驱动），165 个测试通过；MongoDB 用例运行在 mongodb-memory-server 启动的单节点副本集上（首次运行下载 mongod 二进制，之后离线可用），事务真实提交 / 回滚。
 
 - **共享基类**：从 SQL `Model` 中抽出 `ActiveRecord`（属性与脏检查、访问器 / 修改器、hidden / append、事件、关联与预加载、序列化），`Model` 与 `MongoModel` 都继承它；关联 `hasOne / hasMany / belongsTo` 两种模型通用，ObjectId 关联键按字符串比较。重构后 SQL 用例全部通过（MySQL 组本次未重跑，colima 已停止；重构未改动方言相关代码）。
 - **Mongo 查询构造器**：`Mongo.collection<Doc>('users')`，方法与 `Db.table()` 一致（where / orWhere / 分组 / whereIn / whereNull / whereBetween / whereLike → 正则 / order / page / field / paginate / chunk / 聚合 / insert / update / delete / increment），无条件写入同样需要 `{ all: true }`；Mongo 特有：`aggregate(pipeline)`（自动在前面加当前条件的 `$match`）、`where({ age: { $gt: 1 } })` 直接使用查询运算符、`update({ $push: … })` 直接使用更新运算符、`Mongo.db()` 获取原生 Db。
@@ -752,7 +752,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 ### M9 实施记录（2026-10-26）
 
-`think-h3 build --preset <name>`（或 `think.config.ts` 的 `preset`），纯后端与 Vue 全栈项目共用同一套预设：插件在构建时按预设决定产物布局、打包策略、解析条件与生产入口，构建结束执行预设的收尾步骤（生成平台配置、复制依赖）并给出部署提示。178 个测试通过。
+`haze build --preset <name>`（或 `haze.config.ts` 的 `preset`），纯后端与 Vue 全栈项目共用同一套预设：插件在构建时按预设决定产物布局、打包策略、解析条件与生产入口，构建结束执行预设的收尾步骤（生成平台配置、复制依赖）并给出部署提示。178 个测试通过。
 
 | 预设 | 产物 | 打包策略 | 验证方式 |
 |------|------|----------|----------|
@@ -762,12 +762,12 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 | docker | `dist/` 即构建上下文：Dockerfile + 运行时 package.json | 框架与纯 JS 依赖打包，数据库驱动在镜像内 `npm install` | 真实 Docker 构建与运行（colima） |
 | aws-lambda | `dist/lambda`（含复制的驱动 node_modules，全栈含 client） | 驱动 external + 复制 | 以 API Gateway v2 / v1 事件调用 handler |
 | vercel | `.vercel/output`（static + `__server.func` + config.json 路由） | 驱动 external + 复制 | 以 Node HTTP 服务器挂载函数 |
-| netlify | `.netlify/v1/functions/think-h3-server.mjs` + `netlify.toml` + `_redirects` | 驱动 external（Netlify 构建时打包） | 直接调用函数 |
+| netlify | `.netlify/v1/functions/haze-server.mjs` + `netlify.toml` + `_redirects` | 驱动 external（Netlify 构建时打包） | 直接调用函数 |
 | cloudflare | `dist/index.mjs` 单文件 Worker + `wrangler.json`（nodejs_compat、Assets、SPA 回退、`run_worker_first`） | 全部打包、`browser` 平台，不可用驱动替换为报错空模块 | 真实 workerd（miniflare） |
 
 **要点**
 - 全栈：服务端先于前端构建（部分预设的前端目录位于服务端目录内）；Vercel / Netlify / Cloudflare 的静态资源由平台 CDN 提供，Lambda / Docker / Node 由同一进程托管。
-- 打包后的产物不依赖框架包的发布（`@think-h3/*` 已打包）；ORM 按变量动态加载的驱动扫描不到，按项目依赖显式带上。
+- 打包后的产物不依赖框架包的发布（`@hazejs/*` 已打包）；ORM 按变量动态加载的驱动扫描不到，按项目依赖显式带上。
 - Docker 中驱动在镜像内安装，得到 Linux 平台的原生二进制（实测容器内为 `@libsql/linux-x64-*`）。
 - Cloudflare：消除了 Node 平台的 `createRequire(import.meta.url)` 辅助代码；core 的日志颜色改为自带的小工具（原 `consola/utils` 依赖 `node:tty`）；Worker 入口只能导出处理器，因此输出单文件。
 - core 新增 `createLambdaHandler`（API Gateway v1 / v2、ALB、Function URL）并导出 `toNodeHandler`。
@@ -780,7 +780,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 ### M10 实施记录（2026-10-26）：生产迁移与 Edge 数据库
 
-补齐 M9 的已知限制。199 个测试通过，5 个跳过（D1 上的 2 个事务用例、非 D1 方言上的 D1 专属用例，以及按环境变量启用的 Worker + Turso 用例）；Turso 的 20 个 ORM 用例与 Worker 用例在设置 `THINK_TEST_TURSO_URL` 后运行。
+补齐 M9 的已知限制。199 个测试通过，5 个跳过（D1 上的 2 个事务用例、非 D1 方言上的 D1 专属用例，以及按环境变量启用的 Worker + Turso 用例）；Turso 的 20 个 ORM 用例与 Worker 用例在设置 `HAZE_TEST_TURSO_URL` 后运行。
 
 **驱动**
 - 新增 `turso`：使用 `@libsql/client/web`（纯 fetch 的 HTTP 客户端，不加载 libsql 原生模块），Edge 与 Serverless 都能用，支持交互式事务与保存点。
@@ -797,20 +797,20 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - ORM 自带迁移执行器，不再调用 drizzle 各驱动的 `migrator`（它们用 `node:fs` 读目录）。逻辑与 drizzle 一致：
   - 同一张 `__drizzle_migrations` 表，哈希相同（SHA-256 改用 Web Crypto 计算），可以和 drizzle-kit migrate 混用；
   - libsql 走 `session.migrate`，D1 走 `batch`（插入用字面量，与 drizzle 一致），PostgreSQL / MySQL 委托 `dialect.migrate`。
-- `migrate({ folder, files? })` 可读磁盘，也可读内嵌文件；`runMigrations({ connection?, all?, files?, srcDir? })` 按 config/database.ts 解析各连接的迁移目录，跳过 MongoDB，返回 `{ connection, folder, applied, total }`。`think-h3 db:migrate` 改为调用它。
-- Vite 插件新增 `virtual:think/migrations`：用 `import.meta.glob('?raw')` 把 `database/**` 下的 SQL 与 `_journal.json` 打进产物，键为相对 srcDir 的路径。
+- `migrate({ folder, files? })` 可读磁盘，也可读内嵌文件；`runMigrations({ connection?, all?, files?, srcDir? })` 按 config/database.ts 解析各连接的迁移目录，跳过 MongoDB，返回 `{ connection, folder, applied, total }`。`haze db:migrate` 改为调用它。
+- Vite 插件新增 `virtual:haze/migrations`：用 `import.meta.glob('?raw')` 把 `database/**` 下的 SQL 与 `_journal.json` 打进产物，键为相对 srcDir 的路径。
 - 各预设的生产迁移入口：
 
 | 预设 | 入口 | 验证 |
 |------|------|------|
 | node / bun / deno / docker | 构建额外输出 `migrate.mjs`（`--connection`、`--all`），与 `index.mjs` 共享 chunk | Docker 产物中执行两次（1/1、0/1），再启动服务 CRUD |
 | aws-lambda | 同一 bundle 导出 `migrate(event)`，handler 设为 `index.migrate` | 进程内调用 |
-| cloudflare + D1 | `think.config.ts` 的 `cloudflare.wrangler` 合并进 wrangler.json；`d1_databases` 默认 `migrations_dir: 'migrations'`，构建时复制 `database/migrations`；提示 `wrangler d1 migrations apply` | Miniflare D1 中按 wrangler 方式执行 SQL，再在 Worker 内 CRUD（201 / 409 / 204） |
-| vercel / netlify / cloudflare + Turso | 在 CI 中执行 `think-h3 db:migrate` | `db:migrate` 写入真实 sqld，再在 Worker 内读写 |
+| cloudflare + D1 | `haze.config.ts` 的 `cloudflare.wrangler` 合并进 wrangler.json；`d1_databases` 默认 `migrations_dir: 'migrations'`，构建时复制 `database/migrations`；提示 `wrangler d1 migrations apply` | Miniflare D1 中按 wrangler 方式执行 SQL，再在 Worker 内 CRUD（201 / 409 / 204） |
+| vercel / netlify / cloudflare + Turso | 在 CI 中执行 `haze db:migrate` | `db:migrate` 写入真实 sqld，再在 Worker 内读写 |
 
 **验证**
 - D1：ORM 全部 SQL 用例（查询构造器、唯一约束 → 409、模型、关联、内嵌迁移、框架集成）在 Miniflare 的 workerd D1 上运行，事务用例跳过并改为验证报错。
-- Turso：colima 中运行 `ghcr.io/tursodatabase/libsql-server`，`THINK_TEST_TURSO_URL=http://127.0.0.1:18080` 跑 ORM 全部用例（含 HTTP 上的事务与保存点）与 Worker + Turso 端到端用例，均通过。容器与镜像已删除，colima 已停止。
+- Turso：colima 中运行 `ghcr.io/tursodatabase/libsql-server`，`HAZE_TEST_TURSO_URL=http://127.0.0.1:18080` 跑 ORM 全部用例（含 HTTP 上的事务与保存点）与 Worker + Turso 端到端用例，均通过。容器与镜像已删除，colima 已停止。
 
 **仍然存在的限制**
 - 本地开发时 Node 中没有 D1 绑定：开发用 `sqlite` 文件，部署时用环境变量切到 `d1`。如需本地也连 D1，可接入 wrangler 的 `getPlatformProxy`，目前没有做。
@@ -844,12 +844,12 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 - 实测：vue 模板的 node 产物 `dist/` 拷到项目之外，可以直接执行迁移、启动并读写 SQLite。追踪到的有 `@libsql/client`、`libsql` 及其平台二进制、`ws` 等，约 9 MB。
 - 跨平台检查：aws-lambda / vercel 的目标平台为 linux。在其它系统上构建且追踪到平台二进制（如 `@libsql/darwin-x64`）或 nf3 已知的原生包时，构建期会警告，提示在 Linux 上构建。这个问题在原来的整包复制方案中同样存在，只是之前没有提示。
-- `think.config.ts` 新增 `externals: { trace?, traceDeps?, inline? }`，`traceDeps` 中的 `pkg*` 表示整包复制。
+- `haze.config.ts` 新增 `externals: { trace?, traceDeps?, inline? }`，`traceDeps` 中的 `pkg*` 表示整包复制。
 
 **预览**
-- 构建结束写入 `.think/build.json`，记录预设、产物布局、入口、是否全栈与后端前缀。
+- 构建结束写入 `.haze/build.json`，记录预设、产物布局、入口、是否全栈与后端前缀。
 - 插件实现 `configurePreviewServer`：在 Vite 内置静态中间件之前挂载产物。`vite preview` 预览时，`environments.client.build.outDir` 取自构建记录。
-- 新增 `think-h3 preview` / `previewServer()`：全栈项目使用项目的 vite.config.ts，纯后端项目使用内置配置（`appType: 'custom'`），默认端口 4173。
+- 新增 `haze preview` / `previewServer()`：全栈项目使用项目的 vite.config.ts，纯后端项目使用内置配置（`appType: 'custom'`），默认端口 4173。
 - 各预设的运行方式：
 
 | 预设 | 方式 | 静态文件 |
@@ -859,10 +859,10 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 | aws-lambda | 进程内调用 `handler`；core 新增 `requestToLambdaEvent` / `lambdaResultToResponse` | 产物托管 |
 | vercel | 进程内调用 Node handler | Vite 托管 `.vercel/output/static`，后端前缀交给函数 |
 | netlify | 进程内调用 Functions v2 handler | Vite 托管 publish 目录 |
-| cloudflare | 用项目安装的 Miniflare 运行 `dist/index.mjs`：`vars`、D1、KV 绑定读取自 wrangler.json，数据持久化在 `.think/preview`；D1 迁移按 wrangler 的方式自动应用（`d1_migrations` 表记录） | Vite 托管 `dist/client` |
+| cloudflare | 用项目安装的 Miniflare 运行 `dist/index.mjs`：`vars`、D1、KV 绑定读取自 wrangler.json，数据持久化在 `.haze/preview`；D1 迁移按 wrangler 的方式自动应用（`d1_migrations` 表记录） | Vite 托管 `dist/client` |
 
 **多框架**
-- 插件本身不依赖任何前端框架，前端框架插件与 `thinkH3()` 并列使用即可。
+- 插件本身不依赖任何前端框架，前端框架插件与 `haze()` 并列使用即可。
 - 新增 `react` 模板：React 19、`@vitejs/plugin-react`；后端与 vue 模板相同，类型检查用 `tsc --build`。
 - 新增 frameworks 测试：React 与纯 Vite（无框架）项目各自跑开发、构建、`vite preview` 三个环节，React 模板另跑类型检查和自带测试。三个模板都加了 `pnpm preview` 脚本。
 
@@ -909,7 +909,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 **Cookie 与 Session**
 - `ctx.cookie / setCookie / deleteCookie` 的默认选项为 httpOnly、SameSite=Lax、非 debug 时 Secure，可用 `app.cookie` 覆盖。
 - 签名 Cookie：`ctx.signedCookie / setSignedCookie`，HMAC-SHA256，密钥为 `APP_KEY`。
-- `APP_KEY`：至少 32 个字符。`think-h3 key:generate` 写入 `.env`（已有时需加 `--force`），create 模板为每个项目生成独立的密钥。
+- `APP_KEY`：至少 32 个字符。`haze key:generate` 写入 `.env`（已有时需加 `--force`），create 模板为每个项目生成独立的密钥。
 - Session 由 `session` 中间件或 `await ctx.startSession()` 启动，`ctx.session` 提供 `get / set / has / forget / pull / flush / flash / regenerate / invalidate`。
 - 只有修改过才写回；新会话没有数据时不设置 Cookie。
 - 两种驱动：
@@ -917,7 +917,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
   - `memory` / 自定义 `SessionStore`：Cookie 中只保存签名的会话 ID；`regenerate` 时删除旧 ID。
 
 **认证**
-- `config/auth.ts`：`default`、`guards`（`jwt` / `session`）、`providers`（`UserProvider` 接口；`@think-h3/orm` 提供 `modelUserProvider(() => User, { username, password })`）。
+- `config/auth.ts`：`default`、`guards`（`jwt` / `session`）、`providers`（`UserProvider` 接口；`@hazejs/orm` 提供 `modelUserProvider(() => User, { username, password })`）。
 - `ctx.auth`：`user / check / id / logout`、`guard(name)`，`jwt()` / `session()` 取得具体类型的 Guard；`auth:<guards>` 中间件通过后调用 `shouldUse()` 设置默认 Guard。
 - JWT Guard（jose）：
   - 算法：HS*（密钥默认 APP_KEY）以及 RS / PS / ES / EdDSA（PEM 公私钥）；
@@ -927,7 +927,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - Session Guard：`login` 时 regenerate 会话 ID，`logout` 时 invalidate；会话按需自动启动，不需要额外加 `session` 中间件。
 - `Hash`：默认 scrypt（node:crypto），运行时没有 scrypt 时用 PBKDF2-SHA256（Web Crypto，600000 次迭代）；哈希串记录算法与参数，`needsRehash()` 用于升级参数。
 - 类型：`AuthUser` 由 typegen 生成的 `config/auth.ts` 类型推导，模板中 `ctx.auth.user()` 的类型即为 `User`（已在脚手架项目中验证）。
-- 测试：`@think-h3/testing` 的 `t.actingAs(user, guard?)` 基于 core 的 `issueTestCredentials()`，生成真实的令牌或会话 Cookie。
+- 测试：`@hazejs/testing` 的 `t.actingAs(user, guard?)` 基于 core 的 `issueTestCredentials()`，生成真实的令牌或会话 Cookie。
 - 未做 `make:guard`：Guard 由配置驱动，自定义用户来源实现 `UserProvider` 接口即可，暂不支持自定义 Guard 驱动。
 
 **模板**
@@ -1009,7 +1009,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 **连带修改**
 - 全局 csrf 让每个请求都依赖 APP_KEY，因此做了以下调整：
-  - 预览：aws-lambda、vercel、netlify 在进程内运行前从项目根目录加载 `.env`，与 `think-h3 start` 一致；
+  - 预览：aws-lambda、vercel、netlify 在进程内运行前从项目根目录加载 `.env`，与 `haze start` 一致；
   - Cloudflare 预览：把 `.env` 中的变量作为绑定传入（与 wrangler dev 一致，wrangler.json 的 vars 优先）；
   - 预览启动的产物子进程不再继承框架自己从 `.env` 写入的变量，修复了多个项目先后预览时 APP_NAME 互相串用的问题；
   - Docker、Lambda、Vercel、Netlify 的部署提示加上了设置 APP_KEY 的方法。
@@ -1044,7 +1044,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 值统一以字符串存储，序列化在上层完成；自增的计数与 JSON 数字兼容。
 - 上层 `CacheRepository` 提供 `get(fallback) / many / has / set / setMany / add / forget / pull / remember / rememberForever / increment / decrement / flush / lock / restoreLock`，TTL 可写成 `'10m'`。
 - 值以 JSON 序列化，Date 读回为字符串。
-- `CacheManager` 是应用单例，可以注入；没有 `config/cache.ts` 时默认使用内存缓存，键前缀默认为 `think:`。
+- `CacheManager` 是应用单例，可以注入；没有 `config/cache.ts` 时默认使用内存缓存，键前缀默认为 `haze:`。
 - 门面 `Cache` 在请求内从请求容器取管理器，请求外取最近启动的应用。
 
 | 驱动 | 实现要点 |
@@ -1088,7 +1088,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 另有 3 个接入用例：默认内存缓存、按用户的响应缓存、Cloudflare 限流绑定及其回退。
 - workerd：KV 缓存的自增与 remember 在 Worker 中运行，并直接读取 KV 校验写入的值。
 - 多实例端到端：api 模板的 node 产物拷到项目之外，用同一个 Redis 启动两个实例轮流请求带 `throttle:10,60` 的登录接口，第 11 次返回 429。同时验证了 ioredis 被追踪进 `dist/node_modules`。
-- Redis / Upstash 用例按 `THINK_TEST_REDIS_URL`、`THINK_TEST_UPSTASH_URL`、`THINK_TEST_UPSTASH_TOKEN` 启用。验证结束后容器、镜像与 Docker 网络已删除，colima 已停止。
+- Redis / Upstash 用例按 `HAZE_TEST_REDIS_URL`、`HAZE_TEST_UPSTASH_URL`、`HAZE_TEST_UPSTASH_TOKEN` 启用。验证结束后容器、镜像与 Docker 网络已删除，colima 已停止。
 
 **限制**
 - KV 非原子、最终一致，不适合精确计数与锁（构建与运行时都有提示）。
@@ -1140,7 +1140,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - node / bun / deno / docker 产物输出 `worker.mjs`：`queue [--queue] [--concurrency] [--connection]`、`schedule`、`schedule:run`；收到 SIGTERM 后等待执行中的任务完成。
 - cloudflare：Worker 导出 `queue()` 与 `scheduled()`；有 `schedule/*.ts` 时 wrangler.json 自动加 `triggers.crons: ['* * * * *']`。
 - aws-lambda：导出 `schedule(event)`，按 `event.time` 执行到期任务。
-- vercel：函数拦截 `/__think/schedule`，要求 `Authorization: Bearer $CRON_SECRET`；config.json 增加路由与 `crons`，频率可用 `think.config.ts` 的 `vercel.cron` 调整，Hobby 计划只允许每天一次。
+- vercel：函数拦截 `/__haze/schedule`，要求 `Authorization: Bearer $CRON_SECRET`；config.json 增加路由与 `crons`，频率可用 `haze.config.ts` 的 `vercel.cron` 调整，Hobby 计划只允许每天一次。
 
 **顺带修复**
 - 后端源码目录就是项目根时（api 模板），`normalizePath('')` 返回 `'.'`，导致内嵌迁移的路径被多截掉字符，`migrate.mjs` 找不到迁移（M10 遗留，M10 只用 vue 模板验证过）。已修复，并补了 api 模板的回归用例。
@@ -1162,7 +1162,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - workerd：Cloudflare Queues 的真实生产者与消费者（第一次失败后经 `message.retry()` 在第二次成功）、`scheduled()` 写入 KV。
 - Vercel Cron 的 401 / 200 与 config.json，Lambda `index.schedule` 的到期判断。
 - 产物端到端（真实 Redis）：api 模板产物拷到项目外，执行 `migrate.mjs`，启动 web 进程；注册用户后，独立的 `worker.mjs queue` 进程输出欢迎邮件日志；`worker.mjs schedule:run` 正常退出。bullmq 已追踪进 `dist/node_modules`。
-- Redis 用例按 `THINK_TEST_REDIS_URL` 启用；验证后已删除容器与镜像，colima 已停止。
+- Redis 用例按 `HAZE_TEST_REDIS_URL` 启用；验证后已删除容器与镜像，colima 已停止。
 
 **限制**
 - memory 队列只在本进程内，进程退出时任务丢失。
@@ -1199,8 +1199,8 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 | node 产物 / 纯后端开发服务器 | srvx 插件：监听 http 服务器的 `upgrade` 事件，交给 crossws 的 Node 适配器；开发时 fetch 指向热替换后的最新应用 |
 | bun / deno 产物 | srvx 插件：Bun 设置 `bun.websocket`，Deno 由中间件处理升级 |
 | Vite 全栈开发 | 在 Vite 的 httpServer 上处理后端前缀下的升级请求，排除 `vite-hmr` 协议 |
-| `vite preview` / `think-h3 preview`（进程型预设） | 把升级请求按原始 TCP 字节转发给产物进程 |
-| cloudflare | 新增 `@think-h3/core/cloudflare` 子路径的 `createWebSocketDurableObject()`；入口导出 `ThinkWebSocket`，Worker 的 fetch 把升级请求交给 DO，钩子在 DO 内经应用解析；wrangler.json 增加 `durable_objects` 与 SQLite DO 的迁移；路由中出现 `.ws(` 时生成，也可用 `cloudflare.websocket` 强制开关；Cloudflare 预览会读取 DO 绑定 |
+| `vite preview` / `haze preview`（进程型预设） | 把升级请求按原始 TCP 字节转发给产物进程 |
+| cloudflare | 新增 `@hazejs/core/cloudflare` 子路径的 `createWebSocketDurableObject()`；入口导出 `HazeWebSocket`，Worker 的 fetch 把升级请求交给 DO，钩子在 DO 内经应用解析；wrangler.json 增加 `durable_objects` 与 SQLite DO 的迁移；路由中出现 `.ws(` 时生成，也可用 `cloudflare.websocket` 强制开关；Cloudflare 预览会读取 DO 绑定 |
 | vercel / netlify / aws-lambda | 平台不支持，升级请求返回 426 |
 
 - Node 适配器按需动态导入：crossws 内置的 ws 库在模块顶层调用 `createRequire(import.meta.url)`，在 Workers 中会导致启动失败（已在 workerd 中复现）。
@@ -1244,14 +1244,14 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 
 **core 的扩展点**
 - `registerServerExtension({ name, matches(pathname), node?(httpServer), bun? })`：服务器扩展注册表（进程级）。
-  - Node：框架创建的每个 http 服务器都会注册（`registerNodeServer`：产物服务端、`think-h3 dev`、Vite 开发服务器），扩展在注册时或服务器出现时挂载；
+  - Node：框架创建的每个 http 服务器都会注册（`registerNodeServer`：产物服务端、`haze dev`、Vite 开发服务器），扩展在注册时或服务器出现时挂载；
   - 挂载前记录 `request` / `upgrade` 监听器，用于卸载与同名替换（engine.io 会替换 request 监听器）；`unregisterServerExtension()` 卸载。
 - crossws 的 Node 升级处理会跳过扩展匹配的路径。
 - Bun：srvx 中间件先把匹配路径的请求交给扩展；由于 Bun 只允许一组 websocket 处理器，按 `owns(ws)` 把连接分发给扩展或 crossws；`idleTimeout` 取扩展的最大值，长轮询需要较长的空闲超时。
 - `app.discovered(name)`：通用的按目录发现，虚拟清单中提供 `discovered.sockets`，即 `app/socket/*.ts`。
 - `app.contextFor(request)`：为请求之外的 Request 创建 HttpContext（可读 `ctx.auth`），用于握手鉴权。
 
-**@think-h3/socket.io**
+**@hazejs/socket.io**
 - `socketIoProvider()`：创建 socket.io Server，跨热替换保留。
   - 设置 `serveClient: false`、`destroyUpgrade: false`（不能销毁 `r.ws()` 与 Vite HMR 的升级请求）；CORS 默认沿用 `config/cors.ts` 的 origin；
   - Node 上 `io.attach(httpServer)`，Bun 上 `io.bind(new BunEngine())`；
@@ -1311,7 +1311,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 路径统一规范化：去掉开头的 `/`，合并重复的 `/`，`..` 直接拒绝。
 - 临时链接：
   - S3 使用原生预签名；
-  - 其余磁盘使用框架的签名路由 `/__think/storage/<disk>/<path>?expires&signature`，签名为 APP_KEY 的 HMAC，覆盖磁盘、路径、过期时间与下载文件名；
+  - 其余磁盘使用框架的签名路由 `/__haze/storage/<disk>/<path>?expires&signature`，签名为 APP_KEY 的 HMAC，覆盖磁盘、路径、过期时间与下载文件名；
   - 新增 `app.url`（APP_URL）配置，用于生成绝对链接，未设置时生成站内路径。
 - `StorageManager.middleware()` 自动安装在静态资源之后、全局中间件之前：
   - 处理签名路由，签名无效或已过期时返回 403；
@@ -1367,7 +1367,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
   - 用 `Storage.fake('public')` 测试头像上传。
 
 **验证**
-- `storage.test.ts`：同一组用例覆盖 memory / local / r2（Miniflare）/ s3（RustFS，`THINK_TEST_S3_ENDPOINT`）。
+- `storage.test.ts`：同一组用例覆盖 memory / local / r2（Miniflare）/ s3（RustFS，`HAZE_TEST_S3_ENDPOINT`）。
   - 内容：读写、流式读写、复制 / 移动 / 列表 / 删除、路径穿越、文件响应（ETag、304、下载文件名）、临时链接；
   - 临时链接：S3 直接访问预签名链接；其余磁盘经签名路由访问，并验证篡改与过期；
   - S3 另测 6MB 流的分片上传；
@@ -1375,7 +1375,7 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - `mail.test.ts`：
   - 布局与转义、纯文本生成、磁盘附件、排队任务载荷的 JSON 往返、sync 队列、`later` 延迟、fake、alwaysTo；
   - Resend / Postmark / Mailgun / SES 发到本地捕获服务器，校验请求格式；SES 校验 SigV4 签名头；
-  - 真实 SMTP：发到 Mailpit，经 Mailpit API 校验主题、发件人、收件人、抄送、HTML、纯文本与中文文件名附件（`THINK_TEST_SMTP_URL`、`THINK_TEST_MAILPIT_API`）。
+  - 真实 SMTP：发到 Mailpit，经 Mailpit API 校验主题、发件人、收件人、抄送、HTML、纯文本与中文文件名附件（`HAZE_TEST_SMTP_URL`、`HAZE_TEST_MAILPIT_API`）。
 - 验证结束后 RustFS 与 Mailpit 的容器和镜像已删除，colima 已停止。
 
 **限制**
@@ -1384,3 +1384,35 @@ THINK_TEST_MYSQL_URL='mysql://root:think@127.0.0.1:3307/think_test' pnpm vitest 
 - 排队邮件的内联附件以 base64 写入队列载荷，大文件请用磁盘附件。
 - SMTP 不能在 Workers 上运行。
 
+
+### 改名与开源化（2026-10-28）：think-h3 → hazejs
+
+框架更名为 **hazejs**，命令行为 `haze`，作为开源项目发布到 https://github.com/penna-org/haze。
+
+**命名对照**
+
+| 原名 | 新名 |
+|------|------|
+| `@think-h3/core / cli / vite / orm / testing / socket.io` | `@hazejs/core / cli / vite / orm / testing / socket.io` |
+| `create-think-h3` | `create-hazejs`（`pnpm create hazejs`） |
+| 命令 `think-h3` | `haze` |
+| `think.config.ts`、`defineThinkConfig` | `haze.config.ts`、`defineHazeConfig` |
+| Vite 插件 `thinkH3()` | `haze()` |
+| `.think/`、`virtual:think/*`、`/__think/*` | `.haze/`、`virtual:haze/*`、`/__haze/*` |
+| `THINK_*` 环境变量（含测试用的 `THINK_TEST_*`） | `HAZE_*` |
+| `Symbol.for('think-h3.*')` 等内部标识 | `hazejs.*` |
+
+- 不带 scope 的 `hazejs` 与 `haze` 在 npm 上已被占用，因此使用 `@hazejs` scope，发布前需要在 npm 注册 hazejs 组织。
+- 本文档中各里程碑的历史记录同步使用新名字；ThinkPHP 仍作为设计参考保留。
+- Session 加密的 HKDF info 随之改为 `hazejs session`，旧的 Session Cookie 会失效（预发布阶段无兼容负担）。
+
+**开源配套**
+- 许可证：MIT（根目录与每个包各一份 LICENSE）。
+- 每个包补充 description、keywords、homepage、repository（含 directory）、bugs，以及英文 README。
+- 文档：根 README 英文为主，并提供 `README.zh-CN.md`；`CONTRIBUTING.md` / `CONTRIBUTING.zh-CN.md`、`CODE_OF_CONDUCT.md`（采用 Contributor Covenant 2.1）、`SECURITY.md`（GitHub 私密漏洞报告）。
+- 路线图与框架对比：`docs/roadmap.md` / `docs/roadmap.zh-CN.md`，列出 M19 起的计划。
+- GitHub：
+  - `ci.yml`：lint 与类型检查；完整测试，以服务容器提供 Redis、serverless-redis-http、MySQL、libsql-server、RustFS、Mailpit，并安装 Bun，使需要真实服务的测试全部运行；
+  - `release.yml`：Changesets 自动开 "Version Packages" PR，合并后带 provenance 发布到 npm（需要仓库密钥 `NPM_TOKEN`）；
+  - Issue 模板（Bug / Feature）、PR 模板、dependabot（GitHub Actions）。
+- Changesets 3：所有 `@hazejs/*` 与 `create-hazejs` 为 fixed 组，共用一个版本号；首个 changeset 为 minor，首次发布即 0.1.0。

@@ -1,4 +1,4 @@
-import { defineListener } from '@think-h3/core'
+import { defineListener } from '@hazejs/core'
 import UserRegistered from '~/app/event/UserRegistered'
 import SendWelcomeEmail from '~/app/job/SendWelcomeEmail'
 

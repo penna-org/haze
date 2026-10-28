@@ -120,7 +120,7 @@ describe('secureHeaders', () => {
 
 describe('compress', () => {
   const big = {
-    items: Array.from({ length: 200 }, (_, index) => ({ index, text: 'think-h3 compression' })),
+    items: Array.from({ length: 200 }, (_, index) => ({ index, text: 'hazejs compression' })),
   }
   const app = boot((r) => {
     r.get('/big', () => big)
@@ -163,7 +163,7 @@ describe('compress', () => {
 })
 
 describe('request body limit and uploads', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'think-h3-upload-'))
+  const dir = mkdtempSync(join(tmpdir(), 'hazejs-upload-'))
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
   const AvatarSchema = v.object({

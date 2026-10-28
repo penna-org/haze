@@ -5,7 +5,7 @@ export interface RedisQueueConfig {
   driver: 'redis'
   /** redis://…，默认 redis://127.0.0.1:6379 */
   url?: string
-  /** BullMQ 键前缀，默认 think */
+  /** BullMQ 键前缀，默认 haze */
   prefix?: string
   /** 要管理的队列（queue:failed / retry 遍历），默认 ['default'] */
   queues?: string[]
@@ -29,7 +29,7 @@ async function loadBullMQ(): Promise<BullMQ> {
  * 重试由 BullMQ 调度：attempts 为任务的 tries，退避按任务定义计算。
  */
 export function redisQueue(config: RedisQueueConfig): QueueDriver {
-  const prefix = config.prefix ?? 'think'
+  const prefix = config.prefix ?? 'haze'
   const connection = { url: config.url ?? 'redis://127.0.0.1:6379' }
   const queues = new Map<string, import('bullmq').Queue>()
   const workers: import('bullmq').Worker[] = []
@@ -87,7 +87,7 @@ export function redisQueue(config: RedisQueueConfig): QueueDriver {
         jobId: message.id,
         delay: Math.max(0, Math.round(delaySeconds * 1000)),
         attempts: tries,
-        backoff: { type: 'think' },
+        backoff: { type: 'haze' },
         removeOnComplete: config.keepCompleted ?? 1000,
         removeOnFail: false,
       })

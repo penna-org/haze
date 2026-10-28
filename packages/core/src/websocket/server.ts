@@ -83,7 +83,7 @@ export function syncFromConfig(config: WebSocketConfig | undefined): SyncAdapter
       const Redis = (module as unknown as { Redis?: new (url: string) => unknown, default?: new (url: string) => unknown }).Redis ?? (module as { default: new (url: string) => unknown }).default
       driver = redis({
         client: new Redis(broadcast.url ?? 'redis://127.0.0.1:6379') as never,
-        channel: broadcast.channel ?? 'think:ws',
+        channel: broadcast.channel ?? 'haze:ws',
       })(context)
     }, (error) => {
       throw new Error('WebSocket broadcast "redis" requires ioredis. Install it with: pnpm add ioredis', { cause: error })

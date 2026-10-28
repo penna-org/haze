@@ -32,6 +32,8 @@ catalog:
   '@aws-sdk/client-sesv2': ^3.1158.0
   '@aws-sdk/lib-storage': ^3.1158.0
   '@aws-sdk/s3-request-presigner': ^3.1158.0
+  '@changesets/changelog-github': ^1.0.1
+  '@changesets/cli': ^3.0.3
   '@electric-sql/pglite': ^0.5.12
   '@libsql/client': ^0.18.0
   '@socket.io/bun-engine': ^0.1.2

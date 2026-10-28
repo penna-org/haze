@@ -4,8 +4,8 @@ import type { Backoff } from '../queue/job'
 import type { MaybePromise } from '../utils'
 import { useEventManager } from './context'
 
-const kEvent = Symbol.for('think-h3.event')
-const kListener = Symbol.for('think-h3.listener')
+const kEvent = Symbol.for('hazejs.event')
+const kListener = Symbol.for('hazejs.listener')
 
 export interface EventDefinition<P = void> {
   readonly [kEvent]: true

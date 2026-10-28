@@ -1,4 +1,4 @@
-const kRaw = Symbol.for('think-h3.mail.raw')
+const kRaw = Symbol.for('hazejs.mail.raw')
 
 export interface RawHtml {
   readonly [kRaw]: string

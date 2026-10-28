@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url'
 import { parseEnv } from 'node:util'
 import { toNodeHandler } from 'srvx/node'
 
-/** 构建结果记录（`.think/build.json`），供 `vite preview` / `think-h3 preview` 使用 */
+/** 构建结果记录（`.haze/build.json`），供 `vite preview` / `haze preview` 使用 */
 export interface BuildManifest extends Pick<BuildInfo, 'preset' | 'layout' | 'entry'> {
   fullstack: boolean
   prefixes: string[]
@@ -34,7 +34,7 @@ export interface PreviewServer {
 }
 
 export function manifestFile(root: string): string {
-  return join(root, '.think', 'build.json')
+  return join(root, '.haze', 'build.json')
 }
 
 export function writeBuildManifest(root: string, manifest: BuildManifest): void {
@@ -46,7 +46,7 @@ export function writeBuildManifest(root: string, manifest: BuildManifest): void 
 export function readBuildManifest(root: string): BuildManifest {
   const file = manifestFile(root)
   if (!existsSync(file))
-    throw new Error('No build found. Run `vite build` (or `think-h3 build`) before previewing.')
+    throw new Error('No build found. Run `vite build` (or `haze build`) before previewing.')
   return JSON.parse(readFileSync(file, 'utf8')) as BuildManifest
 }
 
@@ -70,9 +70,9 @@ export async function startPreview(root: string, manifest: BuildManifest, logger
     ? (url: string) => prefixes.some(prefix => url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`))
     : () => true
 
-  // 进程内运行的函数：与 think-h3 start 一致，从项目根目录加载 .env
+  // 进程内运行的函数：与 haze start 一致，从项目根目录加载 .env
   if (['aws-lambda', 'vercel', 'netlify'].includes(manifest.preset)) {
-    const { loadEnv } = await import('@think-h3/core')
+    const { loadEnv } = await import('@hazejs/core')
     loadEnv({ cwd: root, mode: 'production' })
   }
 
@@ -86,7 +86,7 @@ export async function startPreview(root: string, manifest: BuildManifest, logger
         ...await startProcess(root, manifest),
       }
     case 'aws-lambda': {
-      const { lambdaResultToResponse, requestToLambdaEvent } = await import('@think-h3/core')
+      const { lambdaResultToResponse, requestToLambdaEvent } = await import('@hazejs/core')
       const { handler } = await importEntry(manifest.entry)
       return fetchPreview(matches, async request => lambdaResultToResponse(await handler(await requestToLambdaEvent(request))))
     }
@@ -99,7 +99,7 @@ export async function startPreview(root: string, manifest: BuildManifest, logger
       }
     }
     case 'netlify': {
-      const { default: handler } = await importEntry(join(root, '.netlify', 'v1', 'functions', 'think-h3-server.mjs'))
+      const { default: handler } = await importEntry(join(root, '.netlify', 'v1', 'functions', 'haze-server.mjs'))
       return fetchPreview(matches, request => handler(request, {}))
     }
     case 'cloudflare':
@@ -157,10 +157,10 @@ async function startProcess(root: string, manifest: BuildManifest): Promise<Omit
   const port = await freePort()
   const [command, ...args] = runtimeCommand(root, manifest.preset, manifest.entry)
   // 由框架从 .env 写入的变量不传给子进程：产物从项目根目录重新加载自己的 .env
-  const loaded = (globalThis as Record<string, unknown>).__THINK_H3__envKeys as Set<string> | undefined
+  const loaded = (globalThis as Record<string, unknown>).__HAZEJS__envKeys as Set<string> | undefined
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !loaded?.has(key)))
   const child = spawn(command, args, {
-    // 与 think-h3 start 一致：.env 从项目根目录加载
+    // 与 haze start 一致：.env 从项目根目录加载
     cwd: root,
     env: {
       ...inherited,
@@ -253,8 +253,8 @@ async function startWorker(root: string, manifest: BuildManifest, logger: Logger
   catch {
     throw new Error(`Previewing the cloudflare build needs miniflare (pnpm add -D miniflare), or run: npx wrangler dev -c ${join(dir, 'wrangler.json')}`)
   }
-  // 本地数据持久化在 .think/preview，多次预览之间保留
-  const persist = join(root, '.think', 'preview')
+  // 本地数据持久化在 .haze/preview，多次预览之间保留
+  const persist = join(root, '.haze', 'preview')
   const d1 = wrangler.d1_databases ?? []
   const mf = new Miniflare({
     modules: true,
@@ -276,7 +276,7 @@ async function startWorker(root: string, manifest: BuildManifest, logger: Logger
   for (const database of d1) {
     const applied = await applyD1Migrations(await mf.getD1Database(database.binding), join(dir, database.migrations_dir ?? 'migrations'))
     if (applied.length)
-      logger.info(`[think-h3] D1 ${database.database_name ?? database.binding}: applied ${applied.join(', ')}`)
+      logger.info(`[hazejs] D1 ${database.database_name ?? database.binding}: applied ${applied.join(', ')}`)
   }
   return fetchPreview(() => true, request => mf.dispatchFetch(request.url, {
     method: request.method,

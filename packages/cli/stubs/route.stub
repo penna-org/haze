@@ -1,4 +1,4 @@
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 
 export default defineRoutes((r) => {
   r.group({ prefix: '/{{kebabName}}', as: '{{camelName}}.' }, (r) => {

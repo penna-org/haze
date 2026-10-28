@@ -7,30 +7,30 @@ export interface WebSocketDurableObjectOptions {
   fetch: (request: Request) => Promise<Response>
   /** 注册 Workers 绑定（DO 构造时调用） */
   bind: (env: unknown) => void
-  /** wrangler.json 中 durable_objects 的绑定名，默认 THINK_WEBSOCKET */
+  /** wrangler.json 中 durable_objects 的绑定名，默认 HAZE_WEBSOCKET */
   bindingName?: string
 }
 
 /**
  * Cloudflare Workers 的 WebSocket（crossws + Durable Object）：所有连接在同一个 DO 中，
  * 订阅与广播全局生效；Socket.publish 在 Worker 中经 RPC 转发到 DO。
- * cloudflare 预设的入口自动使用，`@think-h3/core/cloudflare` 只能在 Workers 中导入。
+ * cloudflare 预设的入口自动使用，`@hazejs/core/cloudflare` 只能在 Workers 中导入。
  */
 export interface WebSocketDurableObject {
   /** Worker 的 fetch 中：升级请求交给 DO */
   handleUpgrade: (request: Request, env: unknown, ctx: unknown) => Promise<Response>
   /** 由入口以 wrangler.json 中的 class_name 导出 */
-  ThinkWebSocket: abstract new (state: DurableObjectState, env: unknown) => unknown
+  HazeWebSocket: abstract new (state: DurableObjectState, env: unknown) => unknown
 }
 
 export function createWebSocketDurableObject(options: WebSocketDurableObjectOptions): WebSocketDurableObject {
   const ws = cloudflareAdapter({
-    bindingName: options.bindingName ?? 'THINK_WEBSOCKET',
+    bindingName: options.bindingName ?? 'HAZE_WEBSOCKET',
     resolve: resolveHooks(options.fetch),
   })
   registerWebSocketAdapter(ws)
 
-  class ThinkWebSocket extends DurableObject {
+  class HazeWebSocket extends DurableObject {
     constructor(state: DurableObjectState, env: unknown) {
       super(state, env as never)
       options.bind(env)
@@ -56,6 +56,6 @@ export function createWebSocketDurableObject(options: WebSocketDurableObjectOpti
 
   return {
     handleUpgrade: (request: Request, env: unknown, ctx: unknown): Promise<Response> => ws.handleUpgrade(request, env, ctx as never),
-    ThinkWebSocket,
+    HazeWebSocket,
   }
 }

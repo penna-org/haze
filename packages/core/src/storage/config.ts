@@ -19,7 +19,7 @@ export interface FilesystemConfig {
   /** 默认磁盘，默认 local */
   default: string
   disks: Record<string, DiskConfig>
-  /** 签名临时链接（没有原生预签名的磁盘：local / r2 / memory）的路由前缀，默认 `/__think/storage` */
+  /** 签名临时链接（没有原生预签名的磁盘：local / r2 / memory）的路由前缀，默认 `/__haze/storage` */
   signedRoute?: string
 }
 

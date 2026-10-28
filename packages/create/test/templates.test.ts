@@ -1,7 +1,7 @@
 import type { createProject as CreateProject } from './utils'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildServer, createDevServer } from '@think-h3/vite'
+import { buildServer, createDevServer } from '@hazejs/vite'
 import { createBuilder, createServer } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { scaffold, toPackageName } from '../src/scaffold'
@@ -24,7 +24,7 @@ describe('scaffold', () => {
     expect(project.files).not.toContain('_gitignore')
     expect(JSON.parse(project.read('package.json'))).toMatchObject({
       name: 'demo-api',
-      dependencies: { '@think-h3/core': '^0.0.0' },
+      dependencies: { '@hazejs/core': '^0.0.0' },
     })
     for (const file of project.files)
       expect(project.read(file), file).not.toMatch(/\{\{\w+\}\}/)
@@ -59,11 +59,11 @@ describe('api template', () => {
     project = createProject('api')
     const dev = await createDevServer({ root: project.root, port: 0, debounce: 10 })
     try {
-      expect((await json(new URL('/api/hello', dev.url).href)).data.message).toBe('Hello, think-h3!')
+      expect((await json(new URL('/api/hello', dev.url).href)).data.message).toBe('Hello, hazejs!')
       await new Promise(resolve => setTimeout(resolve, 150))
       // eslint-disable-next-line no-template-curly-in-string -- 模板源码中的字面量
       project.edit('app/service/GreetingService.ts', '`Hello, ${name}!`', '`你好，${name}！`')
-      await waitFor(async () => (await json(new URL('/api/hello', dev.url).href)).data.message === '你好，think-h3！')
+      await waitFor(async () => (await json(new URL('/api/hello', dev.url).href)).data.message === '你好，hazejs！')
     }
     finally {
       await dev.close()
@@ -75,7 +75,7 @@ describe('api template', () => {
       expect(await json(`${server.url}/api/hello`)).toEqual({
         code: 0,
         message: 'ok',
-        data: { app: 'demo-api', message: '你好，think-h3！' },
+        data: { app: 'demo-api', message: '你好，hazejs！' },
       })
     }
     finally {
@@ -93,7 +93,7 @@ describe('code generation and types', () => {
     expect(/^APP_KEY=(\S+)$/m.exec(other.read('.env'))![1]).not.toBe(key)
     other.cleanup()
 
-    const cli = binOf('@think-h3/cli', 'think-h3')
+    const cli = binOf('@hazejs/cli', 'haze')
     const refused = await run(cli, ['key:generate', '--root', project.root], project.root, {})
     expect([refused.code, refused.output]).toEqual([
       1,
@@ -113,15 +113,15 @@ describe('code generation and types', () => {
 
   it('make:* output and generated types typecheck in a fresh project', async () => {
     project = createProject('api')
-    const cli = binOf('@think-h3/cli', 'think-h3')
+    const cli = binOf('@hazejs/cli', 'haze')
     // 不传 NODE_ENV=test，否则 consola 会隐藏命令的提示输出
-    const think = (...args: string[]) => run(cli, [...args, '--root', project!.root], project!.root, {})
+    const haze = (...args: string[]) => run(cli, [...args, '--root', project!.root], project!.root, {})
 
-    const typegen = await think('typegen')
+    const typegen = await haze('typegen')
     expect(typegen.code, typegen.output).toBe(0)
     // api.hello + api.users.{index,store,show,update,destroy} + api.auth.{register,login,me,avatar}
     expect(typegen.output).toContain('10 named route(s)')
-    expect(project.read('.think/types/think.d.ts')).toContain('"api.hello": Record<never, never>')
+    expect(project.read('.haze/types/haze.d.ts')).toContain('"api.hello": Record<never, never>')
 
     for (const kind of [
       'controller',
@@ -132,26 +132,26 @@ describe('code generation and types', () => {
       'validate',
       'test',
     ]) {
-      const result = await think(`make:${kind}`, 'admin/order-item')
+      const result = await haze(`make:${kind}`, 'admin/order-item')
       expect(result.code, result.output).toBe(0)
     }
     for (const kind of ['config', 'route', 'interceptor']) {
-      const result = await think(`make:${kind}`, 'order-item')
+      const result = await haze(`make:${kind}`, 'order-item')
       expect(result.code, result.output).toBe(0)
     }
     // 新增配置 / 路由后重新生成类型
-    await think('typegen')
-    const resource = await think('make:controller', 'Product', '--resource')
+    await haze('typegen')
+    const resource = await haze('make:controller', 'Product', '--resource')
     expect(resource.output).toContain('app/controller/ProductController.ts')
-    expect((await think('make:service', 'admin/order-item')).output).toContain('already exists')
+    expect((await haze('make:service', 'admin/order-item')).output).toContain('already exists')
 
     // 模型 → 迁移 → 执行迁移 → 数据填充
-    const model = await think('make:model', 'Product', '--soft-delete')
+    const model = await haze('make:model', 'Product', '--soft-delete')
     expect(model.output, model.output).toContain('database/schema/products.ts')
-    const generate = await think('db:generate', '--name', 'create_products')
+    const generate = await haze('db:generate', '--name', 'create_products')
     expect(generate.code, generate.output).toBe(0)
     expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0003_create_products.sql')
-    const migrate = await think('db:migrate')
+    const migrate = await haze('db:migrate')
     expect(migrate.output, migrate.output).toContain('[main] migrated')
     writeFileSync(join(project.root, 'database/seeders/02-products.ts'), `
 import { Product } from '~/app/model/Product'
@@ -159,7 +159,7 @@ export default async function seed() {
   await Product.create({ name: 'Keyboard' })
 }
 `)
-    const seed = await think('db:seed')
+    const seed = await haze('db:seed')
     expect(seed.output, seed.output).toContain('Seeded 02-products.ts')
     const tables = await sqliteRows(join(project.root, 'data/app.db'), 'select (select count(*) from users) as users, (select name from products) as product')
     expect(tables).toEqual([
@@ -167,15 +167,15 @@ export default async function seed() {
     ])
 
     // 授权策略：make:policy 后 typegen 生成能力名类型
-    const policy = await think('make:policy', 'Product')
+    const policy = await haze('make:policy', 'Product')
     expect(policy.output, policy.output).toContain('app/policy/ProductPolicy.ts')
-    await think('typegen')
-    expect(project.read('.think/types/think.d.ts')).toContain('"ProductPolicy": typeof import(')
+    await haze('typegen')
+    expect(project.read('.haze/types/haze.d.ts')).toContain('"ProductPolicy": typeof import(')
 
     // 类型探针：生成的配置键 / 路由名 / 能力名必须能拦截拼写错误
     writeFileSync(join(project.root, 'probe.ts'), `
-import type { HttpContext } from '@think-h3/core'
-import { config, Router } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
+import { config, Router } from '@hazejs/core'
 import { Product } from '~/app/model/Product'
 import { User } from '~/app/model/User'
 declare const router: Router
@@ -247,7 +247,7 @@ describe('vue template', () => {
         headers: { accept: 'text/html' },
       })).text()).toContain('<div id="app"></div>')
 
-      expect((await json(`${base}/api/hello`)).data).toEqual({ app: 'demo-vue', message: 'Hello, think-h3!' })
+      expect((await json(`${base}/api/hello`)).data).toEqual({ app: 'demo-vue', message: 'Hello, hazejs!' })
       const posted = await json(`${base}/api/hello`, {
         method: 'POST',
         headers: {
@@ -262,7 +262,7 @@ describe('vue template', () => {
       await new Promise(resolve => setTimeout(resolve, 150))
       // eslint-disable-next-line no-template-curly-in-string -- 模板源码中的字面量
       project.edit('server/app/service/GreetingService.ts', '`Hello, ${name}!`', '`Hi, ${name}!`')
-      await waitFor(async () => (await json(`${base}/api/hello`)).data.message === 'Hi, think-h3!')
+      await waitFor(async () => (await json(`${base}/api/hello`)).data.message === 'Hi, hazejs!')
     }
     finally {
       await vite.close()

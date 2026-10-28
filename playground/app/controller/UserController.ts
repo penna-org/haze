@@ -1,6 +1,6 @@
-import type { ControllerMiddleware, HttpContext } from '@think-h3/core'
+import type { ControllerMiddleware, HttpContext } from '@hazejs/core'
 import type { UserIdParams } from '~/app/validate/user'
-import { inject, validate } from '@think-h3/core'
+import { inject, validate } from '@hazejs/core'
 import { UserService } from '~/app/service/UserService'
 import { CreateUserSchema, UpdateUserSchema } from '~/app/validate/user'
 

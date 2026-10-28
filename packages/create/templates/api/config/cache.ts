@@ -1,4 +1,4 @@
-import { defineCacheConfig, env } from '@think-h3/core'
+import { defineCacheConfig, env } from '@hazejs/core'
 
 /**
  * 缓存：Cache.remember('key', '10m', () => ...)、Cache.increment()、Cache.lock()。

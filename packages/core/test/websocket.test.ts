@@ -145,10 +145,10 @@ describe('websocket', () => {
     expect(await authorized.next(1)).toBe('secret')
   })
 
-  it.runIf(process.env.THINK_TEST_REDIS_URL)('broadcasts across instances through Redis', async () => {
+  it.runIf(process.env.HAZE_TEST_REDIS_URL)('broadcasts across instances through Redis', async () => {
     const config = {
       websocket: {
-        broadcast: { driver: 'redis', url: process.env.THINK_TEST_REDIS_URL, channel: `test:${crypto.randomUUID()}` },
+        broadcast: { driver: 'redis', url: process.env.HAZE_TEST_REDIS_URL, channel: `test:${crypto.randomUUID()}` },
       },
     }
     const [first, second] = await Promise.all([

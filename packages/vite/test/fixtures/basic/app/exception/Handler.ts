@@ -1,5 +1,5 @@
-import type { HttpContext } from '@think-h3/core'
-import { ExceptionHandler } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
+import { ExceptionHandler } from '@hazejs/core'
 
 export default class Handler extends ExceptionHandler {
   override render(error: unknown, ctx: HttpContext) {

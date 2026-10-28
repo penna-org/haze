@@ -1,4 +1,4 @@
-import { button, defineMail, html, mailLayout } from '@think-h3/core'
+import { button, defineMail, html, mailLayout } from '@hazejs/core'
 
 /** 欢迎邮件（app/job/SendWelcomeEmail.ts 发送）：函数返回主题与 html，纯文本版本自动生成 */
 export default defineMail((payload: { name: string, url: string }) => ({

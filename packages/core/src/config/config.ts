@@ -71,7 +71,7 @@ export interface CoreConfig {
  * 配置结构。业务项目可通过声明合并扩展：
  *
  * ```ts
- * declare module '@think-h3/core' {
+ * declare module '@hazejs/core' {
  *   interface ConfigSchema { database: { url: string } }
  * }
  * ```
@@ -79,7 +79,7 @@ export interface CoreConfig {
 export interface ConfigSchema extends CoreConfig {}
 
 /**
- * 由 `think-h3 typegen`（开发服务器自动执行）根据 config/*.ts 生成，勿手动扩展。
+ * 由 `haze typegen`（开发服务器自动执行）根据 config/*.ts 生成，勿手动扩展。
  * 与 ConfigSchema 深合并，同名配置以配置文件推导出的类型为准。
  */
 export interface GeneratedConfig {}
@@ -122,7 +122,7 @@ export function resolveConfigInput<T>(input: ConfigInput<T>): T {
 export function defaultConfig(mode: 'development' | 'production' | 'test'): CoreConfig {
   return {
     app: {
-      name: 'think-h3',
+      name: 'hazejs',
       mode,
       debug: mode === 'development',
       requestIdHeader: 'x-request-id',

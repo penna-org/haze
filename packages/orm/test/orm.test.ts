@@ -1,6 +1,6 @@
 import type { ModelQuery } from '../src'
 import type { Schema } from './schemas'
-import { createApplication, defineRoutes } from '@think-h3/core'
+import { createApplication, defineRoutes } from '@hazejs/core'
 import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseError, DatabaseManager, databaseProvider, Db, migrate, Model, ModelNotFoundException, runMigrations, setDatabaseManager, UniqueConstraintException } from '../src'

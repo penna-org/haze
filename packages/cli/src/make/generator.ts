@@ -89,7 +89,7 @@ export const KINDS = {
     file: 'class',
     flat: true,
     stub: 'event',
-    hint: v => `触发：await ${v.className}.emit({ ... })；监听：think-h3 make:listener <Name>`,
+    hint: v => `触发：await ${v.className}.emit({ ... })；监听：haze make:listener <Name>`,
   },
   listener: {
     description: '事件监听器',
@@ -109,7 +109,7 @@ export const KINDS = {
     file: 'class',
     flat: true,
     stub: 'job',
-    hint: v => `投递：await ${v.className}.dispatch({ ... })；消费：think-h3 queue:work`,
+    hint: v => `投递：await ${v.className}.dispatch({ ... })；消费：haze queue:work`,
   },
   policy: {
     description: '授权策略',
@@ -137,7 +137,7 @@ export const KINDS = {
     file: 'kebab',
     ext: '.test.ts',
     stub: 'test',
-    hint: () => '运行：think-h3 test',
+    hint: () => '运行：haze test',
   },
   config: {
     description: '配置文件',
@@ -166,7 +166,7 @@ export const KINDS = {
     file: 'kebab',
     flat: true,
     stub: 'seeder',
-    hint: () => '运行：think-h3 db:seed',
+    hint: () => '运行：haze db:seed',
   },
 } satisfies Record<string, MakeKind>
 
@@ -312,7 +312,7 @@ export async function makeModel(options: MakeModelOptions): Promise<{ model: str
     schema: writeSchema ? schema : undefined,
     hint: mongo
       ? 'MongoDB 无需迁移；索引可通过 (await Mongo.db()).collection(...).createIndex() 管理'
-      : '修改表结构后运行：think-h3 db:generate && think-h3 db:migrate',
+      : '修改表结构后运行：haze db:generate && haze db:migrate',
   }
 }
 

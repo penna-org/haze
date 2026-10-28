@@ -15,13 +15,13 @@ afterEach(async () => {
   project = undefined
 })
 
-/** 不使用任何前端框架的 Vite 项目：thinkH3() 与框架无关（Svelte / Solid 等同理） */
+/** 不使用任何前端框架的 Vite 项目：haze() 与框架无关（Svelte / Solid 等同理） */
 function vanilla(project: ReturnType<typeof createProject>) {
   rmSync(join(project.root, 'src'), { recursive: true })
-  writeFileSync(join(project.root, 'vite.config.ts'), `import { thinkH3 } from '@think-h3/vite'
+  writeFileSync(join(project.root, 'vite.config.ts'), `import { haze } from '@hazejs/vite'
 import { defineConfig } from 'vite'
 
-export default defineConfig({ plugins: [thinkH3()] })
+export default defineConfig({ plugins: [haze()] })
 `)
   project.edit('index.html', '/src/main.tsx', '/src/main.js')
   project.write('src/main.js', `const res = await fetch('/api/hello')
@@ -40,7 +40,7 @@ const frameworks = [
 
 const url = (target: ViteDevServer | PreviewServer) => target.resolvedUrls!.local[0].replace(/\/$/, '')
 
-describe.each(frameworks)('$name + thinkH3()', (framework) => {
+describe.each(frameworks)('$name + haze()', (framework) => {
   function create() {
     project = createProject('react')
     framework.prepare(project)
@@ -58,7 +58,7 @@ describe.each(frameworks)('$name + thinkH3()', (framework) => {
     const base = url(server)
     expect(await (await fetch(`${base}/`)).text()).toContain('<div id="app"></div>')
     expect((await fetch(`${base}${framework.entry}`)).status).toBe(200)
-    expect((await (await fetch(`${base}/api/hello`)).json() as any).data).toEqual({ app: 'demo-react', message: 'Hello, think-h3!' })
+    expect((await (await fetch(`${base}/api/hello`)).json() as any).data).toEqual({ app: 'demo-react', message: 'Hello, hazejs!' })
     // WebSocket 经 Vite 开发服务器交给后端（与 Vite 的 HMR 连接并存）
     expect(await wsExchange(`${base.replace(/^http/, 'ws')}/api/ws`, 'ping', 2)).toEqual(['{"type":"connected"}', '{"type":"pong"}'])
     // Socket.IO（/socket.io/）：长轮询与升级都在同一个 Vite 端口上

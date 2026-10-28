@@ -1,4 +1,4 @@
-import { defineProvider } from '@think-h3/core'
+import { defineProvider } from '@hazejs/core'
 
 /** 服务提供者：app/provider 下的文件会被自动加载 */
 export default defineProvider({

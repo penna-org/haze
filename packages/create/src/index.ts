@@ -8,8 +8,8 @@ import { scaffold, TEMPLATES } from './scaffold'
 
 const main = defineCommand({
   meta: {
-    name: 'create-think-h3',
-    description: '创建 think-h3 项目',
+    name: 'create-hazejs',
+    description: '创建 hazejs 项目',
   },
   args: {
     dir: { type: 'positional', description: '项目目录', required: false },
@@ -23,7 +23,7 @@ const main = defineCommand({
     if (!dir && interactive)
       dir = await consola.prompt('项目名称', { type: 'text', placeholder: 'my-app', cancel: 'reject' })
     if (!dir)
-      throw new Error('请指定项目目录，例如：create-think-h3 my-app')
+      throw new Error('请指定项目目录，例如：create-hazejs my-app')
 
     let template = args.template as TemplateName | undefined
     if (!template && interactive) {

@@ -1,6 +1,6 @@
 # {{name}}
 
-Vue 3 + think-h3 全栈项目：前后端同一个仓库、同一个端口、一次构建。
+Vue 3 + hazejs 全栈项目：前后端同一个仓库、同一个端口、一次构建。
 
 ## 命令
 
@@ -8,7 +8,7 @@ Vue 3 + think-h3 全栈项目：前后端同一个仓库、同一个端口、一
 pnpm dev        # Vite 开发服务器：前端 HMR，/api/** 由后端处理（改后端代码即时生效）
 pnpm routes     # 查看后端路由表
 pnpm typegen    # 生成配置键 / 路由名类型（dev 时自动执行）
-pnpm test       # 后端测试（@think-h3/testing）
+pnpm test       # 后端测试（@hazejs/testing）
 pnpm typecheck  # vue-tsc 类型检查
 pnpm build      # 构建 dist/client 与 dist/server
 pnpm start      # 运行构建产物（同一进程托管前端页面与 API）
@@ -18,10 +18,10 @@ pnpm preview    # 按构建时的部署预设本地运行产物（等同 vite pr
 ## 代码生成
 
 ```bash
-npx think-h3 make:controller User --resource   # server/app/controller/UserController.ts
-npx think-h3 make:service User
-npx think-h3 make:validate User
-npx think-h3 make:test user
+npx haze make:controller User --resource   # server/app/controller/UserController.ts
+npx haze make:service User
+npx haze make:validate User
+npx haze make:test user
 ```
 
 开发时浏览器直接访问出错的 `/api/*` 地址，会看到带源码定位的错误页；前端 `fetch` 仍得到 JSON。
@@ -29,7 +29,7 @@ npx think-h3 make:test user
 ## 响应格式
 
 - `server/app/response/Formatter.ts`：全局成功 / 失败响应结构（默认 `{ code, message, data }`）
-- `server/app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`think-h3 make:interceptor`）
+- `server/app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`haze make:interceptor`）
 - 单个路由跳过：`.meta({ envelope: false })` 或 `return raw(value)`
 
 ## 数据库
@@ -39,7 +39,7 @@ npx think-h3 make:test user
 ```bash
 pnpm db:migrate                         # 执行迁移（首次运行前执行）
 pnpm db:seed                            # 数据填充（server/database/seeders）
-npx think-h3 make:model Post            # 生成模型 + 表结构
+npx haze make:model Post            # 生成模型 + 表结构
 pnpm db:generate --name create_posts    # 表结构变化后生成迁移
 ```
 
@@ -52,7 +52,7 @@ await Db.transaction(async () => { /* 内部的 Db / Model 操作自动加入事
 
 切换到 PostgreSQL / MySQL：安装 `postgres` 或 `mysql2`，修改 `driver` 与 `url`，表结构改用 `drizzle-orm/pg-core` / `mysql-core`。
 
-MongoDB：安装 `mongodb`，连接配置 `{ driver: 'mongodb', url: 'mongodb://…/app' }`，模型使用 `@think-h3/orm/mongo` 的 `MongoModel`（`npx think-h3 make:model Article --dialect mongodb`），查询 API 与 SQL 一致。
+MongoDB：安装 `mongodb`，连接配置 `{ driver: 'mongodb', url: 'mongodb://…/app' }`，模型使用 `@hazejs/orm/mongo` 的 `MongoModel`（`npx haze make:model Article --dialect mongodb`），查询 API 与 SQL 一致。
 
 ## 多应用
 
@@ -70,7 +70,7 @@ export default defineConfig(() => ({
 
 - 应用配置 `server/app/<name>/config/*.ts` 与全局配置深合并，请求内 `config()`、`ctx.config` 读取应用配置
 - 路由名自动带应用前缀：`router.url('admin.users.index')`
-- 生成代码：`npx think-h3 make:controller User --app admin`
+- 生成代码：`npx haze make:controller User --app admin`
 
 ## 认证与安全
 
@@ -84,13 +84,13 @@ curl -X POST localhost:5173/api/auth/login -H 'content-type: application/json' \
 curl localhost:5173/api/auth/me -H 'authorization: Bearer <token>'
 ```
 
-- `APP_KEY`（`.env`，创建项目时已生成）用于签名 Cookie、加密 Session 与 JWT；更换：`npx think-h3 key:generate --force`
+- `APP_KEY`（`.env`，创建项目时已生成）用于签名 Cookie、加密 Session 与 JWT；更换：`npx haze key:generate --force`
 - 路由保护：`.middleware('auth')`、`'auth:web,api'`（任一 Guard 通过）、`'guest'`；代码中 `await ctx.auth.user()`、`ctx.auth.jwt().login(user)`
 - 浏览器同源场景可加 session Guard：`web: { driver: 'session', provider: 'users' }`，`ctx.auth.session('web').attempt(credentials)`
 - 测试：`await t.actingAs(user)` 返回已登录的客户端
 - 密码：`Hash.make(password)` / `Hash.verify(hash, password)`（scrypt）
 
-授权（`server/app/policy/*.ts` 自动注册，`npx think-h3 make:policy Post` 生成）：
+授权（`server/app/policy/*.ts` 自动注册，`npx haze make:policy Post` 生成）：
 
 ```ts
 export default definePolicy(User, {
@@ -126,7 +126,7 @@ export default definePolicy(User, {
 `server/config/cache.ts`（默认内存；设置 `CACHE_STORE=redis` 与 `REDIS_URL` 切换到 Redis，需要 `pnpm add ioredis`）：
 
 ```ts
-import { Cache } from '@think-h3/core'
+import { Cache } from '@hazejs/core'
 
 const stats = await Cache.remember('stats', '10m', () => computeStats())
 await Cache.increment('views') // 原子自增
@@ -147,7 +147,7 @@ await Cache.store('redis').get('key') // 指定存储
 
 ## 队列与定时任务
 
-任务放在 `server/app/job/*.ts`（`npx think-h3 make:job SendInvoice` 生成），配置在 `server/config/queue.ts`：
+任务放在 `server/app/job/*.ts`（`npx haze make:job SendInvoice` 生成），配置在 `server/config/queue.ts`：
 
 ```ts
 await SendWelcomeEmail.dispatch({ userId: 1 }) // 默认 memory：在本进程消费
@@ -155,8 +155,8 @@ await SendWelcomeEmail.dispatch({ userId: 1 }, { delay: '10m' }) // 延迟
 ```
 
 - 重试：`defineJob({ tries: 3, backoff: [10, 60], timeout: '30s', failed(payload, error) { ... } })`
-- 多实例：设置 `QUEUE_CONNECTION=redis`（需要 `pnpm add bullmq ioredis`），单独运行消费进程 `pnpm queue`（`think-h3 queue:work`，构建后为 `node dist/server/worker.mjs queue`）
-- 失败任务：`think-h3 queue:failed` / `queue:retry [id]` / `queue:forget <id>` / `queue:flush`
+- 多实例：设置 `QUEUE_CONNECTION=redis`（需要 `pnpm add bullmq ioredis`），单独运行消费进程 `pnpm queue`（`haze queue:work`，构建后为 `node dist/server/worker.mjs queue`）
+- 失败任务：`haze queue:failed` / `queue:retry [id]` / `queue:forget <id>` / `queue:flush`
 - 测试：`const fake = Queue.fake()` 后 `fake.assertDispatched(SendWelcomeEmail, p => p.userId === 1)`
 
 定时任务在 `server/schedule/*.ts`：
@@ -171,18 +171,18 @@ export default defineSchedule((s) => {
 
 | 环境 | 运行方式 |
 |------|----------|
-| 开发 | `pnpm schedule`（`think-h3 schedule:work`），`think-h3 schedule:list` 查看下次执行时间 |
+| 开发 | `pnpm schedule`（`haze schedule:work`），`haze schedule:list` 查看下次执行时间 |
 | node / bun / deno / docker | `node dist/server/worker.mjs schedule`（常驻），或系统 cron 每分钟执行 `node dist/server/worker.mjs schedule:run` |
 | cloudflare | 自动生成 Cron Triggers（每分钟）；队列用 Cloudflare Queues（`driver: 'cloudflare'`，Worker 导出 queue()） |
 | aws-lambda | 同一份产物，handler 设为 `index.schedule`，EventBridge `rate(1 minute)` 触发 |
-| vercel | 自动配置 Vercel Cron 调用 `/__think/schedule`（需要设置 `CRON_SECRET`；Hobby 计划只允许每天一次，用 `think.config.ts` 的 `vercel.cron` 调整） |
+| vercel | 自动配置 Vercel Cron 调用 `/__haze/schedule`（需要设置 `CRON_SECRET`；Hobby 计划只允许每天一次，用 `haze.config.ts` 的 `vercel.cron` 调整） |
 
 ## 文件存储与邮件
 
 磁盘配置在 `server/config/filesystem.ts`（默认 `local` 与 `public`；`s3` 需要 `pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-request-presigner`，Workers 上用 `r2` 绑定）：
 
 ```ts
-import { Storage } from '@think-h3/core'
+import { Storage } from '@hazejs/core'
 
 const path = await file.store('avatars', 'public') // 上传文件，随机文件名
 Storage.disk('public').url(path) // /storage/avatars/xxx.png（public 磁盘由框架直接提供）
@@ -217,7 +217,7 @@ await Mail.to(user.email).later('10m', WelcomeMail, { name: user.name })
 
 ## 事件与 WebSocket
 
-事件放在 `server/app/event/*.ts`，监听器在 `server/app/listener/*.ts`（`npx think-h3 make:event OrderPaid` / `make:listener SendReceipt`），都会自动注册：
+事件放在 `server/app/event/*.ts`，监听器在 `server/app/listener/*.ts`（`npx haze make:event OrderPaid` / `make:listener SendReceipt`），都会自动注册：
 
 ```ts
 export default defineEvent<{ userId: number, email: string }>() // app/event/UserRegistered.ts
@@ -244,12 +244,12 @@ Socket.publish('users', { type: 'user.registered' }) // 在接口、任务、监
 
 - 开发：`pnpm dev` 中直接可用，修改后新连接使用新代码；产物：node / bun / deno / docker 直接支持，`pnpm preview` 也可连接
 - 多实例：设置 `WS_BROADCAST=redis`（`server/config/websocket.ts`），广播经 Redis 到达所有实例
-- Cloudflare：自动生成 Durable Object（`ThinkWebSocket`），所有连接在同一个 DO 中，`Socket.publish` 经 RPC 转发
+- Cloudflare：自动生成 Durable Object（`HazeWebSocket`），所有连接在同一个 DO 中，`Socket.publish` 经 RPC 转发
 - Vercel / Netlify / AWS Lambda：平台不支持 WebSocket（升级请求返回 426）
 
 ## Socket.IO
 
-前端大多使用 socket.io-client，模板已集成官方 socket.io 服务端（`@think-h3/socket.io`），与 HTTP 共用端口（`/socket.io/`）：
+前端大多使用 socket.io-client，模板已集成官方 socket.io 服务端（`@hazejs/socket.io`），与 HTTP 共用端口（`/socket.io/`）：
 
 ```ts
 // server/app/socket/chat.ts —— 命名空间 /chat（文件名决定，index.ts 为 /）
@@ -281,22 +281,22 @@ SocketIO.to(`user:${id}`).emit('notice', data)
 ## 部署
 
 ```bash
-npx think-h3 build --preset node        # 默认：node dist/server/index.mjs（依赖已打包或追踪进产物，可整体拷走）
-npx think-h3 build --preset docker      # dist/ 即构建上下文：docker build -t app dist
-npx think-h3 build --preset bun         # bun dist/server/index.mjs
-npx think-h3 build --preset deno        # deno run -A dist/server/index.mjs
-npx think-h3 build --preset vercel      # .vercel/output → vercel deploy --prebuilt
-npx think-h3 build --preset netlify     # .netlify/v1/functions + netlify.toml
-npx think-h3 build --preset aws-lambda  # 打包 dist/lambda，handler 为 index.handler
-npx think-h3 build --preset cloudflare  # dist/wrangler.json → wrangler deploy -c dist/wrangler.json
+npx haze build --preset node        # 默认：node dist/server/index.mjs（依赖已打包或追踪进产物，可整体拷走）
+npx haze build --preset docker      # dist/ 即构建上下文：docker build -t app dist
+npx haze build --preset bun         # bun dist/server/index.mjs
+npx haze build --preset deno        # deno run -A dist/server/index.mjs
+npx haze build --preset vercel      # .vercel/output → vercel deploy --prebuilt
+npx haze build --preset netlify     # .netlify/v1/functions + netlify.toml
+npx haze build --preset aws-lambda  # 打包 dist/lambda，handler 为 index.handler
+npx haze build --preset cloudflare  # dist/wrangler.json → wrangler deploy -c dist/wrangler.json
 ```
 
-也可在 `think.config.ts` 中设置 `preset`。构建会自动带上项目安装的数据库驱动。
+也可在 `haze.config.ts` 中设置 `preset`。构建会自动带上项目安装的数据库驱动。
 
-依赖处理与 Nitro 一致：能打包的依赖都打进产物，数据库驱动、原生模块等保持 external，并按实际引用的文件追踪复制到产物的 `node_modules`（node / bun / deno / aws-lambda / vercel）。可在 `think.config.ts` 中调整：
+依赖处理与 Nitro 一致：能打包的依赖都打进产物，数据库驱动、原生模块等保持 external，并按实际引用的文件追踪复制到产物的 `node_modules`（node / bun / deno / aws-lambda / vercel）。可在 `haze.config.ts` 中调整：
 
 ```ts
-export default defineThinkConfig({
+export default defineHazeConfig({
   externals: {
     traceDeps: ['sharp', 'some-pkg*'], // 保持 external 并追踪（* 表示整包复制）
     inline: ['postgres'], // 强制打包
@@ -307,7 +307,7 @@ export default defineThinkConfig({
 
 在 macOS / Windows 上构建 aws-lambda、vercel 产物时，如果追踪到了原生二进制，构建会给出警告：请在 Linux（CI / Docker）上构建。
 
-`pnpm preview`（`think-h3 preview`，全栈项目也可直接 `vite preview`）按构建时的预设运行产物本身：node / bun / deno / docker 启动产物进程，aws-lambda / vercel / netlify 在进程内调用函数，cloudflare 用 Miniflare 运行 Worker（D1 迁移自动应用到本地预览库）。
+`pnpm preview`（`haze preview`，全栈项目也可直接 `vite preview`）按构建时的预设运行产物本身：node / bun / deno / docker 启动产物进程，aws-lambda / vercel / netlify 在进程内调用函数，cloudflare 用 Miniflare 运行 Worker（D1 迁移自动应用到本地预览库）。
 
 ### 生产迁移
 
@@ -318,9 +318,9 @@ export default defineThinkConfig({
 | node / bun / deno | `node dist/server/migrate.mjs`（`--connection <name>` / `--all`） |
 | docker | `docker run --rm <镜像> node server/migrate.mjs` |
 | aws-lambda | 同一份产物，handler 设为 `index.migrate` 调用一次（事件 `{ "connection"?, "all"? }`） |
-| vercel / netlify | 在构建命令前执行 `npx think-h3 db:migrate`（使用生产库的 `DATABASE_URL`） |
+| vercel / netlify | 在构建命令前执行 `npx haze db:migrate`（使用生产库的 `DATABASE_URL`） |
 | cloudflare（D1） | `npx wrangler d1 migrations apply <库名> --remote -c dist/wrangler.json` |
-| cloudflare（Turso） | 在 CI 中执行 `npx think-h3 db:migrate` |
+| cloudflare（Turso） | 在 CI 中执行 `npx haze db:migrate` |
 
 ### Cloudflare：D1 / Turso
 
@@ -343,8 +343,8 @@ export default defineDatabaseConfig(() => ({
 ```
 
 ```ts
-// think.config.ts —— 合并进 dist/wrangler.json；D1 默认使用产物中的 migrations/
-export default defineThinkConfig({
+// haze.config.ts —— 合并进 dist/wrangler.json；D1 默认使用产物中的 migrations/
+export default defineHazeConfig({
   cloudflare: {
     wrangler: {
       vars: { DB_DRIVER: 'd1' },
@@ -362,13 +362,13 @@ D1 不支持交互式事务（`Db.transaction()` 会报错并提示），原子�
 
 ```
 src/            前端（Vue）
-server/         后端（think-h3）
+server/         后端（hazejs）
   app/          controller / service / validate / middleware / exception / provider / job / mail …
   config/       配置
   route/        路由（/api 前缀）
 tests/          后端测试
-think.config.ts 框架配置（srcDir、端口等）
-vite.config.ts  Vite 配置（thinkH3() 插件）
+haze.config.ts 框架配置（srcDir、端口等）
+vite.config.ts  Vite 配置（haze() 插件）
 ```
 
 `.env` 中 `VITE_` 开头的变量暴露给前端，其余仅后端可见。

@@ -41,8 +41,8 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
 /** 保证 Response 的响应头可修改（h3 对无额外头的 JSON 响应复用了冻结的 Headers） */
 export function mutableResponse(response: Response): Response {
   try {
-    response.headers.set('x-think-probe', '1')
-    response.headers.delete('x-think-probe')
+    response.headers.set('x-haze-probe', '1')
+    response.headers.delete('x-haze-probe')
     return response
   }
   catch {

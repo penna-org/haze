@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { previewServer } from '@think-h3/vite'
+import { previewServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { parsePort, resolveRoot, rootArg, serverArgs } from '../args'
 

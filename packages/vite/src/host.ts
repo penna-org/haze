@@ -1,8 +1,8 @@
-import type { Application, ApplicationOptions } from '@think-h3/core'
+import type { Application, ApplicationOptions } from '@hazejs/core'
 import type { ViteDevServer } from 'vite'
-import type { ReloadEvent, ThinkPluginApi } from './plugin'
+import type { HazePluginApi, ReloadEvent } from './plugin'
 import { relative } from 'node:path'
-import { renderErrorPage } from '@think-h3/core'
+import { renderErrorPage } from '@hazejs/core'
 import { consola } from 'consola'
 import { createServerModuleRunner, normalizePath } from 'vite'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
@@ -18,7 +18,7 @@ export interface ReloadResult {
 
 export interface AppHostOptions {
   vite: ViteDevServer
-  api: ThinkPluginApi
+  api: HazePluginApi
   /** 文件变化后的防抖时间，默认 30ms */
   debounce?: number
 }

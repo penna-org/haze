@@ -1,9 +1,26 @@
 {
-  "name": "@think-h3/testing",
+  "name": "@hazejs/testing",
   "type": "module",
   "version": "0.0.0",
-  "description": "think-h3 testing helpers for Vitest",
+  "description": "Vitest helpers for hazejs: test app, HTTP client, actingAs and fakes",
   "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/testing#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/testing"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "testing",
+    "vitest"
+  ],
   "sideEffects": false,
   "exports": {
     ".": {
@@ -16,7 +33,9 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },
@@ -25,13 +44,13 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
-    "@think-h3/core": "workspace:^",
-    "@think-h3/vite": "workspace:^",
+    "@hazejs/core": "workspace:^",
+    "@hazejs/vite": "workspace:^",
     "vitest": "^5.0.0"
   },
   "devDependencies": {
-    "@think-h3/core": "workspace:*",
-    "@think-h3/vite": "workspace:*",
+    "@hazejs/core": "workspace:*",
+    "@hazejs/vite": "workspace:*",
     "vitest": "catalog:"
   }
 }

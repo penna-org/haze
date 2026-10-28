@@ -1,9 +1,34 @@
 {
-  "name": "@think-h3/core",
+  "name": "@hazejs/core",
   "type": "module",
   "version": "0.0.0",
-  "description": "think-h3 runtime core: container, routing, middleware, exceptions on top of h3",
+  "description": "The hazejs runtime: IoC container, routing, middleware, auth, cache, queues, events, WebSocket, storage and mail on top of h3",
   "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/core#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "framework",
+    "backend",
+    "server",
+    "h3",
+    "ioc",
+    "routing",
+    "middleware",
+    "auth",
+    "queue",
+    "websocket"
+  ],
   "sideEffects": false,
   "exports": {
     ".": {

@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # 真实服务：未设置对应环境变量的测试会跳过，本地无需全部启动
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+      upstash:
+        image: hiett/serverless-redis-http:latest
+        ports: ['8079:80']
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: haze_test_token
+          SRH_CONNECTION_STRING: redis://redis:6379
+      mysql:
+        image: mysql:8
+        ports: ['3307:3306']
+        env:
+          MYSQL_ROOT_PASSWORD: haze
+          MYSQL_DATABASE: haze_test
+        options: --health-cmd "mysqladmin ping -phaze" --health-interval 5s --health-timeout 3s --health-retries 20
+      turso:
+        image: ghcr.io/tursodatabase/libsql-server:latest
+        ports: ['8080:8080']
+      s3:
+        image: rustfs/rustfs:latest
+        ports: ['19000:9000']
+        env:
+          RUSTFS_ACCESS_KEY: rustfsadmin
+          RUSTFS_SECRET_KEY: rustfsadmin
+      mailpit:
+        image: axllent/mailpit:latest
+        ports: ['11025:1025', '18025:8025']
+    env:
+      HAZE_TEST_REDIS_URL: redis://127.0.0.1:6379
+      HAZE_TEST_UPSTASH_URL: http://127.0.0.1:8079
+      HAZE_TEST_UPSTASH_TOKEN: haze_test_token
+      HAZE_TEST_MYSQL_URL: mysql://root:haze@127.0.0.1:3307/haze_test
+      HAZE_TEST_TURSO_URL: http://127.0.0.1:8080
+      HAZE_TEST_S3_ENDPOINT: http://127.0.0.1:19000
+      HAZE_TEST_SMTP_URL: smtp://127.0.0.1:11025
+      HAZE_TEST_MAILPIT_API: http://127.0.0.1:18025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # Bun 预设与 Socket.IO Bun 引擎的测试（未安装时跳过）
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test

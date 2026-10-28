@@ -1,10 +1,10 @@
-import type { Application, ConfigInput, ServerExtension, ServiceProvider } from '@think-h3/core'
+import type { Application, ConfigInput, ServerExtension, ServiceProvider } from '@hazejs/core'
 import type { Namespace, Server, ServerOptions, Socket } from 'socket.io'
-import { createToken, definePersistent, registerServerExtension, unregisterServerExtension } from '@think-h3/core'
+import { createToken, definePersistent, registerServerExtension, unregisterServerExtension } from '@hazejs/core'
 
 export type { Namespace, Server, Socket }
 
-const kNamespace = Symbol.for('think-h3.socket.namespace')
+const kNamespace = Symbol.for('hazejs.socket.namespace')
 
 export interface SocketIOConfig {
   /** 路径，默认 `/socket.io/`（与 socket.io-client 的默认值一致） */
@@ -153,7 +153,7 @@ async function createServer(app: Application, current: State): Promise<Server> {
   const extension = {
     name: 'socket.io',
     matches: (pathname: string) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-    // Node：engine.io 挂到框架创建的 http 服务器（产物、think-h3 dev、Vite 开发服务器）
+    // Node：engine.io 挂到框架创建的 http 服务器（产物、haze dev、Vite 开发服务器）
     node: (server: import('node:http').Server) => void io.attach(server),
   }
   const runtime = globalThis as { Bun?: unknown }

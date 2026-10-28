@@ -1,4 +1,4 @@
-import { defineMailConfig, env } from '@think-h3/core'
+import { defineMailConfig, env } from '@hazejs/core'
 
 /**
  * 邮件：await Mail.to(user.email).send(WelcomeMail, { name })，排队发送用 .queue() / .later('10m', ...)。

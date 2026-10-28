@@ -1,7 +1,7 @@
 import type { MaybePromise } from '../utils'
 import type { MailContent } from './types'
 
-const kMail = Symbol.for('think-h3.mail')
+const kMail = Symbol.for('hazejs.mail')
 
 export interface MailOptions {
   /** 名称（日志与 Mail.fake() 断言信息），默认 anonymous */

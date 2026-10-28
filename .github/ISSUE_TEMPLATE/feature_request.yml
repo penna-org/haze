@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea or a missing capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and why is it hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: How would you like it to look? Code samples are welcome. Mention prior art (Laravel, AdonisJS, NestJS, …) if relevant.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

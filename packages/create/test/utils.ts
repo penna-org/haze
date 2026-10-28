@@ -58,7 +58,7 @@ export function binOf(pkg: string, bin = pkg.split('/').pop()!): string {
  * 否则前一个模板的 APP_NAME 会作为“真实环境变量”覆盖下一个模板的 .env
  */
 function childEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
-  const loaded = (globalThis as Record<string, unknown>).__THINK_H3__envKeys as Set<string> | undefined
+  const loaded = (globalThis as Record<string, unknown>).__HAZEJS__envKeys as Set<string> | undefined
   const env = {
     ...process.env,
     ...extra,

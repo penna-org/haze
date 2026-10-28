@@ -37,14 +37,14 @@ export type Validated<V extends ValidationTargets> = {
  * 请求级状态（中间件之间传递数据），可声明合并获得类型：
  *
  * ```ts
- * declare module '@think-h3/core' {
+ * declare module '@hazejs/core' {
  *   interface ContextState { user: User }
  * }
  * ```
  */
 export interface ContextState {}
 
-const kContext = Symbol.for('think-h3.context')
+const kContext = Symbol.for('hazejs.context')
 
 /** 对 H3Event 的薄封装；`ctx.event` 可直接用于 h3 的全部工具函数 */
 export class HttpContext<V extends ValidationTargets = ValidationTargets> {

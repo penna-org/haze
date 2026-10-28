@@ -67,7 +67,7 @@ export interface ApplicationOptions {
   events?: unknown[] | ModuleRecord
   /** 监听器（app/listener/*.ts：defineListener） */
   listeners?: unknown[] | ModuleRecord
-  /** 其它按目录发现的模块，供扩展包读取（如 @think-h3/socket.io 的 app/socket/*.ts） */
+  /** 其它按目录发现的模块，供扩展包读取（如 @hazejs/socket.io 的 app/socket/*.ts） */
   discovered?: Record<string, unknown[] | ModuleRecord>
   /**
    * 多应用模块：`import.meta.glob('/app/*\/{route,config,provider,exception,response}/*')`。

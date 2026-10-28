@@ -1,4 +1,4 @@
-import { useTestApp } from '@think-h3/testing'
+import { useTestApp } from '@hazejs/testing'
 import { describe, expect, it } from 'vitest'
 
 const t = useTestApp()
@@ -10,7 +10,7 @@ describe('greeting', () => {
     expect(res.body).toEqual({
       code: 0,
       message: 'ok',
-      data: { app: '{{name}}', message: 'Hello, think-h3!' },
+      data: { app: '{{name}}', message: 'Hello, hazejs!' },
     })
   })
 

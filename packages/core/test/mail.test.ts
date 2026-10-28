@@ -339,15 +339,15 @@ describe('mail: HTTP API drivers', () => {
   })
 })
 
-// 真实 SMTP：本地 Mailpit（THINK_TEST_SMTP_URL=smtp://127.0.0.1:11025 THINK_TEST_MAILPIT_API=http://127.0.0.1:18025）
-describe.runIf(process.env.THINK_TEST_SMTP_URL && process.env.THINK_TEST_MAILPIT_API)('mail: SMTP (Mailpit)', () => {
-  const api = process.env.THINK_TEST_MAILPIT_API!
+// 真实 SMTP：本地 Mailpit（HAZE_TEST_SMTP_URL=smtp://127.0.0.1:11025 HAZE_TEST_MAILPIT_API=http://127.0.0.1:18025）
+describe.runIf(process.env.HAZE_TEST_SMTP_URL && process.env.HAZE_TEST_MAILPIT_API)('mail: SMTP (Mailpit)', () => {
+  const api = process.env.HAZE_TEST_MAILPIT_API!
 
   it('delivers html, text, cc and attachments over SMTP', async () => {
     const app = await start({
       default: 'smtp',
       mailers: {
-        smtp: { driver: 'smtp', url: process.env.THINK_TEST_SMTP_URL },
+        smtp: { driver: 'smtp', url: process.env.HAZE_TEST_SMTP_URL },
       },
     })
     const subject = `欢迎 ${crypto.randomUUID()}`

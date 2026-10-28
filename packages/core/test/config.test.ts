@@ -29,7 +29,7 @@ describe('env', () => {
   })
 
   it('loads .env files by mode without overriding real env vars', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'think-env-'))
+    const dir = mkdtempSync(join(tmpdir(), 'haze-env-'))
     try {
       writeFileSync(join(dir, '.env'), 'T_A=base\nT_B=base\nT_C=base\n')
       writeFileSync(join(dir, '.env.local'), 'T_B=local\n')
@@ -48,7 +48,7 @@ describe('env', () => {
   })
 
   it('skips .env.local in test mode', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'think-env-'))
+    const dir = mkdtempSync(join(tmpdir(), 'haze-env-'))
     try {
       writeFileSync(join(dir, '.env'), 'T_L=base\n')
       writeFileSync(join(dir, '.env.local'), 'T_L=local\n')

@@ -201,7 +201,7 @@ export class RouteBuilder {
   }
 }
 
-const kRoutes = Symbol.for('think-h3.routes')
+const kRoutes = Symbol.for('hazejs.routes')
 
 export type RouteRegistrar = (r: RouteBuilder) => void
 

@@ -1,6 +1,6 @@
 import type { User } from '~/app/repository/UserRepository'
 import type { CreateUserInput, UpdateUserInput } from '~/app/validate/user'
-import { BusinessException, inject, NotFoundException } from '@think-h3/core'
+import { BusinessException, inject, NotFoundException } from '@hazejs/core'
 import { UserRepository } from '~/app/repository/UserRepository'
 
 export const ErrorCode = {

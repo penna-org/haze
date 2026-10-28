@@ -5,7 +5,7 @@ import { createServer } from 'node:net'
 import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { issueTestCredentials } from '@think-h3/core'
+import { issueTestCredentials } from '@hazejs/core'
 import { io } from 'socket.io-client'
 import { afterEach, describe, expect, it } from 'vitest'
 // @ts-expect-error 测试用的 .mjs 应用
@@ -174,9 +174,9 @@ async function spawnApp(command: string, env: Record<string, string>): Promise<s
   return `http://127.0.0.1:${port}`
 }
 
-describe.runIf(process.env.THINK_TEST_REDIS_URL)('socket.io across instances (redis-adapter)', () => {
+describe.runIf(process.env.HAZE_TEST_REDIS_URL)('socket.io across instances (redis-adapter)', () => {
   it('emits to a room from another instance', async () => {
-    const env = { REDIS_URL: process.env.THINK_TEST_REDIS_URL!, ADAPTER_KEY: `test-${crypto.randomUUID()}` }
+    const env = { REDIS_URL: process.env.HAZE_TEST_REDIS_URL!, ADAPTER_KEY: `test-${crypto.randomUUID()}` }
     const [first, second] = await Promise.all([
       spawnApp(process.execPath, env),
       spawnApp(process.execPath, env),

@@ -50,7 +50,7 @@ export function bundleAllExcept(names: string[]): RegExp {
   return new RegExp(`^(?!(?:${names.map(name => name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?:/|$))`)
 }
 
-/** 依赖处理选项（think.config.ts 的 externals） */
+/** 依赖处理选项（haze.config.ts 的 externals） */
 export interface ExternalsOptions {
   /**
    * 构建后把仍为 external 的依赖按实际引用的文件追踪复制到产物的 node_modules（node / bun / deno），默认 true。

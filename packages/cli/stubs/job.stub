@@ -1,4 +1,4 @@
-import { defineJob } from '@think-h3/core'
+import { defineJob } from '@hazejs/core'
 
 export interface {{name}}Payload {
   id: number
@@ -6,7 +6,7 @@ export interface {{name}}Payload {
 
 /**
  * 队列任务（app/job 下自动注册，文件名即任务名）：
- * 投递 await {{name}}.dispatch({ id: 1 }, { delay: '10m' })；消费 think-h3 queue:work
+ * 投递 await {{name}}.dispatch({ id: 1 }, { delay: '10m' })；消费 haze queue:work
  */
 const {{name}} = defineJob({
   // 最多执行次数与重试前的等待（秒 / '5m'）

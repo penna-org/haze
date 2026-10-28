@@ -1,9 +1,19 @@
 {
-  "name": "think-h3-monorepo",
+  "name": "hazejs-monorepo",
   "type": "module",
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@11.22.0",
+  "description": "hazejs — a batteries-included, full-stack TypeScript backend framework for Node.js, Bun, Deno and the edge",
+  "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
@@ -13,10 +23,15 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p playground/tsconfig.json",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "changeset": "changeset",
+    "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:",
+    "@changesets/changelog-github": "catalog:",
+    "@changesets/cli": "catalog:",
     "@types/node": "catalog:",
     "eslint": "catalog:",
     "tsdown": "catalog:",

@@ -4,6 +4,6 @@ coverage
 .env.local
 .env.*.local
 *.log
-.think
+.haze
 data
 storage

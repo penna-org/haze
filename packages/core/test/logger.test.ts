@@ -21,7 +21,7 @@ describe('logger', () => {
 
     expect(lines[0]).toMatchObject({
       level: 'info',
-      tag: 'think-h3',
+      tag: 'hazejs',
       msg: 'user logged in',
       requestId: 'r1',
       userId: 7,

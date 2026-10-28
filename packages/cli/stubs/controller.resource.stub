@@ -1,5 +1,5 @@
-import type { HttpContext } from '@think-h3/core'
-import { NotFoundException } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
+import { NotFoundException } from '@hazejs/core'
 
 /**
  * RESTful 资源控制器，在 route/*.ts 中注册：

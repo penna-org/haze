@@ -166,14 +166,14 @@ describe('running scheduled tasks', () => {
     await expect(working).resolves.toBeUndefined()
   })
 
-  it.runIf(process.env.THINK_TEST_REDIS_URL)('onOneServer across instances with Redis', async () => {
+  it.runIf(process.env.HAZE_TEST_REDIS_URL)('onOneServer across instances with Redis', async () => {
     const once = defineSchedule(s => void s.call('redis-report', () => void log.push('redis-report')).everyMinute().onOneServer())
     const config = {
       cache: {
         default: 'redis',
         prefix: `sched:${crypto.randomUUID()}:`,
         stores: {
-          redis: { driver: 'redis', url: process.env.THINK_TEST_REDIS_URL },
+          redis: { driver: 'redis', url: process.env.HAZE_TEST_REDIS_URL },
         },
       },
     }

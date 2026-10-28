@@ -1,6 +1,6 @@
-import type { ConfigInput, ServiceProvider } from '@think-h3/core'
+import type { ConfigInput, ServiceProvider } from '@hazejs/core'
 import type { DatabaseConfig } from './config'
-import { Logger } from '@think-h3/core'
+import { Logger } from '@hazejs/core'
 import { DatabaseManager } from './connection'
 import { setDatabaseManager } from './context'
 

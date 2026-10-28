@@ -1,4 +1,4 @@
-import { Config, inject, Router } from '@think-h3/core'
+import { Config, inject, Router } from '@hazejs/core'
 
 export class HomeController {
   private config = inject(Config)

@@ -2,7 +2,7 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@think-h3/core": [
+      "@hazejs/core": [
         "../packages/core/src/index.ts"
       ],
       "~/*": [
@@ -12,11 +12,11 @@
     "types": [
       "node",
       "vite/client",
-      "@think-h3/vite/client"
+      "@hazejs/vite/client"
     ]
   },
   "include": [
     "**/*.ts",
-    ".think/types/**/*.d.ts"
+    ".haze/types/**/*.d.ts"
   ]
 }

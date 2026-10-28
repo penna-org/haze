@@ -1,4 +1,4 @@
-import { defineEvent } from '@think-h3/core'
+import { defineEvent } from '@hazejs/core'
 
 /** 事件（app/event 下自动注册，文件名即事件名）：await {{name}}.emit({ id: 1 }) */
 const {{name}} = defineEvent<{ id: number }>()

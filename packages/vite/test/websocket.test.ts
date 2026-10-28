@@ -19,7 +19,7 @@ afterEach(async () => {
 /** 回显 + 广播的 WebSocket 路由，前缀由 reply 决定（用于验证热替换） */
 function chatRoute(reply: string): string {
   return `
-import { defineRoutes, Socket } from '@think-h3/core'
+import { defineRoutes, Socket } from '@hazejs/core'
 export default defineRoutes((r) => {
   r.ws('/ws', {
     open(peer) {
@@ -72,7 +72,7 @@ function freePort(): Promise<number> {
 }
 
 describe('websocket across environments', () => {
-  it('think-h3 dev: upgrades r.ws() routes and new connections pick up hot reloads', async () => {
+  it('haze dev: upgrades r.ws() routes and new connections pick up hot reloads', async () => {
     const fixture = fixtureWithChat()
     const dev: DevServer = await createDevServer({ root: fixture.root, port: 0, debounce: 10 })
     cleanups.push(() => dev.close())
@@ -118,13 +118,13 @@ describe('websocket across environments', () => {
     const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))
     expect(wrangler.durable_objects).toEqual({
       bindings: [
-        { name: 'THINK_WEBSOCKET', class_name: 'ThinkWebSocket' },
+        { name: 'HAZE_WEBSOCKET', class_name: 'HazeWebSocket' },
       ],
     })
     expect(wrangler.migrations).toEqual([
       {
-        tag: 'think-websocket-v1',
-        new_sqlite_classes: ['ThinkWebSocket'],
+        tag: 'haze-websocket-v1',
+        new_sqlite_classes: ['HazeWebSocket'],
       },
     ])
 
@@ -136,7 +136,7 @@ describe('websocket across environments', () => {
       bindings: {
         APP_KEY: 'k'.repeat(32),
       },
-      durableObjects: { THINK_WEBSOCKET: 'ThinkWebSocket' },
+      durableObjects: { HAZE_WEBSOCKET: 'HazeWebSocket' },
     })
     cleanups.push(() => mf.dispose())
     const open = async () => {

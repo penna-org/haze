@@ -1,6 +1,6 @@
-import type { Application } from '@think-h3/core'
+import type { Application } from '@hazejs/core'
 
-/** 数据填充：think-h3 db:seed 按文件名顺序执行 database/seeders 下的文件 */
+/** 数据填充：haze db:seed 按文件名顺序执行 database/seeders 下的文件 */
 export default async function seed(_app: Application): Promise<void> {
   // await User.create({ name: 'Admin' })
 }

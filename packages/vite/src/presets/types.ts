@@ -13,7 +13,7 @@ export const PRESET_NAMES = [
 
 export type PresetName = (typeof PRESET_NAMES)[number]
 
-/** think.config.ts 的 cloudflare 选项 */
+/** haze.config.ts 的 cloudflare 选项 */
 export interface CloudflareOptions {
   /**
    * 合并进生成的 wrangler.json（D1 / KV / R2 绑定、vars、routes 等）。
@@ -24,7 +24,7 @@ export interface CloudflareOptions {
   websocket?: boolean
 }
 
-/** think.config.ts 的 vercel 选项 */
+/** haze.config.ts 的 vercel 选项 */
 export interface VercelOptions {
   /** 定时任务的触发频率（Vercel Cron 表达式），默认每分钟；Hobby 计划只允许每天一次 */
   cron?: string
@@ -32,11 +32,11 @@ export interface VercelOptions {
 
 export interface PresetContext {
   root: string
-  /** think.config.ts 的 externals 选项 */
+  /** haze.config.ts 的 externals 选项 */
   externalsOptions: ExternalsOptions
   /** 后端源码目录（绝对路径） */
   srcDir: string
-  /** think.config.ts 的 outDir（绝对路径） */
+  /** haze.config.ts 的 outDir（绝对路径） */
   outDir: string
   /** 是否包含前端（Vue 等）构建 */
   fullstack: boolean
@@ -44,7 +44,7 @@ export interface PresetContext {
   prefixes: string[]
   port: number
   host: string | undefined
-  /** 项目使用 @think-h3/orm：生成生产迁移入口 */
+  /** 项目使用 @hazejs/orm：生成生产迁移入口 */
   orm: boolean
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
@@ -106,7 +106,7 @@ export interface Preset {
   /** 输出独立的迁移脚本 `migrate.mjs`（常驻进程型运行时，部署前执行） */
   migrateScript?: boolean
   layout: (context: PresetContext) => Layout
-  /** 生产入口（virtual:think/server-entry）源码 */
+  /** 生产入口（virtual:haze/server-entry）源码 */
   entry: (context: PresetContext & { layout: Layout }) => string
   /** 构建完成后生成平台配置、复制依赖等 */
   finalize?: (context: FinalizeContext) => Promise<void>

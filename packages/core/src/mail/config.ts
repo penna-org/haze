@@ -41,7 +41,7 @@ export interface MailConfig {
 
 export const defaultMailConfig: MailConfig = {
   default: 'log',
-  from: 'think-h3 <noreply@example.com>',
+  from: 'haze <noreply@example.com>',
   mailers: {
     log: { driver: 'log' },
     array: { driver: 'array' },

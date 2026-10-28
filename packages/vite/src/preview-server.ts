@@ -2,8 +2,8 @@ import type { InlineConfig, PreviewServer } from 'vite'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { mergeConfig, preview } from 'vite'
-import { findViteConfig, loadThinkConfig } from './config'
-import { thinkH3 } from './plugin'
+import { findViteConfig, loadHazeConfig } from './config'
+import { haze } from './plugin'
 
 export interface PreviewServerOptions {
   /** 项目根目录，默认 `process.cwd()` */
@@ -15,7 +15,7 @@ export interface PreviewServerOptions {
 }
 
 /**
- * 本地预览构建产物（`think-h3 preview`）：按构建时的部署预设运行产物本身。
+ * 本地预览构建产物（`haze preview`）：按构建时的部署预设运行产物本身。
  * 全栈项目使用项目的 vite.config.ts（等同 `vite preview`），纯后端项目使用内置配置。
  */
 export async function previewServer(options: PreviewServerOptions = {}): Promise<PreviewServer> {
@@ -31,14 +31,14 @@ export async function previewServer(options: PreviewServerOptions = {}): Promise
   if (viteConfig)
     return preview({ root, configFile: viteConfig, ...server })
 
-  const config = await loadThinkConfig(root, 'production')
+  const config = await loadHazeConfig(root, 'production')
   return preview(mergeConfig(config.vite, {
     root,
     configFile: false,
     appType: 'custom',
     envDir: false,
     plugins: [
-      thinkH3({ srcDir: config.srcDir, outDir: config.outDir, standalone: true }),
+      haze({ srcDir: config.srcDir, outDir: config.outDir, standalone: true }),
     ],
     ...server,
   } satisfies InlineConfig))

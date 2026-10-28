@@ -17,7 +17,7 @@ export interface ScaffoldOptions {
   template: TemplateName
   /** 项目名（package.json name），默认取目录名 */
   name?: string
-  /** 框架包的版本范围，默认使用 create-think-h3 自身的版本 */
+  /** 框架包的版本范围，默认使用 create-hazejs 自身的版本 */
   version?: string
   /** 目标目录非空时清空 */
   force?: boolean
@@ -81,7 +81,7 @@ export function toPackageName(input: string): string {
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/^[._]+/, '')
-    .replace(/[^a-z0-9\-~]+/g, '-') || 'think-h3-app'
+    .replace(/[^a-z0-9\-~]+/g, '-') || 'hazejs-app'
 }
 
 function walk(dir: string): string[] {

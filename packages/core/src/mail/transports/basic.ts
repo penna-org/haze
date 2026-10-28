@@ -7,7 +7,7 @@ export function logTransport(logger: Logger): MailTransport {
   return {
     driver: 'log',
     async send(message) {
-      const messageId = `<${crypto.randomUUID()}@think-h3.log>`
+      const messageId = `<${crypto.randomUUID()}@hazejs.log>`
       logger.info(`Mail "${message.subject}" → ${message.to.map(formatAddress).join(', ')}`, {
         messageId,
         from: formatAddress(message.from),
@@ -30,7 +30,7 @@ export function arrayTransport(): MailTransport & { messages: ResolvedMessage[] 
     messages,
     async send(message) {
       messages.push(message)
-      return { messageId: `<${crypto.randomUUID()}@think-h3.array>` }
+      return { messageId: `<${crypto.randomUUID()}@hazejs.array>` }
     },
   }
 }

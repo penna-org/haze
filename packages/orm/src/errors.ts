@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@think-h3/core'
+import { ConflictException, NotFoundException } from '@hazejs/core'
 
 /** findOrFail() 未找到数据，渲染为 404 */
 export class ModelNotFoundException extends NotFoundException {

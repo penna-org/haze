@@ -1,4 +1,4 @@
-import type { HttpContext, Middleware, Next } from '@think-h3/core'
+import type { HttpContext, Middleware, Next } from '@hazejs/core'
 
 /**
  * 在 config/middleware.ts 中注册：alias: { {{camelName}}: {{className}} }

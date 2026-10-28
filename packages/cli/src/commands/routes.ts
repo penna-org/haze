@@ -1,4 +1,4 @@
-import { createDevServer } from '@think-h3/vite'
+import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'

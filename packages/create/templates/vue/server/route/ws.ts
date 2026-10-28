@@ -1,4 +1,4 @@
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 
 /**
  * WebSocket：ws://<host>/api/ws。升级请求同样经过中间件，需要登录时加 .middleware('auth')。

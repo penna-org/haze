@@ -40,22 +40,22 @@ const drivers: Driver[] = [
     config: { driver: 'kv', binding: 'CACHE' },
     atomic: false,
   },
-  // 真实服务：THINK_TEST_REDIS_URL=redis://127.0.0.1:6379
-  ...(process.env.THINK_TEST_REDIS_URL
+  // 真实服务：HAZE_TEST_REDIS_URL=redis://127.0.0.1:6379
+  ...(process.env.HAZE_TEST_REDIS_URL
     ? [
         {
           name: 'redis',
-          config: { driver: 'redis', url: process.env.THINK_TEST_REDIS_URL } as CacheStoreConfig,
+          config: { driver: 'redis', url: process.env.HAZE_TEST_REDIS_URL } as CacheStoreConfig,
           atomic: true,
         },
       ]
     : []),
-  // Upstash REST（本地可用 serverless-redis-http）：THINK_TEST_UPSTASH_URL / THINK_TEST_UPSTASH_TOKEN
-  ...(process.env.THINK_TEST_UPSTASH_URL
+  // Upstash REST（本地可用 serverless-redis-http）：HAZE_TEST_UPSTASH_URL / HAZE_TEST_UPSTASH_TOKEN
+  ...(process.env.HAZE_TEST_UPSTASH_URL
     ? [
         {
           name: 'upstash',
-          config: { driver: 'upstash', url: process.env.THINK_TEST_UPSTASH_URL, token: process.env.THINK_TEST_UPSTASH_TOKEN ?? '' } as CacheStoreConfig,
+          config: { driver: 'upstash', url: process.env.HAZE_TEST_UPSTASH_URL, token: process.env.HAZE_TEST_UPSTASH_TOKEN ?? '' } as CacheStoreConfig,
           atomic: true,
         },
       ]

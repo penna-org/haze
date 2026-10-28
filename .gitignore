@@ -1,7 +1,7 @@
 node_modules
 dist
 coverage
-.think
+.haze
 .DS_Store
 *.log
 .env.local

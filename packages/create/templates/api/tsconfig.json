@@ -15,7 +15,7 @@
     "types": [
       "node",
       "vite/client",
-      "@think-h3/vite/client"
+      "@hazejs/vite/client"
     ],
     "strict": true,
     "noEmit": true,
@@ -25,7 +25,7 @@
   },
   "include": [
     "**/*.ts",
-    ".think/types/**/*.d.ts"
+    ".haze/types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules",

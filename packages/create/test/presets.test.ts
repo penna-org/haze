@@ -25,7 +25,7 @@ afterAll(() => {
 async function buildVue(preset: string, prepare?: (project: ReturnType<typeof createProject>) => void) {
   project = createProject('vue')
   prepare?.(project)
-  const result = await run(binOf('@think-h3/cli', 'think-h3'), [
+  const result = await run(binOf('@hazejs/cli', 'haze'), [
     'build',
     '--preset',
     preset,
@@ -153,12 +153,12 @@ describe('full-stack deployment presets (vue template)', () => {
     expect(config.routes).toEqual([
       { handle: 'filesystem' },
       // 定时任务（schedule/app.ts）：Vercel Cron 调用的内部路由
-      { src: '^/__think/schedule$', dest: '/__server' },
+      { src: '^/__haze/schedule$', dest: '/__server' },
       { src: '^/api(?:/.*)?$', dest: '/__server' },
       { src: '/(.*)', dest: '/index.html' },
     ])
     expect(config.crons).toEqual([
-      { path: '/__think/schedule', schedule: '* * * * *' },
+      { path: '/__haze/schedule', schedule: '* * * * *' },
     ])
     const fn = join(output, 'functions/__server.func')
     expect(existsSync(join(fn, 'node_modules/@libsql/client'))).toBe(true)
@@ -172,8 +172,8 @@ describe('full-stack deployment presets (vue template)', () => {
 
       // Vercel Cron：需要 CRON_SECRET
       process.env.CRON_SECRET = 'cron-secret'
-      expect((await fetch(`${base}/__think/schedule`)).status).toBe(401)
-      const cron = await fetch(`${base}/__think/schedule`, {
+      expect((await fetch(`${base}/__haze/schedule`)).status).toBe(401)
+      const cron = await fetch(`${base}/__haze/schedule`, {
         headers: { authorization: 'Bearer cron-secret' },
       })
       expect(cron.status).toBe(200)
@@ -189,7 +189,7 @@ describe('full-stack deployment presets (vue template)', () => {
     const { root } = await buildVue('netlify')
     expect(readFileSync(join(root, 'netlify.toml'), 'utf8')).toContain('publish = "dist/client"')
     expect(readFileSync(join(root, 'dist/client/_redirects'), 'utf8')).toContain('/index.html  200')
-    const fn = join(root, '.netlify/v1/functions/think-h3-server.mjs')
+    const fn = join(root, '.netlify/v1/functions/haze-server.mjs')
     expect(readFileSync(fn, 'utf8')).toContain('path: ["/api","/api/*"]')
     const { default: handler } = await import(pathToFileURL(fn).href)
     const res: Response = await handler(new Request('https://demo.netlify.app/api/hello'), {})
@@ -221,7 +221,7 @@ describe('full-stack deployment presets (vue template)', () => {
     })
     try {
       const res = await mf.dispatchFetch('http://localhost/api/hello')
-      expect((await res.json() as any).data).toEqual({ app: 'edge-app', message: 'Hello, think-h3!' })
+      expect((await res.json() as any).data).toEqual({ app: 'edge-app', message: 'Hello, hazejs!' })
     }
     finally {
       await mf.dispose()
@@ -233,9 +233,9 @@ describe('full-stack deployment presets (vue template)', () => {
       project.edit('server/config/database.ts', `driver: 'sqlite',
       url: env('DATABASE_URL', 'file:./data/app.db'),`, `driver: 'd1',
       binding: 'DB',`)
-      writeFileSync(join(project.root, 'think.config.ts'), `import { defineThinkConfig } from '@think-h3/vite'
+      writeFileSync(join(project.root, 'haze.config.ts'), `import { defineHazeConfig } from '@hazejs/vite'
 
-export default defineThinkConfig({
+export default defineHazeConfig({
   srcDir: 'server',
   cloudflare: {
     wrangler: {
@@ -323,9 +323,9 @@ export default defineThinkConfig({
     }
   })
 
-  // Turso / sqld：THINK_TEST_TURSO_URL=http://127.0.0.1:8080
-  it.runIf(process.env.THINK_TEST_TURSO_URL)('cloudflare: Turso over HTTP from the worker, migrated with think-h3 db:migrate', async () => {
-    const url = process.env.THINK_TEST_TURSO_URL!
+  // Turso / sqld：HAZE_TEST_TURSO_URL=http://127.0.0.1:8080
+  it.runIf(process.env.HAZE_TEST_TURSO_URL)('cloudflare: Turso over HTTP from the worker, migrated with haze db:migrate', async () => {
+    const url = process.env.HAZE_TEST_TURSO_URL!
     const { createClient } = await import('@libsql/client/web')
     const client = createClient({ url })
     await client.batch(['drop table if exists users', 'drop table if exists __drizzle_migrations'])
@@ -335,7 +335,7 @@ export default defineThinkConfig({
       project.edit('server/config/database.ts', `driver: 'sqlite',`, `driver: 'turso',`)
     })
     // Edge 没有迁移脚本：在 CI / 本地对远程库执行 db:migrate
-    const migrate = await run(binOf('@think-h3/cli', 'think-h3'), ['db:migrate', '--root', root], root, { DATABASE_URL: url })
+    const migrate = await run(binOf('@hazejs/cli', 'haze'), ['db:migrate', '--root', root], root, { DATABASE_URL: url })
     expect(migrate.output, migrate.output).toContain('[main] migrated: 3 of 3 applied (database/migrations)')
 
     const dist = join(root, 'dist')
@@ -373,20 +373,20 @@ export default defineThinkConfig({
     }
   })
 
-  // 真实 Redis：THINK_TEST_REDIS_URL=redis://127.0.0.1:6379
-  it.runIf(process.env.THINK_TEST_REDIS_URL)('node: two instances share throttle counts through Redis, with ioredis traced into dist', async () => {
+  // 真实 Redis：HAZE_TEST_REDIS_URL=redis://127.0.0.1:6379
+  it.runIf(process.env.HAZE_TEST_REDIS_URL)('node: two instances share throttle counts through Redis, with ioredis traced into dist', async () => {
     project = createProject('api')
-    const build = await run(binOf('@think-h3/cli', 'think-h3'), ['build', '--root', project.root], project.root, {})
+    const build = await run(binOf('@hazejs/cli', 'haze'), ['build', '--root', project.root], project.root, {})
     expect(build.code, build.output).toBe(0)
     expect(existsSync(join(project.root, 'dist/node_modules/ioredis/package.json'))).toBe(true)
 
     // 产物拷到项目之外运行，两个实例共用 Redis
-    const elsewhere = mkdtempSync(join(tmpdir(), 'think-h3-redis-'))
+    const elsewhere = mkdtempSync(join(tmpdir(), 'hazejs-redis-'))
     cpSync(join(project.root, 'dist'), elsewhere, { recursive: true })
     const env = {
       APP_KEY: 'k'.repeat(32),
       CACHE_STORE: 'redis',
-      REDIS_URL: process.env.THINK_TEST_REDIS_URL!,
+      REDIS_URL: process.env.HAZE_TEST_REDIS_URL!,
       CACHE_PREFIX: `e2e:${crypto.randomUUID()}:`,
     }
     const servers = await Promise.all([
@@ -414,20 +414,20 @@ export default defineThinkConfig({
   })
 
   // 真实 Redis：web 进程投递，独立的 worker.mjs 进程消费（BullMQ 追踪进产物）
-  it.runIf(process.env.THINK_TEST_REDIS_URL)('node: worker.mjs consumes jobs dispatched by the web process through Redis', async () => {
+  it.runIf(process.env.HAZE_TEST_REDIS_URL)('node: worker.mjs consumes jobs dispatched by the web process through Redis', async () => {
     project = createProject('api')
-    const cli = binOf('@think-h3/cli', 'think-h3')
+    const cli = binOf('@hazejs/cli', 'haze')
     const build = await run(cli, ['build', '--root', project.root], project.root, {})
     expect(build.code, build.output).toBe(0)
     expect(build.output).toContain('worker.mjs queue')
     expect(existsSync(join(project.root, 'dist/node_modules/bullmq/package.json'))).toBe(true)
 
-    const elsewhere = mkdtempSync(join(tmpdir(), 'think-h3-worker-'))
+    const elsewhere = mkdtempSync(join(tmpdir(), 'hazejs-worker-'))
     cpSync(join(project.root, 'dist'), elsewhere, { recursive: true })
     const env = {
       APP_KEY: 'k'.repeat(32),
       QUEUE_CONNECTION: 'redis',
-      REDIS_URL: process.env.THINK_TEST_REDIS_URL!,
+      REDIS_URL: process.env.HAZE_TEST_REDIS_URL!,
       DATABASE_URL: `file:${join(elsewhere, 'data/app.db')}`,
     }
     const migrated = await run(join(elsewhere, 'migrate.mjs'), [], elsewhere, { ...env, NODE_ENV: 'production' })
@@ -474,7 +474,7 @@ export default defineThinkConfig({
 
   it('node (api template): migrate.mjs finds migrations when the source dir is the project root', async () => {
     project = createProject('api')
-    const build = await run(binOf('@think-h3/cli', 'think-h3'), ['build', '--root', project.root], project.root, {})
+    const build = await run(binOf('@hazejs/cli', 'haze'), ['build', '--root', project.root], project.root, {})
     expect(build.code, build.output).toBe(0)
     const dist = join(project.root, 'dist')
     const migrated = await run(join(dist, 'migrate.mjs'), [], dist, { NODE_ENV: 'production', DATABASE_URL: `file:${join(dist, 'data/app.db')}` })

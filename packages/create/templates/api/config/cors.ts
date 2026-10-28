@@ -1,4 +1,4 @@
-import { defineCorsConfig, env } from '@think-h3/core'
+import { defineCorsConfig, env } from '@hazejs/core'
 
 // 跨域：CORS_ORIGIN 为逗号分隔的来源列表，默认允许任意来源（不携带 Cookie）
 export default defineCorsConfig(() => {

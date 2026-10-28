@@ -1,4 +1,4 @@
-import { defineFilesystemConfig, env } from '@think-h3/core'
+import { defineFilesystemConfig, env } from '@hazejs/core'
 
 /**
  * 文件存储：Storage.put('reports/a.csv', csv)、Storage.disk('public').putFile('avatars', file)、

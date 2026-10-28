@@ -1,5 +1,5 @@
-import type { HttpContext, Middleware, Next } from '@think-h3/core'
-import { Config, inject, UnauthorizedException } from '@think-h3/core'
+import type { HttpContext, Middleware, Next } from '@hazejs/core'
+import { Config, inject, UnauthorizedException } from '@hazejs/core'
 import { UserRepository } from '~/app/repository/UserRepository'
 
 /** 演示用：`Authorization: Bearer <API_TOKEN>` 视为 1 号用户登录 */

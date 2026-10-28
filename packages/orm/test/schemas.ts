@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { setPlatformBindings } from '@think-h3/core'
+import { setPlatformBindings } from '@hazejs/core'
 import { int as myInt, serial as mySerial, mysqlTable, text as myText, timestamp as myTimestamp, varchar } from 'drizzle-orm/mysql-core'
 import { integer as pgInt, pgTable, text as pgText, timestamp as pgTimestamp, serial } from 'drizzle-orm/pg-core'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -144,12 +144,12 @@ export const dialects: TestDialect[] = [
     setup: setupD1,
     dispose: async () => miniflare?.dispose(),
   },
-  // Turso / sqld 的 HTTP 接口：THINK_TEST_TURSO_URL=http://127.0.0.1:8080
-  ...(process.env.THINK_TEST_TURSO_URL
+  // Turso / sqld 的 HTTP 接口：HAZE_TEST_TURSO_URL=http://127.0.0.1:8080
+  ...(process.env.HAZE_TEST_TURSO_URL
     ? [
         {
           name: 'turso',
-          connection: { driver: 'turso' as const, url: process.env.THINK_TEST_TURSO_URL },
+          connection: { driver: 'turso' as const, url: process.env.HAZE_TEST_TURSO_URL },
           schema: sqlite,
           ddl: [
             'drop table if exists users',
@@ -166,12 +166,12 @@ export const dialects: TestDialect[] = [
     schema: postgres as unknown as Schema,
     ddl: ddl.postgres,
   },
-  // MySQL 需要真实服务：THINK_TEST_MYSQL_URL=mysql://root:pass@127.0.0.1:3306/test
-  ...(process.env.THINK_TEST_MYSQL_URL
+  // MySQL 需要真实服务：HAZE_TEST_MYSQL_URL=mysql://root:pass@127.0.0.1:3306/test
+  ...(process.env.HAZE_TEST_MYSQL_URL
     ? [
         {
           name: 'mysql',
-          connection: { driver: 'mysql' as const, url: process.env.THINK_TEST_MYSQL_URL },
+          connection: { driver: 'mysql' as const, url: process.env.HAZE_TEST_MYSQL_URL },
           schema: mysql as unknown as Schema,
           ddl: ddl.mysql,
         },

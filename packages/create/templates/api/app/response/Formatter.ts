@@ -1,5 +1,5 @@
-import type { HttpContext, NormalizedError } from '@think-h3/core'
-import { ResponseFormatter } from '@think-h3/core'
+import type { HttpContext, NormalizedError } from '@hazejs/core'
+import { ResponseFormatter } from '@hazejs/core'
 
 /**
  * 统一响应格式：在这里修改即可全局调整成功 / 失败时出站数据的结构。

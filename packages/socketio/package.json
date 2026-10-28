@@ -1,9 +1,27 @@
 {
-  "name": "@think-h3/socket.io",
+  "name": "@hazejs/socket.io",
   "type": "module",
   "version": "0.0.0",
-  "description": "think-h3 Socket.IO integration: namespaces in app/socket, guard authentication, Redis adapter, Node and Bun servers",
+  "description": "Socket.IO server integration for hazejs (namespaces, guard auth, Redis adapter, Node and Bun)",
   "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/socketio#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/socketio"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "socket.io",
+    "websocket",
+    "realtime"
+  ],
   "sideEffects": false,
   "exports": {
     ".": {
@@ -22,9 +40,9 @@
     "build": "tsdown"
   },
   "peerDependencies": {
+    "@hazejs/core": "workspace:^",
     "@socket.io/bun-engine": "^0.1.2",
     "@socket.io/redis-adapter": "^8.3.0",
-    "@think-h3/core": "workspace:^",
     "ioredis": "^6.0.0",
     "socket.io": "^4.8.0"
   },
@@ -40,10 +58,10 @@
     }
   },
   "devDependencies": {
+    "@hazejs/core": "workspace:*",
+    "@hazejs/vite": "workspace:*",
     "@socket.io/bun-engine": "catalog:",
     "@socket.io/redis-adapter": "catalog:",
-    "@think-h3/core": "workspace:*",
-    "@think-h3/vite": "workspace:*",
     "ioredis": "catalog:",
     "socket.io": "catalog:",
     "socket.io-client": "catalog:"

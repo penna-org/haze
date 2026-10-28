@@ -1,0 +1,44 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug! Please search existing issues first.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A minimal repository or the smallest code that reproduces the problem, plus the steps to run it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: hazejs version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime / deployment preset
+      multiple: true
+      options: [node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda, dev server]
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node / Bun / Deno version, package manager, database or driver versions.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: shell

@@ -1,6 +1,6 @@
-import type { Application, ApplicationOptions, Container, InjectionKey } from '@think-h3/core'
-import { issueTestCredentials } from '@think-h3/core'
-import { createApp } from 'virtual:think/app'
+import type { Application, ApplicationOptions, Container, InjectionKey } from '@hazejs/core'
+import { issueTestCredentials } from '@hazejs/core'
+import { createApp } from 'virtual:haze/app'
 import { afterEach, beforeEach } from 'vitest'
 
 export interface TestAppOptions extends ApplicationOptions {
@@ -45,7 +45,7 @@ export interface TestApp extends TestClient {
 }
 
 /**
- * 创建测试用应用（不监听端口）。使用 `virtual:think/app`，与 dev / build 发现同一套
+ * 创建测试用应用（不监听端口）。使用 `virtual:haze/app`，与 dev / build 发现同一套
  * config / route / provider；默认 mode 为 `test`，会加载 `.env.test`。
  */
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {

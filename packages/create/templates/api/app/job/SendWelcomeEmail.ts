@@ -1,4 +1,4 @@
-import { defineJob, Mail } from '@think-h3/core'
+import { defineJob, Mail } from '@hazejs/core'
 import WelcomeMail from '~/app/mail/WelcomeMail'
 import { User } from '~/app/model/User'
 

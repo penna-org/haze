@@ -14,7 +14,7 @@ export function isFormattable(value: unknown): boolean {
     || (typeof value === 'object' && typeof (value as { toJSON?: unknown }).toJSON === 'function')
 }
 
-const kRaw = Symbol.for('think-h3.raw')
+const kRaw = Symbol.for('hazejs.raw')
 
 export interface RawValue<T = unknown> {
   readonly [kRaw]: true

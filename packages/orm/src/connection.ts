@@ -1,10 +1,10 @@
-import type { Logger } from '@think-h3/core'
+import type { Logger } from '@hazejs/core'
 import type { ConnectionConfig, DatabaseConfig, Dialect, Driver } from './config'
 import type { AnyDatabase } from './types'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
-import { definePersistent, usePlatformBinding } from '@think-h3/core'
+import { definePersistent, usePlatformBinding } from '@hazejs/core'
 import { dialectOf } from './config'
 import { DatabaseError } from './errors'
 

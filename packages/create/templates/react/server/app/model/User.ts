@@ -1,4 +1,4 @@
-import { Model } from '@think-h3/orm'
+import { Model } from '@hazejs/orm'
 import { users } from '~/database/schema/users'
 
 /**

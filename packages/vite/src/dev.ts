@@ -1,16 +1,16 @@
-import type { Application } from '@think-h3/core'
+import type { Application } from '@hazejs/core'
 import type { InlineConfig, ViteDevServer } from 'vite'
 import type { ReloadResult } from './host'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { webSocketConfig, webSocketPlugin } from '@think-h3/core'
+import { webSocketConfig, webSocketPlugin } from '@hazejs/core'
 import { consola } from 'consola'
 import { serve } from 'srvx'
 import { createServer, mergeConfig, normalizePath } from 'vite'
-import { loadThinkConfig } from './config'
+import { loadHazeConfig } from './config'
 import { PLUGIN_NAME } from './constants'
 import { createAppHost } from './host'
-import { thinkH3 } from './plugin'
+import { haze } from './plugin'
 
 export interface DevServerOptions {
   /** 项目根目录，默认 `process.cwd()` */
@@ -43,8 +43,8 @@ export interface DevServer {
  */
 export async function createDevServer(options: DevServerOptions = {}): Promise<DevServer> {
   const root = resolve(options.root ?? process.cwd())
-  const config = await loadThinkConfig(root)
-  const plugin = thinkH3({
+  const config = await loadHazeConfig(root)
+  const plugin = haze({
     srcDir: config.srcDir,
     port: config.port,
     host: config.host,
@@ -68,7 +68,7 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
       ws: false,
       watch: {
         // 构建产物与生成的类型不触发重载
-        ignored: [`${normalizePath(config.outDir)}/**`, `${normalizePath(root)}/.think/**`],
+        ignored: [`${normalizePath(config.outDir)}/**`, `${normalizePath(root)}/.haze/**`],
       },
     },
     plugins: [plugin],

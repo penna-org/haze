@@ -1,16 +1,16 @@
 import { relative } from 'node:path'
 import process from 'node:process'
-import { createDevServer, loadThinkConfig, writeTypes } from '@think-h3/vite'
+import { createDevServer, loadHazeConfig, writeTypes } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { resolveRoot, rootArg } from '../args'
 
 export default defineCommand({
-  meta: { name: 'typegen', description: '生成配置键与路由名类型（.think/types/think.d.ts）' },
+  meta: { name: 'typegen', description: '生成配置键与路由名类型（.haze/types/haze.d.ts）' },
   args: rootArg,
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const { srcDir } = await loadThinkConfig(root)
+    const { srcDir } = await loadHazeConfig(root)
     const server = await createDevServer({ root, listen: false })
     try {
       if (!server.app)

@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 import { loadConfigFromFile } from 'vite'
 import { CONFIG_BASENAME } from './constants'
 
-export interface ThinkConfig {
+export interface HazeConfig {
   /** 后端源码目录（相对项目根），默认 `.`；全栈项目一般为 `server` */
   srcDir?: string
   /** 开发服务器端口，默认 3000（环境变量 PORT 优先） */
@@ -15,7 +15,7 @@ export interface ThinkConfig {
   host?: string
   /** 构建输出目录，默认 `dist` */
   outDir?: string
-  /** 开发时自动生成配置键 / 路由名类型到 .think/types，默认 true */
+  /** 开发时自动生成配置键 / 路由名类型到 .haze/types，默认 true */
   typegen?: boolean
   /** 部署预设：node（默认）| bun | deno | docker | cloudflare | vercel | netlify | aws-lambda */
   preset?: PresetName
@@ -29,7 +29,7 @@ export interface ThinkConfig {
   vite?: UserConfig
 }
 
-export interface ResolvedThinkConfig {
+export interface ResolvedHazeConfig {
   root: string
   srcDir: string
   port: number
@@ -44,29 +44,29 @@ export interface ResolvedThinkConfig {
   configFile: string | undefined
 }
 
-export function defineThinkConfig(config: ThinkConfig): ThinkConfig {
+export function defineHazeConfig(config: HazeConfig): HazeConfig {
   return config
 }
 
 const EXTENSIONS = ['ts', 'mts', 'js', 'mjs']
 
-/** 存在 vite.config.* 视为全栈项目：由用户的 Vite 配置（含 thinkH3() 插件）驱动 */
+/** 存在 vite.config.* 视为全栈项目：由用户的 Vite 配置（含 haze() 插件）驱动 */
 export function findViteConfig(root: string): string | undefined {
   return EXTENSIONS
     .map(ext => resolve(root, `vite.config.${ext}`))
     .find(file => existsSync(file))
 }
 
-/** 读取项目根目录下的 `think.config.ts`（可选） */
-export async function loadThinkConfig(root: string, mode = 'development'): Promise<ResolvedThinkConfig> {
+/** 读取项目根目录下的 `haze.config.ts`（可选） */
+export async function loadHazeConfig(root: string, mode = 'development'): Promise<ResolvedHazeConfig> {
   const configFile = EXTENSIONS
     .map(ext => resolve(root, `${CONFIG_BASENAME}.${ext}`))
     .find(file => existsSync(file))
 
-  let config: ThinkConfig = {}
+  let config: HazeConfig = {}
   if (configFile) {
     const loaded = await loadConfigFromFile({ command: 'serve', mode }, configFile, root, 'silent')
-    config = (loaded?.config ?? {}) as ThinkConfig
+    config = (loaded?.config ?? {}) as HazeConfig
   }
 
   return {

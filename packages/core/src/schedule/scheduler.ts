@@ -123,7 +123,7 @@ export class Scheduler {
     }
   }
 
-  /** 执行该分钟到期的任务（think-h3 schedule:run / Cron Triggers / EventBridge） */
+  /** 执行该分钟到期的任务（haze schedule:run / Cron Triggers / EventBridge） */
   async runDue(date: Date = new Date()): Promise<TaskRun[]> {
     return Promise.all(this.due(date).map(task => this.runTask(task, date)))
   }

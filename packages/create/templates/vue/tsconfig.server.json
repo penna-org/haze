@@ -17,7 +17,7 @@
     "types": [
       "node",
       "vite/client",
-      "@think-h3/vite/client"
+      "@hazejs/vite/client"
     ],
     "strict": true,
     "noEmit": true,
@@ -29,6 +29,6 @@
     "server/**/*.ts",
     "tests/**/*.ts",
     "*.config.ts",
-    ".think/types/**/*.d.ts"
+    ".haze/types/**/*.d.ts"
   ]
 }

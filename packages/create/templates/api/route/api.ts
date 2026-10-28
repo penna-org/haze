@@ -1,4 +1,4 @@
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 import { AuthController } from '~/app/controller/AuthController'
 import { GreetingController } from '~/app/controller/GreetingController'
 import { UserController } from '~/app/controller/UserController'

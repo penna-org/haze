@@ -3,7 +3,7 @@ import type { KindName } from '../make/generator'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
-import { loadThinkConfig } from '@think-h3/vite'
+import { loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'
@@ -29,7 +29,7 @@ function makeCommand(kind: KindName): CommandDef<any> {
     },
     async run({ args }) {
       const root = resolveRoot(args.root)
-      const { srcDir } = await loadThinkConfig(root)
+      const { srcDir } = await loadHazeConfig(root)
       const result = await make({
         root,
         srcDir,
@@ -89,7 +89,7 @@ export const makeModelCommand = defineCommand({
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const { srcDir } = await loadThinkConfig(root)
+    const { srcDir } = await loadHazeConfig(root)
     const dialect = (args.dialect ?? detectDialect(root)) as 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
     if (![
       'sqlite',

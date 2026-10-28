@@ -40,7 +40,7 @@ describe('dev server', () => {
   it('discovers a custom response formatter and interceptors, and hot-reloads them', async () => {
     fixture = copyFixture('basic')
     fixture.write('app/response/Formatter.ts', `
-import { ResponseFormatter } from '@think-h3/core'
+import { ResponseFormatter } from '@hazejs/core'
 export default class Formatter extends ResponseFormatter {
   override success(data: unknown) {
     return { ok: true, result: data }
@@ -48,8 +48,8 @@ export default class Formatter extends ResponseFormatter {
 }
 `)
     fixture.write('app/interceptor/powered-by.ts', `
-import { defineInterceptor } from '@think-h3/core'
-export default defineInterceptor(response => void response.headers.set('x-powered-by', 'think-h3'))
+import { defineInterceptor } from '@hazejs/core'
+export default defineInterceptor(response => void response.headers.set('x-powered-by', 'hazejs'))
 `)
     dev = await createDevServer({ root: fixture.root, port: 0, debounce: 10 })
     await settle()
@@ -59,7 +59,7 @@ export default defineInterceptor(response => void response.headers.set('x-powere
       ok: true,
       result: { message: 'hello v1' },
     })
-    expect(res.headers.get('x-powered-by')).toBe('think-h3')
+    expect(res.headers.get('x-powered-by')).toBe('hazejs')
 
     const reloaded = nextReload(dev)
     fixture.edit('app/response/Formatter.ts', 'ok: true', 'success: true')
@@ -73,12 +73,12 @@ export default defineInterceptor(response => void response.headers.set('x-powere
   it('discovers app directories in multi-app mode and hot-reloads them', async () => {
     fixture = copyFixture('basic')
     fixture.write('config/app.ts', `
-import { defineConfig } from '@think-h3/core'
+import { defineConfig } from '@hazejs/core'
 export default defineConfig({ name: 'Global', apps: { admin: { prefix: '/admin' } } })
 `)
     fixture.write('app/admin/config/app.ts', `export default { name: 'Admin' }`)
     fixture.write('app/admin/route/web.ts', `
-import { config, defineRoutes } from '@think-h3/core'
+import { config, defineRoutes } from '@hazejs/core'
 export default defineRoutes(r => r.get('/hi', ctx => ({ app: ctx.appName, name: config('app.name'), v: 1 })).name('hi'))
 `)
     dev = await createDevServer({ root: fixture.root, port: 0, debounce: 10 })
@@ -95,12 +95,12 @@ export default defineRoutes(r => r.get('/hi', ctx => ({ app: ctx.appName, name: 
 
     reloaded = nextReload(dev)
     fixture.write('app/admin/route/extra.ts', `
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 export default defineRoutes(r => r.get('/extra', () => 'extra').name('extra'))
 `)
     await reloaded
     expect(await (await fetch(new URL('/admin/extra', dev.url))).text()).toBe('extra')
-    expect(readFileSync(join(fixture.root, '.think/types/think.d.ts'), 'utf8')).toContain('"admin.extra"')
+    expect(readFileSync(join(fixture.root, '.haze/types/haze.d.ts'), 'utf8')).toContain('"admin.extra"')
   })
 
   it('hot-swaps service changes without restarting the server', async () => {
@@ -124,7 +124,7 @@ export default defineRoutes(r => r.get('/extra', () => 'extra').name('extra'))
 
     const reloaded = nextReload(dev)
     fixture!.write('route/extra.ts', `
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 export default defineRoutes(r => r.get('/extra', () => ({ extra: true })))
 `)
     expect((await reloaded).ok).toBe(true)

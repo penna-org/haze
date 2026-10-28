@@ -20,7 +20,7 @@ export interface ControllerMiddleware {
 }
 
 /**
- * 命名路由及其参数，由 `think-h3 typegen`（开发服务器自动执行）生成：
+ * 命名路由及其参数，由 `haze typegen`（开发服务器自动执行）生成：
  * `'api.users.show': { id: string | number }`
  */
 export interface RouteNames {}

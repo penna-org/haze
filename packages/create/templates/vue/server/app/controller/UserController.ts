@@ -1,6 +1,6 @@
-import type { HttpContext } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
 import type { UserIdParams } from '~/app/validate/user'
-import { validate } from '@think-h3/core'
+import { validate } from '@hazejs/core'
 import { User } from '~/app/model/User'
 import { CreateUserSchema, UpdateUserSchema } from '~/app/validate/user'
 

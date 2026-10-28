@@ -1,4 +1,4 @@
-import { defineConfig, env } from '@think-h3/core'
+import { defineConfig, env } from '@hazejs/core'
 
 // 读取：config('{{camelName}}.enabled')
 export default defineConfig(() => ({

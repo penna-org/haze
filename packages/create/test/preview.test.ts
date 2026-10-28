@@ -2,7 +2,7 @@ import type { PreviewServer } from 'vite'
 import { execFileSync } from 'node:child_process'
 import { readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { previewServer } from '@think-h3/vite'
+import { previewServer } from '@hazejs/vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { binOf, createProject, csrfHeaders, freePort, run, socketIoFirst, wsExchange } from './utils'
 
@@ -19,7 +19,7 @@ afterEach(async () => {
 async function buildAndPreview(template: 'vue' | 'api', preset: string, prepare?: (project: ReturnType<typeof createProject>) => void) {
   project = createProject(template)
   prepare?.(project)
-  const build = await run(binOf('@think-h3/cli', 'think-h3'), [
+  const build = await run(binOf('@hazejs/cli', 'haze'), [
     'build',
     '--preset',
     preset,
@@ -56,7 +56,7 @@ describe('vite preview runs the build output of every preset', () => {
 
     const hello = await fetch(`${url}/api/hello`)
     expect(hello.status).toBe(200)
-    expect((await hello.json() as any).data).toMatchObject({ message: 'Hello, think-h3!' })
+    expect((await hello.json() as any).data).toMatchObject({ message: 'Hello, hazejs!' })
 
     // 前端路由回退到 index.html，静态资源可访问
     const page = await fetch(`${url}/users/1`, html)
@@ -106,7 +106,7 @@ describe('vite preview runs the build output of every preset', () => {
       project.edit('server/config/database.ts', `driver: 'sqlite',
       url: env('DATABASE_URL', 'file:./data/app.db'),`, `driver: 'd1',
       binding: 'DB',`)
-      writeFileSync(join(project.root, 'think.config.ts'), `export default {
+      writeFileSync(join(project.root, 'haze.config.ts'), `export default {
   srcDir: 'server',
   cloudflare: { wrangler: { d1_databases: [{ binding: 'DB', database_name: 'demo', database_id: 'local' }] } },
 }
@@ -122,14 +122,14 @@ describe('vite preview runs the build output of every preset', () => {
     })
     expect(created.status).toBe(201)
 
-    // 再次预览：数据保留在 .think/preview，迁移不会重复执行
+    // 再次预览：数据保留在 .haze/preview，迁移不会重复执行
     await server!.close()
     server = await previewServer({ root: project!.root, port: await freePort() })
     const again = server.resolvedUrls!.local[0].replace(/\/$/, '')
     expect((await (await fetch(`${again}/api/users`)).json() as any).data.total).toBe(1)
   })
 
-  it('api template: think-h3 preview serves a backend-only build', async () => {
+  it('api template: haze preview serves a backend-only build', async () => {
     const { url } = await buildAndPreview('api', 'node')
     expect((await (await fetch(`${url}/api/hello`)).json() as any).data).toMatchObject({ app: 'demo-api' })
     expect((await fetch(`${url}/missing`)).status).toBe(404)

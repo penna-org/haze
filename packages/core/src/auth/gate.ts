@@ -2,10 +2,10 @@ import type { MaybePromise } from '../utils'
 import type { AuthUser } from './auth'
 import { ForbiddenException, UnauthorizedException } from '../exception/exceptions'
 
-const kPolicy = Symbol.for('think-h3.policy')
-const kAbilities = Symbol.for('think-h3.abilities')
-const kGuest = Symbol.for('think-h3.guest')
-const kResponse = Symbol.for('think-h3.gate.response')
+const kPolicy = Symbol.for('hazejs.policy')
+const kAbilities = Symbol.for('hazejs.abilities')
+const kGuest = Symbol.for('hazejs.guest')
+const kResponse = Symbol.for('hazejs.gate.response')
 
 /** 能力函数的明确结果：`allow()` / `deny('原因')` */
 export interface GateResponse {

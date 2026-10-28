@@ -8,14 +8,14 @@ export type WebCryptoKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>
 
 /**
  * 应用密钥（`APP_KEY`）：签名 Cookie、加密 Session、JWT 的默认密钥。
- * 用 `think-h3 key:generate` 生成，至少 32 个字符。
+ * 用 `haze key:generate` 生成，至少 32 个字符。
  */
 export function appKey(config?: Config): string {
   const key = config?.get<string | undefined>('app.key', undefined) ?? process.env.APP_KEY
   if (!key)
-    throw new Error('APP_KEY is not set. Run `think-h3 key:generate` to create one in .env')
+    throw new Error('APP_KEY is not set. Run `haze key:generate` to create one in .env')
   if (key.length < 32)
-    throw new Error('APP_KEY must be at least 32 characters. Run `think-h3 key:generate`')
+    throw new Error('APP_KEY must be at least 32 characters. Run `haze key:generate`')
   return key
 }
 

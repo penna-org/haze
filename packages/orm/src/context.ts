@@ -31,7 +31,7 @@ export interface Session {
 export async function resolveSession(connection?: string): Promise<Session> {
   const resolved: Connection = await useDatabaseManager().connection(connection)
   if (resolved.dialect === 'mongodb')
-    throw new DatabaseError(`Connection "${resolved.name}" is MongoDB; use Mongo / MongoModel from @think-h3/orm/mongo`)
+    throw new DatabaseError(`Connection "${resolved.name}" is MongoDB; use Mongo / MongoModel from @hazejs/orm/mongo`)
   return {
     name: resolved.name,
     driver: resolved.driver,

@@ -1,5 +1,5 @@
-import { defineAuthConfig, env } from '@think-h3/core'
-import { modelUserProvider } from '@think-h3/orm'
+import { defineAuthConfig, env } from '@hazejs/core'
+import { modelUserProvider } from '@hazejs/orm'
 import { User } from '~/app/model/User'
 
 /**

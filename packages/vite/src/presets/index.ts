@@ -53,7 +53,7 @@ void fileURLToPath
 export function migrateEntryCode(): string {
   return `import process from 'node:process'
 import { parseArgs } from 'node:util'
-import { runMigrations } from '@think-h3/orm'
+import { runMigrations } from '@hazejs/orm'
 import { createApp } from '${VIRTUAL_MODULES.app}'
 import { files } from '${VIRTUAL_MODULES.migrations}'
 
@@ -96,7 +96,7 @@ function packageName(root: string): string {
   const name = existsSync(file)
     ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: string }).name
     : undefined
-  return (name ?? 'think-h3-app').replace(/^@[^/]+\//, '').replace(/[^a-z0-9-]/gi, '-').toLowerCase()
+  return (name ?? 'hazejs-app').replace(/^@[^/]+\//, '').replace(/[^a-z0-9-]/gi, '-').toLowerCase()
 }
 
 const rel = (context: FinalizeContext, path: string): string => normalizePath(relative(context.root, path)) || '.'
@@ -109,7 +109,7 @@ const rel = (context: FinalizeContext, path: string): string => normalizePath(re
 export function workerEntryCode(): string {
   return `import process from 'node:process'
 import { parseArgs } from 'node:util'
-import { QueueManager, Scheduler } from '@think-h3/core'
+import { QueueManager, Scheduler } from '@hazejs/core'
 import { createApp } from '${VIRTUAL_MODULES.app}'
 
 const { positionals, values } = parseArgs({
@@ -182,7 +182,7 @@ export const presets: Record<PresetName, Preset> = {
       : { serverDir: context.outDir, clientDir: undefined, staticFromServer: undefined },
     migrateScript: true,
     entry: listenEntry,
-    hint: context => `Run: node ${rel(context, join(context.layout.serverDir, 'index.mjs'))}  (or think-h3 start)${migrateHint(context, 'node')}${workerHint(context, 'node')}`,
+    hint: context => `Run: node ${rel(context, join(context.layout.serverDir, 'index.mjs'))}  (or haze start)${migrateHint(context, 'node')}${workerHint(context, 'node')}`,
   },
 
   'bun': {
@@ -218,7 +218,7 @@ export const presets: Record<PresetName, Preset> = {
     async finalize(context) {
       // 框架与纯 JS 依赖已打包；数据库驱动等在容器内安装（得到 Linux 平台的原生二进制）
       await writeRuntimePackageJson(join(context.outDir, 'package.json'), context.root, context.externals)
-      await writeFile(join(context.outDir, 'Dockerfile'), `# 由 think-h3 build --preset docker 生成
+      await writeFile(join(context.outDir, 'Dockerfile'), `# 由 haze build --preset docker 生成
 FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
@@ -251,12 +251,12 @@ CMD ["node", "server/index.mjs"]
       staticFromServer: './client',
     }),
     entry: context => `${lazyApp(context)}
-import { createLambdaHandler } from '@think-h3/core'
+import { createLambdaHandler } from '@hazejs/core'
 
 /** API Gateway（HTTP API / REST API）、ALB、Function URL 事件 */
 export const handler = createLambdaHandler(async () => (await getApp()).fetch)
 
-import { Scheduler } from '@think-h3/core'
+import { Scheduler } from '@hazejs/core'
 
 /** 定时任务：handler 设为 index.schedule，由 EventBridge 每分钟触发（rate(1 minute)） */
 export async function schedule(event = {}) {
@@ -265,7 +265,7 @@ export async function schedule(event = {}) {
 }
 ${context.orm
   ? `
-import { runMigrations } from '@think-h3/orm'
+import { runMigrations } from '@hazejs/orm'
 import { files } from '${VIRTUAL_MODULES.migrations}'
 
 /** 生产迁移：handler 设为 index.migrate 的函数（或直接调用），事件 { connection?, all? } */
@@ -297,12 +297,12 @@ export async function migrate(event = {}) {
       staticFromServer: undefined,
     }),
     entry: context => `${lazyApp(context)}
-import { Scheduler, toNodeHandler } from '@think-h3/core'
+import { Scheduler, toNodeHandler } from '@hazejs/core'
 
 let handler
 export default async function vercelHandler(req, res) {
-  // Vercel Cron：调用 /__think/schedule，并带上 Authorization: Bearer $CRON_SECRET
-  if (req.url?.split('?')[0] === '/__think/schedule') {
+  // Vercel Cron：调用 /__haze/schedule，并带上 Authorization: Bearer $CRON_SECRET
+  if (req.url?.split('?')[0] === '/__haze/schedule') {
     if (!process.env.CRON_SECRET || req.headers.authorization !== \`Bearer \${process.env.CRON_SECRET}\`) {
       res.statusCode = 401
       return res.end('Unauthorized')
@@ -330,7 +330,7 @@ export default async function vercelHandler(req, res) {
       // 静态文件优先，其余交给函数；全栈时非后端路径回退到 index.html（前端路由）
       const cron = context.schedules
         ? [
-            { src: '^/__think/schedule$', dest: '/__server' },
+            { src: '^/__haze/schedule$', dest: '/__server' },
           ]
         : []
       const routes = context.fullstack
@@ -346,7 +346,7 @@ export default async function vercelHandler(req, res) {
           ]
       const crons = context.schedules
         ? [
-            { path: '/__think/schedule', schedule: context.vercel?.cron ?? '* * * * *' },
+            { path: '/__haze/schedule', schedule: context.vercel?.cron ?? '* * * * *' },
           ]
         : undefined
       await writeFile(join(output, 'config.json'), `${JSON.stringify({
@@ -356,7 +356,7 @@ export default async function vercelHandler(req, res) {
       }, null, 2)}\n`)
     },
     hint: context => `Deploy the prebuilt output: vercel deploy --prebuilt (set APP_KEY with: vercel env add APP_KEY)${context.schedules
-      ? '\nScheduler: Vercel Cron calls /__think/schedule; set CRON_SECRET (vercel env add CRON_SECRET). Hobby plans only allow daily crons (think.config.ts: vercel.cron)'
+      ? '\nScheduler: Vercel Cron calls /__haze/schedule; set CRON_SECRET (vercel env add CRON_SECRET). Hobby plans only allow daily crons (haze.config.ts: vercel.cron)'
       : ''}`,
   },
 
@@ -381,14 +381,14 @@ export default async function netlifyHandler(request) {
         ? context.prefixes.flatMap(prefix => [prefix, `${prefix}/*`])
         : ['/*']
       // config 必须是字面量（Netlify 静态解析）
-      await writeFile(join(functions, 'think-h3-server.mjs'), `// 由 think-h3 build --preset netlify 生成
+      await writeFile(join(functions, 'haze-server.mjs'), `// 由 haze build --preset netlify 生成
 export { default } from '${entry.startsWith('.')
   ? entry
   : `./${entry}`}'
 
 export const config = {
-  name: 'think-h3 server',
-  generator: 'think-h3',
+  name: 'hazejs server',
+  generator: 'hazejs',
   path: ${JSON.stringify(paths)},
   preferStatic: true,
 }
@@ -399,7 +399,7 @@ export const config = {
         await writeFile(join(publish, '_redirects'), '/*  /index.html  200\n')
       const toml = join(context.root, 'netlify.toml')
       if (!existsSync(toml))
-        await writeFile(toml, `[build]\n  command = "npx think-h3 build --preset netlify"\n  publish = "${rel(context, publish)}"\n`)
+        await writeFile(toml, `[build]\n  command = "npx haze build --preset netlify"\n  publish = "${rel(context, publish)}"\n`)
     },
     hint: context => `${existsSync(join(context.root, 'netlify.toml'))
       ? 'Deploy with: netlify deploy --build (publish directory is set in netlify.toml)'
@@ -439,13 +439,13 @@ export const config = {
       staticFromServer: undefined,
     }),
     entry: context => `${lazyApp(context, `env: false,`)}
-import { QueueManager, Scheduler, setPlatformBindings } from '@think-h3/core'
+import { QueueManager, Scheduler, setPlatformBindings } from '@hazejs/core'
 ${context.websocket
-  ? `import { createWebSocketDurableObject } from '@think-h3/core/cloudflare'
+  ? `import { createWebSocketDurableObject } from '@hazejs/core/cloudflare'
 
 // WebSocket：所有连接在同一个 Durable Object 中，订阅 / 广播全局生效；钩子在 DO 内经应用解析（含中间件）
 const websocket = createWebSocketDurableObject({ fetch: async request => (await getApp()).fetch(request), bind: env => bind(env) })
-export const ThinkWebSocket = websocket.ThinkWebSocket
+export const HazeWebSocket = websocket.HazeWebSocket
 `
   : ''}
 function bind(env) {
@@ -522,14 +522,14 @@ ${context.websocket
           ...durable,
           bindings: [
             ...(durable.bindings ?? []),
-            { name: 'THINK_WEBSOCKET', class_name: 'ThinkWebSocket' },
+            { name: 'HAZE_WEBSOCKET', class_name: 'HazeWebSocket' },
           ],
         }
         config.migrations = [
           ...((config.migrations ?? []) as unknown[]),
           {
-            tag: 'think-websocket-v1',
-            new_sqlite_classes: ['ThinkWebSocket'],
+            tag: 'haze-websocket-v1',
+            new_sqlite_classes: ['HazeWebSocket'],
           },
         ]
       }

@@ -93,7 +93,7 @@ export class StorageManager {
   }
 
   get signedRoute(): string {
-    return (this.config.signedRoute ?? '/__think/storage').replace(/\/$/, '')
+    return (this.config.signedRoute ?? '/__haze/storage').replace(/\/$/, '')
   }
 
   /** 取磁盘（默认 default） */

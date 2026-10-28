@@ -1,7 +1,7 @@
 /* eslint-disable antfu/no-import-dist, antfu/no-top-level-await, no-console -- 以子进程运行的测试应用，使用构建产物 */
 // 测试用应用：同进程测试直接导入，多实例 / Bun 测试作为子进程运行（node / bun fixtures/app.mjs）
 import process from 'node:process'
-import { createApplication, defineRoutes, defineUserProvider } from '@think-h3/core'
+import { createApplication, defineRoutes, defineUserProvider } from '@hazejs/core'
 import { authenticate, defineNamespace, SocketIO, socketIoProvider } from '../../dist/index.mjs'
 
 export const root = defineNamespace({

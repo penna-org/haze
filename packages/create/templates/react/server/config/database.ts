@@ -1,5 +1,5 @@
-import { env } from '@think-h3/core'
-import { defineDatabaseConfig } from '@think-h3/orm'
+import { env } from '@hazejs/core'
+import { defineDatabaseConfig } from '@hazejs/orm'
 
 /**
  * 数据库连接。driver：sqlite（libsql）| turso（HTTP）| d1（Cloudflare）| postgres | pglite | mysql

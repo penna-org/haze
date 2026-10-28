@@ -1,4 +1,4 @@
-import { defineNamespace } from '@think-h3/socket.io'
+import { defineNamespace } from '@hazejs/socket.io'
 
 /**
  * Socket.IO 命名空间 /chat（前端：src/socket.ts）。

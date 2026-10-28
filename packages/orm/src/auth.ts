@@ -1,7 +1,7 @@
-import type { UserProvider } from '@think-h3/core'
+import type { UserProvider } from '@hazejs/core'
 import type { ModelClass, ModelLike } from './model/model'
 import type { ActiveRecord } from './model/record'
-import { Hash } from '@think-h3/core'
+import { Hash } from '@hazejs/core'
 
 export interface ModelUserProviderOptions {
   /** 登录名字段（可多个，凭据中出现的都参与匹配），默认 `email` */

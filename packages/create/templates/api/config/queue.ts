@@ -1,9 +1,9 @@
-import { defineQueueConfig, env } from '@think-h3/core'
+import { defineQueueConfig, env } from '@hazejs/core'
 
 /**
  * 队列：app/job 下的任务，await SendWelcomeEmail.dispatch({ userId })。
  * memory 在本进程消费（开发 / 单实例）；生产多实例设置 QUEUE_CONNECTION=redis（需要 pnpm add bullmq ioredis），
- * 并运行 think-h3 queue:work（构建产物：node dist/…/worker.mjs queue）。
+ * 并运行 haze queue:work（构建产物：node dist/…/worker.mjs queue）。
  */
 export default defineQueueConfig(() => ({
   default: env('QUEUE_CONNECTION', 'memory'),

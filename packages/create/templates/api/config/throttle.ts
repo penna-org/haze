@@ -1,4 +1,4 @@
-import { defineThrottleConfig, env } from '@think-h3/core'
+import { defineThrottleConfig, env } from '@hazejs/core'
 
 // 限流计数存在 config/cache.ts 的存储中（CACHE_STORE=redis 时多实例共享）
 export default defineThrottleConfig(() => ({

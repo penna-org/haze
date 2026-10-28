@@ -3,20 +3,20 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "think-h3 dev",
-    "build": "think-h3 build",
-    "start": "think-h3 start",
-    "routes": "think-h3 route:list",
-    "test": "think-h3 test"
+    "dev": "haze dev",
+    "build": "haze build",
+    "start": "haze start",
+    "routes": "haze route:list",
+    "test": "haze test"
   },
   "dependencies": {
-    "@think-h3/core": "workspace:*",
+    "@hazejs/core": "workspace:*",
     "valibot": "catalog:"
   },
   "devDependencies": {
-    "@think-h3/cli": "workspace:*",
-    "@think-h3/testing": "workspace:*",
-    "@think-h3/vite": "workspace:*",
+    "@hazejs/cli": "workspace:*",
+    "@hazejs/testing": "workspace:*",
+    "@hazejs/vite": "workspace:*",
     "vite": "catalog:"
   }
 }

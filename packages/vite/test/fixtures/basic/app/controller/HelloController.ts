@@ -1,4 +1,4 @@
-import { Config, definePersistent, inject } from '@think-h3/core'
+import { Config, definePersistent, inject } from '@hazejs/core'
 import { GreetService } from '~/app/service/GreetService'
 
 const visits = definePersistent('visits', () => ({ count: 0 }))

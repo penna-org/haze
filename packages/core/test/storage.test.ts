@@ -9,15 +9,15 @@ import { createApplication, defineRoutes, disposePersistent, generateKey, NotFou
 
 /** R2：在 workerd 中运行（Miniflare），Node 侧通过绑定代理访问 */
 let miniflare: Miniflare | undefined
-const dir = mkdtempSync(join(tmpdir(), 'think-h3-storage-'))
+const dir = mkdtempSync(join(tmpdir(), 'hazejs-storage-'))
 
-// 真实 S3 兼容服务（本地可用 RustFS / MinIO）：THINK_TEST_S3_ENDPOINT=http://127.0.0.1:19000
-const s3 = process.env.THINK_TEST_S3_ENDPOINT
+// 真实 S3 兼容服务（本地可用 RustFS / MinIO）：HAZE_TEST_S3_ENDPOINT=http://127.0.0.1:19000
+const s3 = process.env.HAZE_TEST_S3_ENDPOINT
   ? {
-      endpoint: process.env.THINK_TEST_S3_ENDPOINT,
-      bucket: process.env.THINK_TEST_S3_BUCKET ?? 'think-h3-test',
-      accessKeyId: process.env.THINK_TEST_S3_ACCESS_KEY ?? 'rustfsadmin',
-      secretAccessKey: process.env.THINK_TEST_S3_SECRET_KEY ?? 'rustfsadmin',
+      endpoint: process.env.HAZE_TEST_S3_ENDPOINT,
+      bucket: process.env.HAZE_TEST_S3_BUCKET ?? 'hazejs-test',
+      accessKeyId: process.env.HAZE_TEST_S3_ACCESS_KEY ?? 'rustfsadmin',
+      secretAccessKey: process.env.HAZE_TEST_S3_SECRET_KEY ?? 'rustfsadmin',
     }
   : undefined
 
@@ -289,7 +289,7 @@ describe('storage over HTTP', () => {
     expect((await (await app).request('/files/none.md')).status).toBe(404)
 
     const url = await storage.disk().temporaryUrl('docs/readme.md', 60)
-    expect(url).toMatch(/^https:\/\/example\.test\/__think\/storage\/local\/docs\/readme\.md\?expires=\d+&signature=/)
+    expect(url).toMatch(/^https:\/\/example\.test\/__haze\/storage\/local\/docs\/readme\.md\?expires=\d+&signature=/)
     expect(await (await (await app).request(url)).text()).toBe('# hi')
     expect(() => storage.disk().url('docs/readme.md')).toThrow('has no public url')
   })

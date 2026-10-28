@@ -2,19 +2,19 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@think-h3/core": [
+      "@hazejs/core": [
         "./packages/core/src/index.ts"
       ],
       "~/*": [
         "./playground/*"
       ],
-      "@think-h3/vite": [
+      "@hazejs/vite": [
         "./packages/vite/src/index.ts"
       ],
-      "@think-h3/testing": [
+      "@hazejs/testing": [
         "./packages/testing/src/index.ts"
       ],
-      "@think-h3/socket.io": [
+      "@hazejs/socket.io": [
         "./packages/socketio/src/index.ts"
       ]
     }

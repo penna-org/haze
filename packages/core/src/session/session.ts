@@ -18,7 +18,7 @@ export interface SessionConfig {
   driver: 'cookie' | 'memory' | 'cache' | SessionStore
   /** driver 为 cache 时使用的缓存存储（config/cache.ts 的 stores），默认缓存的默认存储 */
   store?: string
-  /** Cookie 名，默认 `think_session` */
+  /** Cookie 名，默认 `haze_session` */
   cookie: string
   /** 有效期，默认 `2h` */
   lifetime: string | number
@@ -28,7 +28,7 @@ export interface SessionConfig {
 
 export const defaultSessionConfig: SessionConfig = {
   driver: 'cookie',
-  cookie: 'think_session',
+  cookie: 'haze_session',
   lifetime: '2h',
 }
 
@@ -283,7 +283,7 @@ function aesKey(secret: string): Promise<WebCryptoKey> {
         name: 'HKDF',
         hash: 'SHA-256',
         salt: new Uint8Array(0),
-        info: encoder.encode('think-h3 session'),
+        info: encoder.encode('hazejs session'),
       },
       base,
       { name: 'AES-GCM', length: 256 },

@@ -1,5 +1,5 @@
-import { refreshDatabase } from '@think-h3/orm'
-import { useTestApp } from '@think-h3/testing'
+import { refreshDatabase } from '@hazejs/orm'
+import { useTestApp } from '@hazejs/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { User } from '~/app/model/User'
 

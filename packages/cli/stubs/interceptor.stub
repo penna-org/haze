@@ -1,4 +1,4 @@
-import { defineInterceptor } from '@think-h3/core'
+import { defineInterceptor } from '@hazejs/core'
 
 /**
  * 出站拦截器：拿到最终的 Response（统一格式与异常渲染之后），

@@ -3,7 +3,7 @@ import type { MaybePromise } from '../utils'
 import { Cron } from 'croner'
 import { parseDuration } from '../utils'
 
-const kSchedule = Symbol.for('think-h3.schedule')
+const kSchedule = Symbol.for('hazejs.schedule')
 
 type TaskFn = () => MaybePromise<unknown>
 

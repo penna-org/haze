@@ -1,4 +1,4 @@
-import type { RouteInfo } from '@think-h3/core'
+import type { RouteInfo } from '@hazejs/core'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
@@ -21,12 +21,12 @@ export interface TypegenResult {
 
 const SOURCE_RE = /\.[cm]?[jt]s$/
 
-/** 生成文件位置（需在 tsconfig 的 include 中加入 `.think/types/**\/*.d.ts`） */
+/** 生成文件位置（需在 tsconfig 的 include 中加入 `.haze/types/**\/*.d.ts`） */
 export function typesFile(root: string): string {
-  return join(root, '.think', 'types', 'think.d.ts')
+  return join(root, '.haze', 'types', 'haze.d.ts')
 }
 
-/** 生成配置键与命名路由的类型声明（模块扩充 @think-h3/core） */
+/** 生成配置键与命名路由的类型声明（模块扩充 @hazejs/core） */
 export function generateTypes({ root, srcDir, routes }: TypegenOptions): Omit<TypegenResult, 'changed'> & { content: string } {
   const file = typesFile(root)
   const typesDir = join(file, '..')
@@ -68,10 +68,10 @@ export function generateTypes({ root, srcDir, routes }: TypegenOptions): Omit<Ty
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  const content = `// 由 ${PLUGIN_NAME} 自动生成（think-h3 dev / think-h3 typegen），请勿手动修改
-import type { ConfigValue } from '@think-h3/core'
+  const content = `// 由 ${PLUGIN_NAME} 自动生成（haze dev / haze typegen），请勿手动修改
+import type { ConfigValue } from '@hazejs/core'
 
-declare module '@think-h3/core' {
+declare module '@hazejs/core' {
   interface GeneratedConfig {
 ${configs.map(item => item.line).join('\n')}
   }

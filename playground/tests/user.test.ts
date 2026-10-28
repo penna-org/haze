@@ -1,5 +1,5 @@
-import { Logger } from '@think-h3/core'
-import { createTestApp, useTestApp } from '@think-h3/testing'
+import { Logger } from '@hazejs/core'
+import { createTestApp, useTestApp } from '@hazejs/testing'
 import { describe, expect, it } from 'vitest'
 import { UserRepository } from '~/app/repository/UserRepository'
 import { ErrorCode } from '~/app/service/UserService'
@@ -13,7 +13,7 @@ const asAdmin = () => t.withHeaders({ authorization: 'Bearer secret-token' })
 describe('playground app', () => {
   it('loads config from .env and lists routes on the home page', async () => {
     const { body } = await t.get('/')
-    expect(body.data.name).toBe('think-h3 playground')
+    expect(body.data.name).toBe('hazejs playground')
     expect(body.data.routes).toContain('GET /api/users/:id')
   })
 

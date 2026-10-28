@@ -1,4 +1,4 @@
-import { definePolicy, deny } from '@think-h3/core'
+import { definePolicy, deny } from '@hazejs/core'
 import { User } from '~/app/model/User'
 
 /**

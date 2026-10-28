@@ -1,5 +1,5 @@
-import type { HttpContext } from '@think-h3/core'
-import { ExceptionHandler, ValidationException } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
+import { ExceptionHandler, ValidationException } from '@hazejs/core'
 
 export default class Handler extends ExceptionHandler {
   protected override dontReport = [ValidationException]

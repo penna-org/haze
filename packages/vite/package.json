@@ -1,9 +1,33 @@
 {
-  "name": "@think-h3/vite",
+  "name": "@hazejs/vite",
   "type": "module",
   "version": "0.0.0",
-  "description": "think-h3 Vite plugin: virtual app manifest, hot-swapping dev server and production server build",
+  "description": "Vite plugin for hazejs: hot-reloading backend, full-stack dev server and deployment presets",
   "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/vite#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/vite"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "vite",
+    "vite-plugin",
+    "fullstack",
+    "ssr",
+    "deploy",
+    "cloudflare",
+    "vercel",
+    "netlify",
+    "aws-lambda"
+  ],
   "sideEffects": false,
   "exports": {
     ".": {
@@ -29,7 +53,7 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
-    "@think-h3/core": "workspace:^",
+    "@hazejs/core": "workspace:^",
     "vite": "^8.0.0"
   },
   "dependencies": {
@@ -38,7 +62,7 @@
     "srvx": "catalog:"
   },
   "devDependencies": {
-    "@think-h3/core": "workspace:*",
+    "@hazejs/core": "workspace:*",
     "deno": "catalog:",
     "miniflare": "catalog:",
     "vite": "catalog:"

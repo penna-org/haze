@@ -8,9 +8,9 @@ const { version } = createRequire(import.meta.url)('../package.json') as { versi
 
 const main = defineCommand({
   meta: {
-    name: 'think-h3',
+    name: 'hazejs',
     version,
-    description: 'think-h3 Node 服务端框架命令行',
+    description: 'hazejs Node 服务端框架命令行',
   },
   subCommands: {
     'dev': () => import('./commands/dev').then(m => m.default),

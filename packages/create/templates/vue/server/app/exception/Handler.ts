@@ -1,5 +1,5 @@
-import type { HttpContext } from '@think-h3/core'
-import { ExceptionHandler } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
+import { ExceptionHandler } from '@hazejs/core'
 
 /**
  * 全局异常处理：report() 负责记录 / 上报，render() 负责生成响应。

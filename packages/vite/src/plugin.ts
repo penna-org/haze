@@ -6,17 +6,17 @@ import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, Preset
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
-import { nodeUpgradeHandler, registerNodeServer } from '@think-h3/core'
+import { nodeUpgradeHandler, registerNodeServer } from '@hazejs/core'
 import { toNodeHandler } from 'srvx/node'
 import { normalizePath } from 'vite'
-import { loadThinkConfig } from './config'
+import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
 import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
 import { manifestFile, readBuildManifest, startPreview, staticDirOf, writeBuildManifest } from './preview'
 
-export interface ThinkPluginOptions {
-  /** 后端源码目录，相对 Vite root 或绝对路径；默认读取 think.config.ts，否则为 `.` */
+export interface HazePluginOptions {
+  /** 后端源码目录，相对 Vite root 或绝对路径；默认读取 haze.config.ts，否则为 `.` */
   srcDir?: string
   /** 交给后端处理的路径前缀（全栈模式），默认 `/api` */
   prefix?: string | string[]
@@ -25,21 +25,21 @@ export interface ThinkPluginOptions {
   /** 生产入口的默认端口 / 地址（运行时 PORT / HOST 环境变量优先） */
   port?: number
   host?: string
-  /** 开发时自动生成类型（默认读取 think.config.ts，否则为 true） */
+  /** 开发时自动生成类型（默认读取 haze.config.ts，否则为 true） */
   typegen?: boolean
-  /** 部署预设，默认读取 THINK_PRESET 环境变量 / think.config.ts，否则为 node */
+  /** 部署预设，默认读取 HAZE_PRESET 环境变量 / haze.config.ts，否则为 node */
   preset?: PresetName
-  /** 产物目录（默认读取 think.config.ts） */
+  /** 产物目录（默认读取 haze.config.ts） */
   outDir?: string
-  /** cloudflare 预设的 wrangler 配置（默认读取 think.config.ts） */
+  /** cloudflare 预设的 wrangler 配置（默认读取 haze.config.ts） */
   cloudflare?: CloudflareOptions
-  /** vercel 预设的选项（默认读取 think.config.ts） */
+  /** vercel 预设的选项（默认读取 haze.config.ts） */
   vercel?: VercelOptions
-  /** 依赖的打包 / 追踪方式（默认读取 think.config.ts） */
+  /** 依赖的打包 / 追踪方式（默认读取 haze.config.ts） */
   externals?: ExternalsOptions
   /**
    * 不集成 Vite 开发服务器与前端构建（不挂载中间件、不配置 client / ssr 构建）。
-   * 由 `think-h3 dev / build` 与 `@think-h3/testing` 使用。
+   * 由 `haze dev / build` 与 `@hazejs/testing` 使用。
    */
   standalone?: boolean
 }
@@ -49,7 +49,7 @@ export interface ReloadEvent {
   file: string
 }
 
-export interface ThinkPluginApi {
+export interface HazePluginApi {
   /** 后端相关文件变化时通知（开发服务器据此热替换应用） */
   onReload: (listener: (event: ReloadEvent) => void) => () => void
   /** 解析后的目录与选项（config 钩子执行之后可用） */
@@ -67,7 +67,7 @@ export interface BuildInfo {
   traced: TraceResult | undefined
   /** 服务端入口 */
   entry: string
-  /** 生产迁移脚本（使用 @think-h3/orm 且为常驻进程型预设时） */
+  /** 生产迁移脚本（使用 @hazejs/orm 且为常驻进程型预设时） */
   migrate?: string
   /** 运行 / 部署提示 */
   hint: string
@@ -94,13 +94,13 @@ const SOURCE_RE = /\.[cm]?[jt]s$/
 const virtualIds = new Set<string>(Object.values(VIRTUAL_MODULES))
 
 /**
- * think-h3 的 Vite 插件。
+ * hazejs 的 Vite 插件。
  *
- * - 纯后端项目：由 `think-h3` 命令行内部使用
- * - Vue 等前端项目：在 vite.config.ts 中加入 `thinkH3()`，开发时把 `/api/**` 交给后端（同端口、热替换），
+ * - 纯后端项目：由 `hazejs` 命令行内部使用
+ * - Vue 等前端项目：在 vite.config.ts 中加入 `haze()`，开发时把 `/api/**` 交给后端（同端口、热替换），
  *   `vite build` 一次产出 `dist/client` 与 `dist/server`
  */
-export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi> {
+export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
   const listeners = new Set<(event: ReloadEvent) => void>()
   const settings: Settings = {
     root: process.cwd(),
@@ -121,7 +121,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
   let unsupported = new Set<string>()
   /** 全量打包时，未安装的驱动也替换为空模块（ORM 以字面量导入全部驱动） */
   let stubMissing = false
-  const api: ThinkPluginApi = {
+  const api: HazePluginApi = {
     onReload(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -139,24 +139,24 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       const base = normalizePath(resolve(userConfig.root ?? process.cwd()))
       // configResolved 之前预设就需要项目根目录（Vercel / Netlify 产物写在项目根下）
       settings.root = base
-      // 显式传入 srcDir 时（如命令行已读取过 think.config.ts）不再重复读取
-      const think = options.srcDir === undefined
-        ? await loadThinkConfig(base)
+      // 显式传入 srcDir 时（如命令行已读取过 haze.config.ts）不再重复读取
+      const fileConfig = options.srcDir === undefined
+        ? await loadHazeConfig(base)
         : undefined
       settings.srcDir = options.srcDir === undefined
-        ? normalizePath(think?.srcDir ?? base)
+        ? normalizePath(fileConfig?.srcDir ?? base)
         : normalizePath(isAbsolute(options.srcDir)
             ? options.srcDir
             : resolve(base, options.srcDir))
-      settings.outDir = normalizePath(options.outDir ?? think?.outDir ?? resolve(base, 'dist'))
-      settings.port = options.port ?? think?.port ?? 3000
-      settings.host = options.host ?? think?.host
-      settings.typegen = options.typegen ?? think?.typegen ?? true
-      settings.preset = options.preset ?? process.env.THINK_PRESET ?? think?.preset ?? 'node'
-      settings.cloudflare = options.cloudflare ?? think?.cloudflare
-      settings.vercel = options.vercel ?? think?.vercel
-      settings.externals = options.externals ?? think?.externals ?? {}
-      settings.orm = Boolean(findInstalled('@think-h3/orm', base))
+      settings.outDir = normalizePath(options.outDir ?? fileConfig?.outDir ?? resolve(base, 'dist'))
+      settings.port = options.port ?? fileConfig?.port ?? 3000
+      settings.host = options.host ?? fileConfig?.host
+      settings.typegen = options.typegen ?? fileConfig?.typegen ?? true
+      settings.preset = options.preset ?? process.env.HAZE_PRESET ?? fileConfig?.preset ?? 'node'
+      settings.cloudflare = options.cloudflare ?? fileConfig?.cloudflare
+      settings.vercel = options.vercel ?? fileConfig?.vercel
+      settings.externals = options.externals ?? fileConfig?.externals ?? {}
+      settings.orm = Boolean(findInstalled('@hazejs/orm', base))
 
       const config: UserConfig = {}
       if (options.alias !== false) {
@@ -251,7 +251,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
                 })
               : undefined
             if (traced?.foreignNative.length) {
-              builder.config.logger.warn(`[think-h3] ${preset.name} runs on ${preset.runtimePlatform}, but these native packages were traced from this ${process.platform} machine: ${traced.foreignNative.join(', ')}. Build on ${preset.runtimePlatform} (CI or Docker) so the right binaries are copied.`)
+              builder.config.logger.warn(`[hazejs] ${preset.name} runs on ${preset.runtimePlatform}, but these native packages were traced from this ${process.platform} machine: ${traced.foreignNative.join(', ')}. Build on ${preset.runtimePlatform} (CI or Docker) so the right binaries are copied.`)
             }
             const finalize = {
               ...context,
@@ -328,7 +328,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
     async configurePreviewServer(server) {
       const manifest = readBuildManifest(settings.root)
       const preview = await startPreview(settings.root, manifest, server.config.logger)
-      server.config.logger.info(`  [think-h3] previewing the ${manifest.preset} build`)
+      server.config.logger.info(`  [hazejs] previewing the ${manifest.preset} build`)
       // 在 Vite 内置的静态资源中间件之前注册
       server.middlewares.use((req, res, next) => {
         if (!req.url || !preview.matches(req.url))
@@ -355,21 +355,21 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
         const name = packageName(id)
         // 当前部署平台不支持的驱动：替换为调用即报错的空模块
         if (unsupported.has(name))
-          return `${RESOLVED_PREFIX}think-unsupported:${id}`
+          return `${RESOLVED_PREFIX}haze-unsupported:${id}`
         if (stubMissing && DRIVER_PACKAGES.includes(name) && !(await this.resolve(id, importer, { skipSelf: true })))
-          return `${RESOLVED_PREFIX}think-missing:${id}`
+          return `${RESOLVED_PREFIX}haze-missing:${id}`
       },
     },
 
     load(id) {
       if (!id.startsWith(RESOLVED_PREFIX))
         return
-      if (id.startsWith(`${RESOLVED_PREFIX}think-unsupported:`)) {
-        const name = id.slice(`${RESOLVED_PREFIX}think-unsupported:`.length)
+      if (id.startsWith(`${RESOLVED_PREFIX}haze-unsupported:`)) {
+        const name = id.slice(`${RESOLVED_PREFIX}haze-unsupported:`.length)
         return `throw new Error(${JSON.stringify(`"${name}" is not supported on the "${settings.preset}" deployment preset`)})\nexport default undefined\n`
       }
-      if (id.startsWith(`${RESOLVED_PREFIX}think-missing:`)) {
-        const name = id.slice(`${RESOLVED_PREFIX}think-missing:`.length)
+      if (id.startsWith(`${RESOLVED_PREFIX}haze-missing:`)) {
+        const name = id.slice(`${RESOLVED_PREFIX}haze-missing:`.length)
         return `throw new Error(${JSON.stringify(`"${name}" is not installed`)})\nexport default undefined\n`
       }
       switch (id.slice(RESOLVED_PREFIX.length)) {
@@ -392,7 +392,7 @@ export function thinkH3(options: ThinkPluginOptions = {}): Plugin<ThinkPluginApi
       if (this.environment.name !== 'ssr')
         return
       // 生成的类型声明不触发重载
-      if (file.startsWith(`${settings.root}/.think/`) || file.endsWith('.d.ts'))
+      if (file.startsWith(`${settings.root}/.haze/`) || file.endsWith('.d.ts'))
         return
 
       const isEnvFile = dirname(file) === settings.root && basename(file).startsWith('.env')
@@ -463,7 +463,7 @@ export const files = Object.fromEntries(Object.entries(raw).map(([path, content]
 
 function appCode(): string {
   return `
-import { createApplication } from '@think-h3/core'
+import { createApplication } from '@hazejs/core'
 import * as manifest from '${VIRTUAL_MODULES.manifest}'
 
 export { manifest }

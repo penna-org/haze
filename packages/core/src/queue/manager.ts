@@ -304,7 +304,7 @@ export class QueueManager {
     }
   }
 
-  /** 开始消费（think-h3 queue:work / worker.mjs queue） */
+  /** 开始消费（haze queue:work / worker.mjs queue） */
   async work(options: WorkOptions = {}): Promise<QueueWorker> {
     const driver = this.connection(options.connection)
     const stop = await driver.consume(this.#consumeOptions(options.queues ?? ['default'], options.concurrency ?? 1, options.resolve))

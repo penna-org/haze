@@ -1,6 +1,6 @@
-import type { HttpContext } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
 import type { GreetSchema } from '~/app/validate/greeting'
-import { Config, inject } from '@think-h3/core'
+import { Config, inject } from '@hazejs/core'
 import { GreetingService } from '~/app/service/GreetingService'
 
 /** 控制层：接收参数 → 调用服务 → 返回数据（框架统一包装为 { code, message, data }） */
@@ -11,7 +11,7 @@ export class GreetingController {
   index() {
     return {
       app: this.config.get('app.name'),
-      message: this.greeting.greet('think-h3'),
+      message: this.greeting.greet('hazejs'),
     }
   }
 

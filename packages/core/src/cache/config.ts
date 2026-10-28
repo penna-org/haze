@@ -17,7 +17,7 @@ export type CacheStoreConfig = MemoryStoreConfig | RedisStoreConfig | UpstashSto
 export interface CacheConfig {
   /** 默认存储，默认 memory */
   default: string
-  /** 键前缀（多个应用共用 Redis 时区分），默认 `think:` */
+  /** 键前缀（多个应用共用 Redis 时区分），默认 `haze:` */
   prefix?: string
   stores: Record<string, CacheStoreConfig>
   /** cacheResponse 中间件使用的存储，默认为 default */
@@ -26,7 +26,7 @@ export interface CacheConfig {
 
 export const defaultCacheConfig: CacheConfig = {
   default: 'memory',
-  prefix: 'think:',
+  prefix: 'haze:',
   stores: {
     memory: { driver: 'memory' },
   },

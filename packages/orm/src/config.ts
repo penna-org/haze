@@ -1,4 +1,4 @@
-import type { ConfigInput } from '@think-h3/core'
+import type { ConfigInput } from '@hazejs/core'
 
 /**
  * - `sqlite`：libsql 驱动（本地文件 `file:./data/app.db`、`:memory:`、Turso `libsql://…`）
@@ -7,7 +7,7 @@ import type { ConfigInput } from '@think-h3/core'
  * - `postgres`：postgres-js
  * - `pglite`：嵌入式 PostgreSQL（WASM），适合本地开发与测试，url 为数据目录，省略为内存库
  * - `mysql`：mysql2
- * - `mongodb`：官方 mongodb 驱动（使用 `@think-h3/orm/mongo` 的 Mongo / MongoModel）
+ * - `mongodb`：官方 mongodb 驱动（使用 `@hazejs/orm/mongo` 的 Mongo / MongoModel）
  */
 export type Driver = 'sqlite' | 'turso' | 'd1' | 'postgres' | 'pglite' | 'mysql' | 'mongodb'
 

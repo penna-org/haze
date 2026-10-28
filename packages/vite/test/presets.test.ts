@@ -27,12 +27,12 @@ afterEach(async () => {
 })
 
 /** 基础 fixture + 一个回显请求的路由（验证方法、请求体、查询参数、Cookie 的转换） */
-async function build(preset: PresetName, thinkConfig?: string, existing?: ReturnType<typeof copyFixture>) {
+async function build(preset: PresetName, hazeConfig?: string, existing?: ReturnType<typeof copyFixture>) {
   fixture = existing ?? copyFixture('basic')
-  if (thinkConfig)
-    fixture.write('think.config.ts', thinkConfig)
+  if (hazeConfig)
+    fixture.write('haze.config.ts', hazeConfig)
   fixture.write('route/echo.ts', `
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 export default defineRoutes(r => r.post('/echo', async ctx => ({
   method: ctx.method,
   query: ctx.query(),
@@ -106,7 +106,7 @@ describe('deployment presets', () => {
     expect(result.traced?.packages).toEqual(['consola'])
     expect(existsSync(join(result.root, 'dist/node_modules/consola/package.json'))).toBe(true)
     // 产物自包含：拷到项目之外仍可运行
-    const elsewhere = mkdtempSync(join(tmpdir(), 'think-h3-node-'))
+    const elsewhere = mkdtempSync(join(tmpdir(), 'hazejs-node-'))
     try {
       cpSync(join(result.root, 'dist'), elsewhere, { recursive: true })
       await expectServes(process.execPath, [
@@ -227,7 +227,7 @@ describe('deployment presets', () => {
 
   it('netlify: frameworks api function with static config', async () => {
     const result = await build('netlify')
-    const fn = join(result.root, '.netlify/v1/functions/think-h3-server.mjs')
+    const fn = join(result.root, '.netlify/v1/functions/haze-server.mjs')
     const source = readFileSync(fn, 'utf8')
     expect(source).toContain(`path: ["/*"]`)
     expect(source).toContain('preferStatic: true')
@@ -249,7 +249,7 @@ describe('deployment presets', () => {
     fixture = copyFixture('basic')
     // 加密 Cookie Session（Web Crypto）在 workerd 中运行
     fixture.write('route/visits.ts', `
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 export default defineRoutes(r => r.get('/session-visits', (ctx) => {
   const visits = ctx.session.get('visits', 0) + 1
   ctx.session.set('visits', visits)
@@ -259,7 +259,7 @@ export default defineRoutes(r => r.get('/session-visits', (ctx) => {
     // KV 缓存在 workerd 中运行
     fixture.write('config/cache.ts', `export default { default: 'kv', stores: { kv: { driver: 'kv', binding: 'CACHE' } } }\n`)
     fixture.write('route/kv.ts', `
-import { Cache, defineRoutes } from '@think-h3/core'
+import { Cache, defineRoutes } from '@hazejs/core'
 export default defineRoutes(r => r.get('/kv', async () => ({
   hits: await Cache.increment('hits'),
   first: await Cache.remember('first', 120, () => 'cached once'),
@@ -310,7 +310,7 @@ export default defineRoutes(r => r.get('/kv', async () => ({
       expect((await (await mf.dispatchFetch('http://localhost/kv')).json() as any).data).toEqual({ hits: 1, first: 'cached once' })
       expect((await (await mf.dispatchFetch('http://localhost/kv')).json() as any).data).toEqual({ hits: 2, first: 'cached once' })
       const kv = await mf.getKVNamespace('CACHE') as unknown as { get: (key: string) => Promise<string | null> }
-      expect(await kv.get('think:hits')).toBe('2')
+      expect(await kv.get('haze:hits')).toBe('2')
 
       const first = await mf.dispatchFetch('http://localhost/session-visits')
       expect((await first.json() as any).data).toEqual({ visits: 1 })
@@ -330,7 +330,7 @@ export default defineRoutes(r => r.get('/kv', async () => ({
     fixture.write('config/cache.ts', `export default { default: 'kv', stores: { kv: { driver: 'kv', binding: 'CACHE' } } }\n`)
     fixture.write('config/queue.ts', `export default { default: 'cf', connections: { cf: { driver: 'cloudflare', binding: 'QUEUE' } } }\n`)
     fixture.write('app/job/Record.ts', `
-import { Cache, defineJob } from '@think-h3/core'
+import { Cache, defineJob } from '@hazejs/core'
 export default defineJob({
   tries: 2,
   async handle(payload: { id: number, fail?: boolean }, job) {
@@ -341,12 +341,12 @@ export default defineJob({
 })
 `)
     fixture.write('route/enqueue.ts', `
-import { defineRoutes } from '@think-h3/core'
+import { defineRoutes } from '@hazejs/core'
 import Record from '../app/job/Record'
 export default defineRoutes(r => r.get('/enqueue/:id', async ctx => ({ id: await Record.dispatch({ id: Number(ctx.param('id')), fail: ctx.query('fail') === '1' }) })))
 `)
     fixture.write('schedule/app.ts', `
-import { Cache, defineSchedule } from '@think-h3/core'
+import { Cache, defineSchedule } from '@hazejs/core'
 export default defineSchedule(s => void s.call('tick', () => Cache.set('tick', new Date().toISOString())).everyMinute())
 `)
     const result = await build('cloudflare', undefined, fixture)
@@ -383,17 +383,17 @@ export default defineSchedule(s => void s.call('tick', () => Cache.set('tick', n
         throw new Error(`${key} was not written`)
       }
       expect((await mf.dispatchFetch('http://localhost/enqueue/1')).status).toBe(200)
-      expect(await waitFor('think:job:1')).toBe('1')
+      expect(await waitFor('haze:job:1')).toBe('1')
       // 第一次失败 → message.retry() → 第二次成功
       await mf.dispatchFetch('http://localhost/enqueue/2?fail=1')
-      expect(await waitFor('think:job:2')).toBe('2')
+      expect(await waitFor('haze:job:2')).toBe('2')
 
       const worker = await mf.getWorker() as unknown as { scheduled: (options: { scheduledTime: Date, cron: string }) => Promise<unknown> }
       await worker.scheduled({
         scheduledTime: new Date('2026-10-27T03:00:00Z'),
         cron: '* * * * *',
       })
-      expect(await waitFor('think:tick')).toMatch(/^"20/)
+      expect(await waitFor('haze:tick')).toMatch(/^"20/)
     }
     finally {
       await mf.dispose()

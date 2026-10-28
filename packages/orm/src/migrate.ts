@@ -103,7 +103,7 @@ export function migrationsFolder(name?: string, manager: DatabaseManager = useDa
 }
 
 /**
- * 按 config/database.ts 执行迁移：`think-h3 db:migrate` 与生产构建的迁移入口
+ * 按 config/database.ts 执行迁移：`haze db:migrate` 与生产构建的迁移入口
  * （`node dist/server/migrate.mjs`、Lambda 的 `index.migrate`）共用。
  */
 export async function runMigrations(options: RunMigrationsOptions = {}): Promise<RunMigrationsResult[]> {
@@ -124,7 +124,7 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
     if (!(await readFile(journalPath(folder), options.files))) {
       // 显式指定的连接没有迁移视为错误
       if (!options.all)
-        throw new DatabaseError(`No migrations for connection "${name}" in ${relative}. Run think-h3 db:generate first.`)
+        throw new DatabaseError(`No migrations for connection "${name}" in ${relative}. Run haze db:generate first.`)
       results.push({ connection: name, folder: relative, skipped: 'no-migrations' })
       continue
     }
@@ -145,7 +145,7 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
 async function readMigrations(folder: string, files?: MigrationFiles): Promise<MigrationEntry[]> {
   const journal = await readFile(journalPath(folder), files)
   if (journal === undefined)
-    throw new DatabaseError(`Migrations not found in ${folder} (meta/_journal.json is missing). Run think-h3 db:generate first.`)
+    throw new DatabaseError(`Migrations not found in ${folder} (meta/_journal.json is missing). Run haze db:generate first.`)
   const entries: MigrationEntry[] = []
   for (const entry of (JSON.parse(journal) as Journal).entries) {
     const query = await readFile(`${trimSlash(folder)}/${entry.tag}.sql`, files)

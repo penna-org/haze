@@ -1,5 +1,5 @@
-import type { HttpContext } from '@think-h3/core'
-import { Hash, Storage, UnauthorizedException, validate } from '@think-h3/core'
+import type { HttpContext } from '@hazejs/core'
+import { Hash, Storage, UnauthorizedException, validate } from '@hazejs/core'
 import UserRegistered from '~/app/event/UserRegistered'
 import { User } from '~/app/model/User'
 import { AvatarSchema, LoginSchema, RegisterSchema } from '~/app/validate/auth'

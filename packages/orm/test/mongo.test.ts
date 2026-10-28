@@ -1,6 +1,6 @@
 import type { ObjectId } from 'mongodb'
 import type { MongoModelQuery } from '../src/mongo'
-import { createApplication, defineRoutes } from '@think-h3/core'
+import { createApplication, defineRoutes } from '@hazejs/core'
 import { MongoMemoryReplSet } from 'mongodb-memory-server-core'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseManager, databaseProvider, ModelNotFoundException, refreshDatabase, setDatabaseManager, UniqueConstraintException } from '../src'
@@ -77,7 +77,7 @@ function connection() {
   return {
     driver: 'mongodb' as const,
     url: replSet.getUri(),
-    database: 'think_test',
+    database: 'haze_test',
   }
 }
 

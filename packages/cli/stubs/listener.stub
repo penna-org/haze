@@ -1,4 +1,4 @@
-import { defineEvent, defineListener } from '@think-h3/core'
+import { defineEvent, defineListener } from '@hazejs/core'
 
 // 替换为要监听的事件：import UserRegistered from '~/app/event/UserRegistered'
 const SomeEvent = defineEvent<{ id: number }>()

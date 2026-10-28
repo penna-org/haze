@@ -6,7 +6,7 @@ import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { resolveRoot, rootArg } from '../args'
 
-/** 256 位随机密钥（base64url），与 @think-h3/core 的 generateKey() 相同 */
+/** 256 位随机密钥（base64url），与 @hazejs/core 的 generateKey() 相同 */
 export function generateAppKey(): string {
   return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url')
 }
