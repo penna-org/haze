@@ -154,6 +154,7 @@ export { FakeDisk, setStorageManager, Storage, StorageManager, useStorageManager
 export { contentTypeOf } from './storage/mime'
 export type { DiskDriver, FileMeta, PutContent, PutOptions } from './storage/types'
 export type { Constructor, MaybePromise } from './utils'
+export { jsonReplacer, toJsonSafe } from './utils'
 export { defineWebSocket, toHooks, upgradeResponse } from './websocket/handler'
 
 export type { Message, Peer, WebSocketHandler } from './websocket/handler'

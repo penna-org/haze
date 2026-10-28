@@ -36,7 +36,7 @@ import { getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
 import { Scheduler } from './schedule/scheduler'
 import { setStorageManager, StorageManager } from './storage/manager'
-import { isClass, isModuleRecord, normalizeModules } from './utils'
+import { isClass, isModuleRecord, normalizeModules, toJsonSafe } from './utils'
 import { webSocketConfig, webSocketPlugin } from './websocket/server'
 
 export type AppMode = 'development' | 'production' | 'test'
@@ -341,14 +341,15 @@ export class Application {
 
     // 出站：处理器 / 中间件返回的数据交给 ResponseFormatter 统一格式
     const formatOutbound = (result: unknown, event: H3Event, ctx: HttpContext): unknown => {
+      // BigInt（雪花 ID 等）输出为字符串，避免 JSON 序列化报错与前端精度丢失
       if (isRaw(result))
-        return result.value
+        return toJsonSafe(result.value)
       const meta = event.context.matchedRoute?.meta as RouteMeta | undefined
       if (meta?.envelope === false)
-        return result
+        return toJsonSafe(result)
       const formatter = ctx.make(ResponseFormatter)
       return formatter.shouldFormat(result, ctx)
-        ? formatter.success(result, ctx)
+        ? toJsonSafe(formatter.success(result, ctx))
         : result
     }
 

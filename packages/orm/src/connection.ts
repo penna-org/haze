@@ -117,10 +117,10 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
       const { createClient } = await importDriver('@libsql/client', () => import('@libsql/client'))
       const { drizzle } = await import('drizzle-orm/libsql')
       const url = await sqliteUrl(config.url ?? 'file:./data/app.db', options.rootDir)
-      const client = createClient({ url, authToken: config.authToken })
+      const client = createClient({ url, authToken: config.authToken, intMode: 'bigint' })
       return {
         ...base,
-        db: drizzle(client, { logger }),
+        db: drizzle(losslessIntegers(client), { logger }),
         close: async () => client.close(),
       }
     }
@@ -130,10 +130,10 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
       const { drizzle } = await import('drizzle-orm/libsql/web')
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for turso (libsql:// or https://)`)
-      const client = createClient({ url: config.url, authToken: config.authToken })
+      const client = createClient({ url: config.url, authToken: config.authToken, intMode: 'bigint' })
       return {
         ...base,
-        db: drizzle(client, { logger }),
+        db: drizzle(losslessIntegers(client), { logger }),
         close: async () => client.close(),
       }
     }
@@ -180,7 +180,8 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
       const { drizzle } = await import('drizzle-orm/mysql2')
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for mysql`)
-      const client = mysql.createPool({ uri: config.url, connectionLimit: config.pool ?? 10 })
+      // 超出 2^53 的 BIGINT（雪花 ID 等）以字符串返回，而不是丢失精度的 number
+      const client = mysql.createPool({ uri: config.url, connectionLimit: config.pool ?? 10, supportBigNumbers: true })
       return {
         ...base,
         db: drizzle(client, { logger, mode: 'default' }),
@@ -203,6 +204,67 @@ async function openConnection(name: string, config: ConnectionConfig, options: D
     default:
       throw new DatabaseError(`Connection "${name}": unknown driver "${(config as ConnectionConfig).driver}"`)
   }
+}
+
+/** 安全范围内的 BigInt 转回 number，超出范围的保留 BigInt（不丢失精度） */
+function normalizeInteger(value: unknown): unknown {
+  return typeof value === 'bigint' && value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)
+    ? Number(value)
+    : value
+}
+
+/** libsql 的结果行：下标属性不可枚举，列名属性可枚举（drizzle 依赖这一结构） */
+function normalizeRow(row: any): any {
+  const result: Record<string | number, unknown> = {}
+  Object.defineProperty(result, 'length', { value: row.length, enumerable: false })
+  for (let index = 0; index < row.length; index++) {
+    Object.defineProperty(result, index, {
+      value: normalizeInteger(row[index]),
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    })
+  }
+  for (const key of Object.keys(row)) {
+    Object.defineProperty(result, key, {
+      value: normalizeInteger(row[key]),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    })
+  }
+  return result
+}
+
+function normalizeResult(result: any): any {
+  if (result && Array.isArray(result.rows))
+    result.rows = result.rows.map(normalizeRow)
+  return result
+}
+
+/**
+ * libsql 的默认 intMode（number）遇到超出 2^53 的整数会直接报错，bigint 模式又会把所有整数变成 BigInt。
+ * 这里以 bigint 模式读取，再把安全范围内的值转回 number：普通整数列不受影响，64 位整数不丢失精度。
+ */
+function losslessIntegers<T extends object>(client: T): T {
+  return new Proxy(client, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (typeof value !== 'function')
+        return value
+      switch (property) {
+        case 'execute':
+          return async (...args: unknown[]) => normalizeResult(await value.apply(target, args))
+        case 'batch':
+        case 'migrate':
+          return async (...args: unknown[]) => (await value.apply(target, args)).map(normalizeResult)
+        case 'transaction':
+          return async (...args: unknown[]) => losslessIntegers(await value.apply(target, args))
+        default:
+          return value.bind(target)
+      }
+    },
+  })
 }
 
 /**

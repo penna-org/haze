@@ -122,6 +122,63 @@ export const users = sqliteTable('users', {
 
 `haze make:model Post` 会同时生成 `app/model/Post.ts` 和对应方言的 `database/schema/posts.ts`，详见[模型](./models)。
 
+### 雪花 ID
+
+分布式系统，或者与 Java 服务共用的表，可以用 64 位[雪花算法](https://en.wikipedia.org/wiki/Snowflake_ID) ID 代替自增 ID：
+
+```ts
+// database/schema/orders.ts
+import { pgSnowflake } from '@hazejs/orm/columns'
+import { pgTable, text } from 'drizzle-orm/pg-core'
+
+export const orders = pgTable('orders', {
+  id: pgSnowflake('id').primaryKey(),                       // 插入时自动生成
+  userId: pgSnowflake('user_id', { auto: false }).notNull(), // 外键：不自动生成
+  title: text('title').notNull(),
+})
+```
+
+| 列 | 存储类型 |
+|----|----------|
+| `pgSnowflake(name)` | `bigint` |
+| `mysqlSnowflake(name)` | `bigint` |
+| `sqliteSnowflake(name)` | `text`：Cloudflare D1 读取超过 2^53 的整数会丢失精度，文本在所有 SQLite 驱动上都是精确的。雪花 ID 在几十年内都是 19 位，文本排序与数值排序一致 |
+
+`@hazejs/orm/columns` 只依赖 drizzle，可以在表结构文件中直接导入。
+
+在应用代码中，雪花 ID 是**十进制字符串**（`'1849302746129387521'`）。JavaScript 的 `number` 只能精确表示 2^53 以内的整数，装不下 64 位整数，所以 ID 全程不经过 `number`。字符串也可以直接作为 JSON 返回，这和 Java 服务把 `Long` 序列化为字符串、避免前端丢失精度的做法一致。
+
+```ts
+const order = await Order.create({ userId, title: 'Hello' })
+order.id                              // '1849302746129387521'
+await Order.findOrFail(ctx.param('id')) // URL、请求体中的 ID 本来就是字符串
+
+import { Snowflake, snowflakeId } from '@hazejs/orm'
+snowflakeId()                         // 手动生成
+Snowflake.parse(order.id)             // { time, datacenterId, workerId, sequence }
+```
+
+位布局（41 位时间戳、5 位数据中心、5 位机器、12 位序列号）和默认纪元（`1288834974657`）与 MyBatis-Plus 的 `IdType.ASSIGN_ID`、Hutool 的 `Snowflake` 相同。只要 workerId / datacenterId 不重复，Node 和 Java 服务就可以写同一张表。按实例配置：
+
+```ts
+// config/database.ts
+export default defineDatabaseConfig(() => ({
+  default: 'main',
+  connections: { /* ... */ },
+  snowflake: {
+    workerId: Number(env('SNOWFLAKE_WORKER_ID', '0')),
+    datacenterId: Number(env('SNOWFLAKE_DATACENTER_ID', '0')),
+    // epoch: new Date('2024-01-01'), // 仅当 Java 服务使用了自定义纪元时设置
+  },
+}))
+```
+
+没有配置时，生成器读取环境变量 `SNOWFLAKE_WORKER_ID` / `SNOWFLAKE_DATACENTER_ID`，都没有则随机选取。随机值在多个实例之间可能重复，部署多个实例时请显式配置。
+
+::: tip 其他 64 位整数
+也可以使用 drizzle 的 `bigint('id', { mode: 'bigint' })` 列，值为 `BigInt`。除 D1 外，所有驱动读取 64 位整数都不会丢失精度：MySQL 连接开启了 `supportBigNumbers`；SQLite / Turso 中超过 2^53 的整数返回 `BigInt`，普通整数仍是 `number`。hazejs 输出 JSON 的地方（响应、`toJSON()`、日志、缓存、队列、WebSocket）都会把 `BigInt` 写成字符串。
+:::
+
 ## 迁移
 
 修改表结构后，生成迁移并执行：

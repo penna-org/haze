@@ -292,20 +292,20 @@ export abstract class ActiveRecord<TRow extends object = any> {
     const result: Record<string, unknown> = {}
     for (const key of Object.keys(this.$attributes)) {
       if (shown(key))
-        result[key] = this.getAttr(key)
+        result[key] = jsonValue(this.getAttr(key))
     }
     for (const key of this.$append ?? record.append) {
       if (shown(key))
-        result[key] = this.getAttr(key)
+        result[key] = jsonValue(this.getAttr(key))
     }
     for (const [key, value] of Object.entries(this.$relations)) {
       const bindings = this.$bindings[key]
       if (bindings) {
         for (const [target, field] of Object.entries(bindings)) {
           if (shown(target)) {
-            result[target] = value instanceof ActiveRecord
+            result[target] = jsonValue(value instanceof ActiveRecord
               ? value.getAttr(field)
-              : (value as Record<string, unknown> | null)?.[field] ?? null
+              : (value as Record<string, unknown> | null)?.[field] ?? null)
           }
         }
         continue
@@ -342,6 +342,13 @@ export abstract class ActiveRecord<TRow extends object = any> {
   protected syncOriginal(): void {
     this.$original = { ...this.$attributes }
   }
+}
+
+/** BigInt（64 位整数、雪花 ID）输出为字符串：JSON 不支持 BigInt，前端 number 也无法精确表示 */
+function jsonValue(value: unknown): unknown {
+  return typeof value === 'bigint'
+    ? value.toString()
+    : value
 }
 
 /** `['email', 'posts.title']` → 本层字段集合 + 关联名 → 子字段 */

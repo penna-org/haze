@@ -6,7 +6,7 @@ import { getCookie } from 'h3'
 import { CacheManager } from '../cache/manager'
 import { mutableResponse, serializeCookie } from '../http/cookie'
 import { appKey, fromBase64Url, sign, toBase64Url, verify } from '../security/key'
-import { parseDuration } from '../utils'
+import { jsonReplacer, parseDuration } from '../utils'
 import { cacheSessionStore, memorySessionStore } from './store'
 
 export interface SessionConfig {
@@ -297,7 +297,7 @@ function aesKey(secret: string): Promise<WebCryptoKey> {
 
 async function encrypt(payload: CookiePayload, secret: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(secret), encoder.encode(JSON.stringify(payload)))
+  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(secret), encoder.encode(JSON.stringify(payload, jsonReplacer)))
   const bytes = new Uint8Array(iv.length + cipher.byteLength)
   bytes.set(iv)
   bytes.set(new Uint8Array(cipher), iv.length)

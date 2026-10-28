@@ -111,3 +111,41 @@ export function parseDuration(value: string | number): number {
   const unit = { s: 1, m: 60, h: 3600, d: 86400 }[(match[2] ?? 's').toLowerCase() as 's']
   return Number(match[1]) * unit
 }
+
+/**
+ * JSON.stringify 的 replacer：BigInt 输出为字符串（JSON 不支持 BigInt，
+ * 与 Java 把 Long 序列化为字符串的约定一致，前端不会丢失精度）
+ */
+export function jsonReplacer(_key: string, value: unknown): unknown {
+  return typeof value === 'bigint'
+    ? value.toString()
+    : value
+}
+
+/**
+ * 把普通对象 / 数组中的 BigInt 转为字符串（不修改原值，没有 BigInt 时返回原引用）。
+ * 实现了 toJSON() 的对象（模型、Date 等）自行负责序列化，不会深入。
+ */
+export function toJsonSafe<T>(value: T): T {
+  if (typeof value === 'bigint')
+    return value.toString() as T
+  if (Array.isArray(value)) {
+    let copy: unknown[] | undefined
+    value.forEach((item, index) => {
+      const safe = toJsonSafe(item)
+      if (safe !== item)
+        (copy ??= [...value])[index] = safe
+    })
+    return (copy ?? value) as T
+  }
+  if (isPlainObject(value)) {
+    let copy: Record<string, unknown> | undefined
+    for (const [key, item] of Object.entries(value)) {
+      const safe = toJsonSafe(item)
+      if (safe !== item)
+        (copy ??= { ...value })[key] = safe
+    }
+    return (copy ?? value) as T
+  }
+  return value
+}

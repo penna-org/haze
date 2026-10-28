@@ -3,7 +3,7 @@ import type { CloudflareQueueConfig } from './drivers/cloudflare'
 import type { RedisQueueConfig } from './drivers/redis'
 import type { ProcessResult, QueueDriver } from './drivers/types'
 import type { DispatchOptions, FailedJob, JobContext, JobDefinition, JobMessage } from './job'
-import { parseDuration } from '../utils'
+import { jsonReplacer, parseDuration } from '../utils'
 import { cloudflareQueue } from './drivers/cloudflare'
 import { memoryQueue } from './drivers/memory'
 import { redisQueue } from './drivers/redis'
@@ -216,7 +216,7 @@ export class QueueManager {
     const message: JobMessage & { tries: number } = {
       id: crypto.randomUUID(),
       job: name,
-      payload: JSON.parse(JSON.stringify(payload ?? null)),
+      payload: JSON.parse(JSON.stringify(payload ?? null, jsonReplacer)),
       queue,
       attempts: 0,
       dispatchedAt: Date.now(),

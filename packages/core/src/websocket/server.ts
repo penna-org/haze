@@ -11,7 +11,7 @@ import denoAdapter from 'crossws/adapters/deno'
 import { redis } from 'crossws/sync'
 import { NodeRequest } from 'srvx/node'
 import { extensionFor, registerNodeServer, serverExtensions } from '../server/extensions'
-import { globalStore } from '../utils'
+import { globalStore, jsonReplacer } from '../utils'
 
 type FetchHandler = (request: Request) => Response | Promise<Response>
 
@@ -45,7 +45,7 @@ export const Socket = {
   publish(topic: string, data: unknown): void {
     const message = typeof data === 'string' || data instanceof Uint8Array || data instanceof ArrayBuffer
       ? data
-      : JSON.stringify(data)
+      : JSON.stringify(data, jsonReplacer)
     adapters.forEach(adapter => adapter.publish(topic, message))
   },
   /** 当前进程的连接数 */

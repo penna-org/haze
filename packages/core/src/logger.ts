@@ -3,7 +3,7 @@ import process from 'node:process'
 import { createConsola } from 'consola'
 import { colors } from './colors'
 import { FRAMEWORK_NAME } from './constants'
-import { isPlainObject } from './utils'
+import { isPlainObject, jsonReplacer } from './utils'
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace'
 
@@ -166,7 +166,7 @@ export class Logger {
         text.push(String(value))
     }
     entry.msg = text.join(' ') || (entry.err as { message?: string } | undefined)?.message || ''
-    this.#shared.write(JSON.stringify(entry), level)
+    this.#shared.write(JSON.stringify(entry, jsonReplacer), level)
   }
 
   #prettyContext(): string {

@@ -6,8 +6,10 @@ import {
   createApplication,
   defineInterceptor,
   defineRoutes,
+  jsonReplacer,
   raw,
   ResponseFormatter,
+  toJsonSafe,
 } from '../src'
 
 function boot(routes: RouteRegistrar, options: ApplicationOptions = {}) {
@@ -192,5 +194,61 @@ describe('outbound interceptors', () => {
     expect(res.headers.get('x-signature')).toBe('10')
     expect(res.headers.get('x-from-provider')).toBe('1')
     expect(await res.text()).toBe('plain text')
+  })
+})
+
+describe('bigint values', () => {
+  it('serializes BigInt as strings in formatted, raw and unformatted responses', async () => {
+    const app = await boot((r) => {
+      r.get('/formatted', () => ({
+        id: 9007199254740993n,
+        nested: [
+          { id: 1n },
+        ],
+        date: new Date(0),
+      }))
+      r.get('/raw', () => raw({ id: 2n }))
+      r.get('/bare', () => [3n]).meta({ envelope: false })
+      r.get('/scalar', () => 4n)
+    })
+    expect(await (await app.request('/formatted')).json()).toEqual({
+      code: 0,
+      message: 'ok',
+      data: {
+        id: '9007199254740993',
+        nested: [
+          { id: '1' },
+        ],
+        date: '1970-01-01T00:00:00.000Z',
+      },
+    })
+    expect(await (await app.request('/raw')).json()).toEqual({ id: '2' })
+    expect(await (await app.request('/bare')).json()).toEqual(['3'])
+    expect(await (await app.request('/scalar')).json()).toMatchObject({ data: '4' })
+  })
+
+  it('keeps references when there is nothing to convert', () => {
+    const value = {
+      a: [
+        1,
+        { b: 'x' },
+      ],
+    }
+    expect(toJsonSafe(value)).toBe(value)
+    const converted = toJsonSafe({
+      a: [
+        1,
+        { b: 2n },
+      ],
+      c: 'x',
+    })
+    expect(converted).toEqual({
+      a: [
+        1,
+        { b: '2' },
+      ],
+      c: 'x',
+    })
+    expect(JSON.stringify({ id: 5n }, jsonReplacer)).toBe('{"id":"5"}')
   })
 })
