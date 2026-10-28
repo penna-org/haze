@@ -254,13 +254,15 @@ transports: {
 ```ts
 // tests/orders.test.ts
 import { listenMicroservices, MicroserviceManager } from '@hazejs/microservices'
+import { useTestApp } from '@hazejs/testing'
 import { expect, it } from 'vitest'
-import { createApp } from './app'
+
+// .env.test：MICROSERVICE_TRANSPORT=memory（config/microservices.ts 的 default 读取它）
+const t = useTestApp()
 
 it('finds an order', async () => {
-  const app = await createApp({ microservices: { default: 'memory', transports: { memory: { driver: 'memory' } } } })
-  await listenMicroservices(app)
-  const order = await app.make(MicroserviceManager).client().send('orders.find', { id: 1 })
+  await listenMicroservices(t.app)
+  const order = await t.make(MicroserviceManager).client().send('orders.find', { id: 1 })
   expect(order).toMatchObject({ id: 1 })
 })
 ```

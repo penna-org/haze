@@ -104,7 +104,7 @@ Migration files are bundled into the output, so production needs neither the sou
 
 `migrate.mjs` is only generated when the project uses `@hazejs/orm`. See [Database](./database).
 
-## Queue workers and the scheduler
+## Queue workers, the scheduler and commands
 
 The `node`, `bun`, `deno` and `docker` presets also emit `worker.mjs`:
 
@@ -113,11 +113,40 @@ node dist/worker.mjs queue                     # consume jobs (default queue: de
 node dist/worker.mjs queue --queue emails,default --concurrency 5 --connection redis
 node dist/worker.mjs schedule                  # long-running scheduler
 node dist/worker.mjs schedule:run              # run due tasks once (call from system cron every minute)
+node dist/worker.mjs command                   # list your commands (app/command)
+node dist/worker.mjs command inspire --all     # run one; exits with the command's exit code
 ```
 
 Workers stop gracefully on `SIGTERM` / `SIGINT`, letting running jobs finish. In full-stack projects (and always with `deno`) the path is `dist/server/worker.mjs`; in Docker, `docker run <image> node server/worker.mjs queue`.
 
+`worker.mjs command` runs the [console commands](./console) in `app/command` without the CLI or the source, which makes it the place for one-off and cron-driven maintenance in production. Serverless and edge presets have no command entry.
+
 On the other platforms scheduled tasks are triggered by the platform: Cron Triggers on Cloudflare, an EventBridge rule on Lambda, Vercel Cron on Vercel. See [Queues](./queues) and [Task Scheduling](./scheduling).
+
+### Microservice listeners {#microservice-listeners}
+
+[Microservice](./microservices) handlers in `app/message` only receive messages while a listener runs. `haze microservice:listen` is a development command: it needs the CLI and the source. In production, either set `autoListen: true` in `config/microservices.ts` so every web instance also listens, or run a dedicated process. The build has no microservice entry of its own; a long-running command works:
+
+```ts
+// app/command/ListenMessages.ts — node dist/worker.mjs command listen:messages
+import process from 'node:process'
+import { defineCommand } from '@hazejs/core'
+import { listenMicroservices } from '@hazejs/microservices'
+
+export default defineCommand({
+  description: 'Listen for microservice messages',
+  async run(_args, { app }) {
+    const listener = await listenMicroservices(app)
+    await new Promise((resolve) => {
+      process.once('SIGTERM', resolve)
+      process.once('SIGINT', resolve)
+    })
+    await listener.close() // stop consuming and let running handlers finish
+  },
+})
+```
+
+Like queue workers, listeners need a long-running process, so they are not available on serverless or edge presets.
 
 ## Health checks
 

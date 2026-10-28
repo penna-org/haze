@@ -67,13 +67,18 @@ pnpm install
 `api` 模板是一个完整可运行的示例，而不是空壳，包括：
 
 - 带请求校验的 `GET /api/hello` 与 `POST /api/hello`；
-- 基于 SQLite 和 `User` 模型的 `users` 资源接口；
+- 基于 SQLite 和 `User` 模型的 `users` 资源接口，输出由 [API 资源](./resources)（`app/resource/UserResource.ts`）控制，邮箱只对本人和管理员可见；
 - JWT 注册、登录和 `/api/auth/me`，以及“只能修改自己资料”的授权策略；
+- `/api/auth` 下的账号接口：[个人访问令牌](./api-tokens)（`/tokens`）、邮箱验证、找回密码，以及 [GitHub 登录](./oauth)（在 `.env` 中填写 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` 后启用，配置在 `config/oauth.ts`，使用 `@hazejs/oauth`）；
+- 流式 [AI](./ai) 对话接口 `POST /api/chat`（`config/ai.ts`）；
 - 事件、监听器、队列任务、邮件和定时任务各一个示例；
+- 一个[通知](./notifications)（`WelcomeNotification`，经邮件和广播发送），以及每个用户的私有[广播频道](./broadcasting)（`app/channel/user.ts`）；
+- `lang/en` 与 `lang/zh-CN` 两套翻译和 `config/i18n.ts`，欢迎邮件、校验错误与框架消息都按请求的语言输出（见[多语言](./localization)）；
+- 一个示例命令 `haze inspire`（`app/command/Inspire.ts`）；
 - 位于 `/api/ws` 的 WebSocket 路由；
 - 覆盖以上功能的测试。
 
-全栈模板在此基础上增加了 `src/` 下的 Vue / React 前端和一个 Socket.IO 命名空间。每个目录的用途见[目录结构](./directory-structure)。
+全栈模板在此基础上增加了 `src/` 下的 Vue / React 前端（含一个 AI 对话组件）和一个 Socket.IO 命名空间。每个目录的用途见[目录结构](./directory-structure)。
 
 ## 运行项目
 
@@ -92,6 +97,8 @@ curl localhost:3000/api/hello
 ```
 
 全栈项目则由 Vite 启动，使用 Vite 的端口（默认 `http://localhost:5173`），页面和 `/api/**` 共用这一个端口，详见 [Vite 全栈](./fullstack)。
+
+还有几个页面无需任何配置即可使用：开发环境下，`/__haze` 是[开发面板](./observability#开发面板)（请求、查询、任务、邮件、日志），`/docs` 是根据路由生成的 [OpenAPI 文档](./openapi)；`/health` 在任何模式下都会响应[健康检查](./observability#health-checks)。全栈项目中 Vite 开发服务器只把 `/api/**` 与 `/__haze` 交给后端，需要后两者时，把 OpenAPI 的地址（`config/openapi.ts` 的 `path` 与 `docsPath`）和健康检查的地址（`config/health.ts` 的 `path`）移到 `/api` 下。
 
 修改任意控制器、服务、路由或配置文件，下一个请求就会用上新代码。进程不会重启，终端只会打印一行 `reloaded`。
 
@@ -218,7 +225,7 @@ pnpm test
 | `test` | `haze test` | 运行 Vitest |
 | `routes` | `haze route:list` | 打印路由表 |
 | `typecheck` | `tsc --noEmit` | 类型检查（全栈模板为 `vue-tsc --build` / `tsc --build`） |
-| `typegen` | `haze typegen` | 生成配置键、路由名、授权能力的类型 |
+| `typegen` | `haze typegen` | 生成配置键、路由、授权能力与翻译键的类型，以及类型安全客户端使用的路由表 |
 | `db:generate` | `haze db:generate` | 根据表结构变化生成迁移 |
 | `db:migrate` | `haze db:migrate` | 执行尚未运行的迁移 |
 | `db:seed` | `haze db:seed` | 执行数据填充 |
@@ -231,4 +238,11 @@ pnpm test
 - [配置](./configuration)：`config/*.ts`、`.env` 与 `haze.config.ts`
 - [路由](./routing)与[控制器](./controllers)：深入 HTTP 层
 - [数据库](./database)：表结构、迁移与模型
+- [API 资源](./resources)与 [OpenAPI 文档](./openapi)：控制接口输出、生成接口文档，并在前端使用类型安全的客户端
+- [认证](./authentication)、[API 令牌](./api-tokens)、[两步验证与通行密钥](./two-factor)和[第三方登录](./oauth)：模板自带的账号功能
+- [通知](./notifications)与[广播](./broadcasting)：通过邮件、群机器人和实时频道触达用户
+- [多语言](./localization)：翻译文件与按请求切换语言
+- [自定义命令](./console)：编写自己的 `haze` 命令，以及 REPL
+- [可观测性](./observability)：健康检查、OpenTelemetry 与开发面板
+- [测试](./testing)：测试客户端与各种 fake
 - [部署](./deployment)：构建到 Node、Docker、Serverless 或 Edge

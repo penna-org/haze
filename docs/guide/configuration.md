@@ -36,23 +36,35 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | --- | --- | --- |
 | `config/app.ts`, `config/logger.ts`, your own files | `defineConfig` | `@hazejs/core` |
 | `config/auth.ts` | `defineAuthConfig` | `@hazejs/core` |
+| `config/broadcasting.ts` | `defineBroadcastingConfig` | `@hazejs/core` |
 | `config/cache.ts` | `defineCacheConfig` | `@hazejs/core` |
 | `config/compress.ts` | `defineCompressConfig` | `@hazejs/core` |
 | `config/cors.ts` | `defineCorsConfig` | `@hazejs/core` |
 | `config/csrf.ts` | `defineCsrfConfig` | `@hazejs/core` |
 | `config/filesystem.ts` | `defineFilesystemConfig` | `@hazejs/core` |
+| `config/health.ts` | `defineHealthConfig` | `@hazejs/core` |
+| `config/i18n.ts` | `defineI18nConfig` | `@hazejs/core` |
 | `config/mail.ts` | `defineMailConfig` | `@hazejs/core` |
 | `config/middleware.ts` | `defineMiddlewareConfig` | `@hazejs/core` |
+| `config/notification.ts` | `defineNotificationConfig` | `@hazejs/core` |
+| `config/observability.ts` | `defineObservabilityConfig` | `@hazejs/core` |
+| `config/openapi.ts` | `defineOpenAPIConfig` | `@hazejs/core` |
 | `config/queue.ts` | `defineQueueConfig` | `@hazejs/core` |
 | `config/schedule.ts` | `defineScheduleConfig` | `@hazejs/core` |
 | `config/secureHeaders.ts` | `defineSecureHeadersConfig` | `@hazejs/core` |
 | `config/session.ts` | `defineSessionConfig` | `@hazejs/core` |
+| `config/tenancy.ts` | `defineTenancyConfig` | `@hazejs/core` |
 | `config/throttle.ts` | `defineThrottleConfig` | `@hazejs/core` |
 | `config/websocket.ts` | `defineWebSocketConfig` | `@hazejs/core` |
 | `config/database.ts` | `defineDatabaseConfig` | `@hazejs/orm` |
+| `config/ai.ts` | `defineAIConfig` | `@hazejs/ai` |
+| `config/graphql.ts` | `defineGraphQLConfig` | `@hazejs/graphql` |
+| `config/microservices.ts` | `defineMicroservicesConfig` | `@hazejs/microservices` |
+| `config/oauth.ts` | `defineOAuthConfig` | `@hazejs/oauth` |
+| `config/search.ts` | `defineSearchConfig` | `@hazejs/search` |
 | `config/socketio.ts` | `defineSocketIOConfig` | `@hazejs/socket.io` |
 
-The options of each file are documented on the page of its module.
+The options of each file are documented on the page of its module: [Broadcasting](./broadcasting), [Observability](./observability) (`health`, `observability`), [Localization](./localization), [Notifications](./notifications), [OpenAPI](./openapi), [Multi-tenancy](./tenancy), [AI](./ai), [GraphQL](./graphql), [Microservices](./microservices), [OAuth Social Login](./oauth), [Search](./search) and so on. Most of these files are optional: OpenAPI docs and health checks work without them, and `config/i18n.ts` turns on translated validation and framework messages.
 
 ### Object form vs function form
 
@@ -154,6 +166,7 @@ Once types are generated, `config()` only accepts known keys; reading an unknown
 | `debug` | `true` in development | Error responses include stack traces; the dev error page is shown |
 | `url` | — | Public URL of the app, used for absolute links such as signed temporary storage URLs |
 | `key` | `APP_KEY` | Application key; see below |
+| `previousKeys` | `APP_PREVIOUS_KEYS` | Keys used before the last rotation; see below |
 | `bodyLimit` | `'1mb'` | Request body limit; override per route with the `bodyLimit:10mb` middleware |
 | `trustProxy` | `false` | Read the client IP and protocol from `X-Forwarded-For` / `X-Forwarded-Proto` |
 | `cookie` | — | Default cookie options (httpOnly, `SameSite=Lax` and `Secure` outside debug by default) |
@@ -174,6 +187,8 @@ npx haze key:generate --show    # print a key without writing it
 ```
 
 Set `APP_KEY` as a real environment variable in production. Setting `key` in `config/app.ts` overrides it.
+
+When you rotate the key, list the old ones in `APP_PREVIOUS_KEYS` (comma-separated) or `previousKeys` in `config/app.ts`. They are only used to read existing data: `Crypt` payloads are decrypted and [signed URLs](./routing#signed-urls) are verified with the current key first, then each previous key, while everything new is encrypted and signed with `APP_KEY`. Signed cookies, sessions, JWTs and temporary storage URLs only use the current key, so they still become invalid. See [Key rotation](./security#key-rotation).
 
 ### `APP_URL`
 

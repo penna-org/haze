@@ -64,16 +64,22 @@ Whatever a controller returns is wrapped in a uniform envelope — `{ code: 0, m
 
 | Area | Features |
 | --- | --- |
-| HTTP | Centralized [routes](./routing), groups, resources, named routes, [controllers](./controllers), [middleware](./middleware), interceptors, a uniform [response](./responses) envelope, an [exception handler](./errors) with a dev error page |
+| HTTP | Centralized [routes](./routing), groups, resources, named routes, [controllers](./controllers), [middleware](./middleware), interceptors, a uniform [response](./responses) envelope, [API resources](./resources), an [exception handler](./errors) with a dev error page |
+| API docs | An [OpenAPI](./openapi) 3.1 document generated from routes and validation schemas, a `/docs` page, and a typed `fetch` client for the frontend |
 | Container | `inject()`, singleton / request / transient scopes, service providers, resources that persist across hot reloads — see [Service Container](./container) |
 | Validation | Standard Schema (valibot, zod, arktype, …), per-route `.validate({ body, query, params })`, typed `ctx.validated` — see [Requests & Validation](./requests) |
-| Database | `@hazejs/orm` on drizzle: [models](./models), query builder, soft deletes, migrations and seeders for SQLite, PostgreSQL, MySQL, Turso and D1, plus a MongoDB adapter — see [Database](./database) |
-| Security | [Authentication](./authentication) (JWT and session guards), [authorization](./authorization) (gates and policies), [CSRF, sessions, CORS, secure headers and rate limiting](./security) |
-| Infrastructure | [Cache](./cache) with atomic locks, [queues](./queues) with retries and delays, a [task scheduler](./scheduling), [events](./events) with queued listeners |
-| Realtime | [WebSocket](./websocket) via crossws and [Socket.IO](./socket-io) via `@hazejs/socket.io` |
-| Files & mail | [File storage](./storage) on local disks, S3 and R2; [mail](./mail) over SMTP, Resend, Postmark, Mailgun and SES |
-| Tooling | The `haze` [CLI](./cli): dev server, build, preview, 16 `make:*` generators, `db:*`, `queue:*`, `schedule:*`, generated types for config keys, route names and policy abilities |
-| Testing | `useTestApp()`, `actingAs(user)`, and fakes for queues, events, mail and storage — see [Testing](./testing) |
+| Database | `@hazejs/orm` on drizzle: [models](./models), query builder, soft deletes, migrations and seeders for SQLite, PostgreSQL, MySQL, Turso and D1, plus a MongoDB adapter — see [Database](./database). [Full-text search](./search) with `@hazejs/search` on the database, Meilisearch, Typesense or Elasticsearch / OpenSearch |
+| Security | [Authentication](./authentication) (JWT, session and [API token](./api-tokens) guards, email verification, password reset), [two-factor and passkeys](./two-factor), [OAuth social login](./oauth) with `@hazejs/oauth`, [authorization](./authorization) (gates and policies), [CSRF, sessions, CORS, secure headers, rate limiting and encryption](./security) |
+| Infrastructure | [Cache](./cache) with atomic locks, [queues](./queues) with retries and delays, a [task scheduler](./scheduling), [events](./events) with queued listeners, [console commands](./console) and a REPL |
+| Messaging | [Notifications](./notifications) over mail, database, broadcast, Slack, webhooks, WeCom, DingTalk and Feishu; [mail](./mail) over SMTP, Resend, Postmark, Mailgun and SES |
+| Realtime | [WebSocket](./websocket) via crossws, [Socket.IO](./socket-io) via `@hazejs/socket.io`, and [broadcasting](./broadcasting) with private and presence channels and the `@hazejs/core/echo` client |
+| Files | [File storage](./storage) on local disks, S3 and R2 |
+| Localization | [Translation files](./localization) in `lang/`, per-request locale detection, translated validation and framework messages, typed keys |
+| Observability | [Health checks](./observability#health-checks), OpenTelemetry traces and metrics, and a dev dashboard at `/__haze` with a queue tab — see [Observability](./observability) |
+| Architecture | [Multiple apps](./multi-app) in one project, [multi-tenancy](./tenancy) (database per tenant or a tenant column, isolated cache and storage), [microservices](./microservices) over Redis, NATS or gRPC with `@hazejs/microservices` |
+| Integrations | [AI](./ai) with `@hazejs/ai` (text, streaming, tools, embeddings, MCP) and [GraphQL](./graphql) with `@hazejs/graphql` |
+| Tooling | The `haze` [CLI](./cli): dev server, build, preview, 23 `make:*` generators, `db:*`, `queue:*`, `schedule:*`, `search:*`, `openapi`, `repl`, your own commands, and generated types for config keys, routes, policy abilities and translation keys |
+| Testing | `useTestApp()`, `actingAs(user)`, and fakes for queues, events, mail, storage, notifications, broadcasts, search and AI — see [Testing](./testing) |
 
 ## Runtimes and deployment
 

@@ -10,7 +10,7 @@ npx haze make:model --help   # 查看某个命令的选项
 
 所有命令都支持 `--root <dir>`，用于指定项目根目录（默认当前目录 `.`）。
 
-需要用到应用本身的命令——`route:list`、`typegen`、`repl`、`db:*`、`queue:*`、`schedule:*` 以及自定义命令——会在与开发服务器相同的 Vite 模块图中启动应用，但不监听端口。它们直接运行 TypeScript 源码，无需事先构建。
+需要用到应用本身的命令——`route:list`、`typegen`、`openapi`、`repl`、`db:*`、`queue:*`、`schedule:*`、`search:*`、`microservice:listen` 以及自定义命令——会在与开发服务器相同的 Vite 模块图中启动应用，但不监听端口。它们直接运行 TypeScript 源码，无需事先构建。
 
 ## 开发与生产
 
@@ -78,11 +78,21 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 
 ### `haze typegen`
 
-生成 `.haze/types/haze.d.ts`，包含配置键、命名路由（含输入与输出类型，供[类型安全的客户端](./openapi#类型安全的客户端)使用）和授权能力的类型。`haze dev` 会自动执行（除非 `haze.config.ts` 中设置了 `typegen: false`）；CI 中请在类型检查之前运行一次。
+生成 `.haze/` 下的类型与文件：
+
+- `.haze/types/haze.d.ts`：配置键、命名路由（含输入与输出类型）和授权能力；
+- `.haze/types/i18n.d.ts`：`lang/` 中的翻译键（见[多语言](./localization#翻译键的类型)）；
+- `.haze/routes.ts`：[类型安全的客户端](./openapi#类型安全的客户端)在运行时使用的路由表。
+
+`haze dev` 会自动执行（除非 `haze.config.ts` 中设置了 `typegen: false`）；CI 中请在类型检查之前运行一次。
 
 ### `haze openapi`
 
-输出应用的 [OpenAPI](./openapi) 文档，或用 `-o openapi.json` 写入文件。
+把应用的 [OpenAPI](./openapi) 3.1 文档输出到标准输出。不要求开启文档页面，适合在 CI 中导出。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--output`、`-o` | 写入文件，例如 `-o openapi.json` |
 
 ### `haze repl`
 
@@ -114,7 +124,7 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 | `--force` | 覆盖 `stubs/` 中已存在的文件 |
 
 ::: v-pre
-stub 名称：`controller`、`controller.resource`、`service`、`repository`、`middleware`、`interceptor`、`provider`、`event`、`listener`、`job`、`policy`、`validate`、`validate.zod`、`test`、`config`、`route`、`seeder`、`command`、`mail`、`model`、`model.mongodb`、`schema.sqlite`、`schema.postgres`、`schema.mysql`。模板中使用 `{{ className }}`、`{{ camelName }}`、`{{ kebabName }}`、`{{ routePath }}`、`{{ commandName }}` 等占位变量。
+stub 名称：`controller`、`controller.resource`、`service`、`repository`、`middleware`、`interceptor`、`provider`、`event`、`listener`、`job`、`policy`、`validate`、`validate.zod`、`test`、`config`、`route`、`seeder`、`command`、`mail`、`notification`、`channel`、`resource`、`model`、`model.mongodb`、`schema.sqlite`、`schema.postgres`、`schema.mysql`、`notifications.sqlite`、`notifications.postgres`、`notifications.mysql`、`auth-tables.sqlite`、`auth-tables.postgres`、`auth-tables.mysql`。模板中使用 `{{ className }}`、`{{ camelName }}`、`{{ kebabName }}`、`{{ routePath }}`、`{{ commandName }}` 等占位变量。
 :::
 
 ## 代码生成
@@ -145,7 +155,11 @@ npx haze make:<type> <name> [options]
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
 | `make:command` | `SendReport` | `app/command/SendReport.ts`（用 `haze send:report` 运行） |
 | `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
+| `make:notification` | `InvoicePaid` | `app/notification/InvoicePaidNotification.ts` |
+| `make:channel` | `Order` | `app/channel/order.ts`（授权 `private-order.{id}`） |
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
+| `make:notifications-table` | — | `database/schema/notifications.ts`，见[下文](#make-notifications-table) |
+| `make:auth-tables` | — | `database/schema/auth.ts`，见[下文](#make-auth-tables) |
 
 生成后，大多数命令会打印一行提示：文件需要在哪里注册，或者怎么使用。
 
@@ -153,17 +167,18 @@ npx haze make:<type> <name> [options]
 
 - 名称会自动转换成合适的大小写，多余的后缀会被去掉：`user`、`User`、`UserController` 生成的都是 `UserController`。
 - 名称可以带子目录，例如 `make:controller admin/User` → `app/controller/admin/UserController.ts`。
-- 自动发现的目录只加载第一层文件，因此 `make:interceptor`、`make:event`、`make:listener`、`make:job`、`make:policy`、`make:config`、`make:route`、`make:seeder` 不允许带子目录。
+- 自动发现的目录只加载第一层文件，因此 `make:interceptor`、`make:event`、`make:listener`、`make:job`、`make:policy`、`make:notification`、`make:channel`、`make:config`、`make:route`、`make:seeder` 不允许带子目录。
+- 通知的类型就是文件名，所以 `make:notification InvoicePaid` 生成的类型是 `InvoicePaidNotification`；想要更短的类型名，可以重命名文件。
 
 ### 通用选项
 
-所有 `make:*` 命令都支持：
+所有需要名称的 `make:*` 命令都支持：
 
 | 选项 | 说明 |
 | --- | --- |
 | `<name>` | 必填，名称，可以带子目录 |
 | `--force` | 文件已存在时覆盖 |
-| `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项，`make:command` 不支持 |
+| `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项，`make:command` 不支持。各应用目录下只会自动发现 `route`、`config`、`provider`、`exception` 和 `response`，因此任务、事件、监听器、策略、通知和频道请放在共用的 `app/` 目录中 |
 
 ### `make:controller`
 
@@ -188,6 +203,21 @@ npx haze make:<type> <name> [options]
 | `--force` | 模型文件已存在时覆盖 |
 
 使用 `--dialect mongodb` 时生成 `MongoModel`，不生成表结构文件。SQL 方言生成后，接着运行 `haze db:generate` 和 `haze db:migrate`。
+
+### `make:notifications-table` {#make-notifications-table}
+
+生成 `database/schema/notifications.ts`，即[通知](./notifications)的 `database` 渠道使用的表。之后运行 `haze db:generate` 与 `haze db:migrate`，并在 `config/notification.ts` 中把 `channels.database.store` 设为 `databaseNotificationStore(notifications)`。
+
+### `make:auth-tables` {#make-auth-tables}
+
+生成 `database/schema/auth.ts`，包含 [API 令牌](./api-tokens)、找回密码、[两步验证与通行密钥](./two-factor)所需的表。删掉用不到的表，再运行 `haze db:generate` 与 `haze db:migrate`。模板中已经带有精简后的版本（只保留令牌与找回密码两张表）。
+
+这两个命令不需要名称，支持以下选项：
+
+| 选项 | 说明 |
+| --- | --- |
+| `--dialect` | `sqlite`、`postgres` 或 `mysql`，默认与 `make:model` 一样按已安装的驱动推断；不支持 MongoDB |
+| `--force` | 表结构文件已存在时覆盖 |
 
 ## 数据库
 
@@ -268,11 +298,35 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 
 常驻运行，每分钟整点检查并执行到期任务。修改 `schedule/*.ts` 后从下一分钟开始生效。
 
+## 全文搜索
+
+以下命令作用于 [`@hazejs/search`](./search) 的可搜索模型（需要先安装该包）。命令会加载 `app/model` 与 `app/<app>/model` 下的文件，因此 `searchable()` 要写在模型自己的文件里。模型参数可以是类名，也可以是索引名。
+
+### `haze search:import <model>`
+
+分批把模型的全部记录写入搜索索引，跳过已软删除的记录和 `shouldBeSearchable` 拒绝的记录。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--chunk` | 每批读取的数量，默认为 `config/search.ts` 的 `chunk`（500） |
+
+### `haze search:flush <model>`
+
+清空模型索引中的全部文档。
+
+### `haze search:sync-settings [model]`
+
+创建索引并同步索引设置（可搜索、可过滤、可排序的字段）；database 引擎则创建全文索引。不指定模型时同步所有可搜索的模型。
+
 ## 微服务
 
 ### `haze microservice:listen`
 
-监听[微服务](./microservices)消息，不监听 HTTP 端口。`--transport nats,grpc` 指定传输（默认取 `config/microservices.ts` 的 `listen` 或 `default`）。处理器代码修改后立即生效，新增消息模式需要重启。需要安装 `@hazejs/microservices`。
+监听[微服务](./microservices)消息，不监听 HTTP 端口。需要安装 `@hazejs/microservices`。处理器代码修改后立即生效，新增消息模式需要重启。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--transport`、`-t` | 要监听的传输，多个用逗号分隔，例如 `nats,grpc`。默认取 `config/microservices.ts` 的 `listen` 或 `default` |
 
 ## 自定义命令
 
@@ -296,3 +350,5 @@ node dist/worker.mjs command <name> [args]                       # 对应 haze <
 ```
 
 以上路径适用于使用 `node` 或 `bun` 预设的纯后端项目；全栈项目以及 `deno` / `docker` 预设下，这些文件位于 `dist/server/`。只有项目使用了 `@hazejs/orm` 时才会生成 `migrate.mjs`。Serverless 与 Edge 平台的做法见[部署](./deployment)。
+
+`search:*`、`microservice:listen`、`openapi`、`typegen` 和 `repl` 没有生产环境入口。全文搜索可以在自己的命令中调用 `importSearchable()` / `syncSearchSettings()`，再用 `worker.mjs command` 运行；微服务见[部署](./deployment#microservice-listeners)。

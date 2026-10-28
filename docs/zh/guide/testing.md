@@ -1,6 +1,6 @@
 # 测试
 
-`@hazejs/testing` 让应用直接在 [Vitest](https://vitest.dev) 中运行，不监听端口。每个用例都会得到一个全新的应用（与 `haze dev` 使用同一套 `config/`、`route/`、`app/`），一个用来发请求的客户端，以及队列、事件、邮件、存储的 fake。
+`@hazejs/testing` 让应用直接在 [Vitest](https://vitest.dev) 中运行，不监听端口。每个用例都会得到一个全新的应用（与 `haze dev` 使用同一套 `config/`、`route/`、`app/`），一个用来发请求的客户端，以及队列、事件、邮件、存储、通知、广播、全文搜索和 AI 的 fake。
 
 ## 配置
 
@@ -130,6 +130,18 @@ it('lets users update themselves', async () => {
 })
 ```
 
+使用 [API 令牌](./api-tokens)的 `token` Guard 时，`actingAs(user, 'token')` 会签发一个真实的个人访问令牌，拥有全部能力（`*`）。要测试能力检查，可以用 `issueTestCredentials()`（`actingAs()` 就是基于它实现的）签发只带指定能力的令牌：
+
+```ts
+import { issueTestCredentials } from '@hazejs/core'
+
+it('rejects tokens without posts:write', async () => {
+  const headers = await issueTestCredentials(t.app, ada, 'token', { abilities: ['posts:read'] })
+  const res = await t.withHeaders(headers).post('/api/posts', { title: 'Hi' })
+  expect(res.status).toBe(403)
+})
+```
+
 Guard 的说明见[认证](./authentication)。
 
 ## 数据库
@@ -198,8 +210,19 @@ describe('registration', () => {
 | `Events.fake(events?)` | `assertEmitted(event, predicate?)`、`assertNotEmitted(event, predicate?)`、`assertEmittedTimes(event, n)`；`emitted`。传入列表时只 fake 这些事件 |
 | `Mail.fake()` | `assertSent`、`assertNotSent`、`assertSentTimes`、`assertQueued`、`assertNotQueued`、`assertNothingSent`、`assertNothingQueued`；`MailFake.hasRecipient(mail, address)` |
 | `Storage.fake(disk?)` | `assertExists`、`assertMissing`、`assertCount`、`assertDirectoryEmpty`（均为异步）；上传示例见[文件存储](./storage#测试) |
+| `Notification.fake()` | `assertSentTo(notifiable, notification, predicate?)`、`assertNotSentTo`、`assertSentOnDemand`、`assertSentTimes`、`assertNothingSentTo`、`assertNothingSent`、`assertCount`；`sentTo(notifiable, notification)` 返回发送记录，记录的 `message(channel)` 可以渲染出各渠道的内容 |
+| `Broadcast.fake()` | `assertBroadcast(event, predicate?)`、`assertBroadcastOn(channel, event?, predicate?)`、`assertNotBroadcast`、`assertBroadcastTimes`、`assertNothingBroadcast`；`broadcasts` |
 
-任务既可以按定义匹配，也可以按名称匹配，例如 `queue.assertDispatched('mail:send')`。每个门面都有对应的 `restore()`（`Queue.restore()`、`Events.restore()`、`Mail.restore()`、`Storage.restore()`）。各功能页面有更详细的说明：[队列](./queues)、[事件](./events)、[邮件](./mail#测试)、[文件存储](./storage#测试)。
+任务既可以按定义匹配，也可以按名称匹配，例如 `queue.assertDispatched('mail:send')`。每个门面都有对应的 `restore()`（`Queue.restore()`、`Events.restore()`、`Mail.restore()`、`Storage.restore()`、`Notification.restore()`、`Broadcast.restore()`）。各功能页面有更详细的说明：[队列](./queues)、[事件](./events)、[邮件](./mail#测试)、[文件存储](./storage#测试)、[通知](./notifications#测试)、[广播](./broadcasting#测试)。
+
+### 其它扩展包
+
+可选的扩展包也提供了类似的测试手段：
+
+- **全文搜索**：`@hazejs/search` 的 `Search.fake()` 把所有引擎替换为同一个内存引擎，同步时也不经过队列。返回的引擎可以读取已写入的文档：`engine.documents('posts')`。详见[全文搜索](./search#测试)。
+- **AI**：`@hazejs/ai` 的 `AI.fake(replies)` 按顺序返回预设的回复，请求不会离开进程；模板中的 `tests/chat.test.ts` 就是这样写的。详见 [AI](./ai#测试)。
+- **微服务**：没有 fake，改用进程内的 `memory` 传输即可（例如配置文件读取 `MICROSERVICE_TRANSPORT` 时，在 `.env.test` 中设为 `memory`），在用例中调用 `listenMicroservices(t.app)`，再通过 `t.make(MicroserviceManager).client()` 发送消息。详见[微服务](./microservices#测试)。
+- **第三方登录**：把 OAuth 配置的 `fetch` 选项换成进程内的假实现，测试时就不会访问真实的平台。详见[第三方登录](./oauth#测试)。
 
 ## 连接真实服务测试
 

@@ -18,10 +18,12 @@ my-app/
 │  ├─ job/              队列任务（自动发现）
 │  ├─ listener/         事件监听器（自动发现）
 │  ├─ mail/             邮件定义
+│  ├─ message/          微服务消息处理器（自动发现；可选）
 │  ├─ model/            ORM 模型
 │  ├─ notification/     通知（自动发现）
 │  ├─ policy/           授权策略（自动发现）
 │  ├─ provider/         服务提供者（自动发现）
+│  ├─ resource/         API 资源（控制接口输出）
 │  ├─ response/
 │  │  └─ Formatter.ts   统一响应格式（自动发现）
 │  ├─ service/          业务服务
@@ -29,8 +31,11 @@ my-app/
 ├─ config/              配置，一个文件对应一个配置键（自动发现）
 ├─ database/
 │  ├─ migrations/       drizzle-kit 生成的 SQL 迁移
-│  ├─ schema/           drizzle 表结构
+│  ├─ schema/           drizzle 表结构（users.ts、auth.ts）
 │  └─ seeders/          haze db:seed 执行的数据填充
+├─ lang/
+│  ├─ en/               翻译文件，每种语言一个目录（自动发现）
+│  └─ zh-CN/
 ├─ route/               路由文件（自动发现）
 ├─ schedule/            定时任务（自动发现）
 ├─ tests/               Vitest 测试
@@ -42,6 +47,8 @@ my-app/
 └─ vitest.config.ts
 ```
 
+标为“可选”的目录模板中没有，需要时自行创建；下文介绍的 `app/middleware`、`app/interceptor` 与 `app/repository` 也是如此。
+
 ## 全栈项目（`vue` / `react` 模板）
 
 全栈项目中后端整体移到 `server/` 下，项目根目录则是一个标准的 Vite 项目：
@@ -52,11 +59,13 @@ my-app/
 │  ├─ app/              与上面相同的目录，另有 socket/
 │  ├─ config/
 │  ├─ database/
+│  ├─ lang/
 │  ├─ route/
 │  └─ schedule/
 ├─ src/                 前端（Vue 或 React）
 │  ├─ api.ts            封装 fetch 与 CSRF 流程
 │  ├─ socket.ts         Socket.IO 客户端
+│  ├─ AiChat.vue        AI 流式对话（React 模板为 AiChat.tsx）
 │  └─ main.ts / App.vue
 ├─ tests/               后端测试
 ├─ index.html
@@ -85,7 +94,7 @@ export default defineHazeConfig({
 
 ## 自动发现的目录
 
-Vite 插件用 `import.meta.glob` 为以下文件生成清单。每个目录**只扫描第一层**，子目录中的文件不会被加载。
+Vite 插件用 `import.meta.glob` 为以下文件生成清单。带 `*` 的路径**只扫描目录的第一层**，子目录中的文件不会被加载；`app/command/**` 与 `lang/**` 这两个带 `**` 的路径会递归扫描，子目录会成为命令名或翻译键的一部分。
 
 | 路径（相对 `srcDir`） | 内容 |
 | --- | --- |
@@ -104,6 +113,8 @@ Vite 插件用 `import.meta.glob` 为以下文件生成清单。每个目录**�
 | `app/socket/*.ts` | Socket.IO 命名空间，由 `@hazejs/socket.io` 读取 |
 | `app/notification/*.ts` | 通知，文件名即通知类型 |
 | `app/channel/*.ts` | 广播频道授权（`defineChannels()`） |
+| `app/message/*.ts` | 微服务消息处理器，由 `@hazejs/microservices` 读取 |
+| `lang/**/*.{ts,json}` | 翻译文件：`lang/<语言>/<文件>.ts`，文件路径是翻译键的第一段（`lang/en/admin/users.ts` → `admin.users.*`） |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | [多应用](./multi-app)下各应用自己的模块 |
 
 开发时新增或删除这些文件会自动重新生成清单，无需重启。
@@ -148,7 +159,7 @@ Standard Schema 校验规则（默认 valibot，也可以用 zod、arktype 等�
 
 ### `app/command`
 
-用 `defineCommand()` 定义的自定义命令，通过 `haze <name>` 或 `node dist/worker.mjs command <name>` 运行。可以使用子目录，子目录会成为命令名的一部分。详见[自定义命令](./console)。
+用 `defineCommand()` 定义的自定义命令，通过 `haze <name>` 或 `node dist/worker.mjs command <name>` 运行。可以使用子目录，子目录会成为命令名的一部分。模板自带 `Inspire.ts`，运行 `haze inspire` 即可。详见[自定义命令](./console)。
 
 ### `app/event` 与 `app/listener`
 
@@ -165,6 +176,14 @@ Standard Schema 校验规则（默认 valibot，也可以用 zod、arktype 等�
 ### `app/channel`
 
 私有频道与在线频道的授权（`defineChannels((c) => { c.private('orders.{id}', …) })`）。目录下每个文件都会被加载；只要有一个文件，`/broadcasting` 下的内置接口就会启用。详见[广播](./broadcasting)。
+
+### `app/resource`
+
+API 资源（`defineResource((user, ctx) => ({ … }))`），决定模型对外输出哪些字段：单个对象用 `UserResource.make(user)`，列表与分页用 `UserResource.collection(await User.paginate(page, 20))`。不会被自动发现，在控制器中直接导入。模板自带 `UserResource.ts`。详见 [API 资源](./resources)。
+
+### `app/message`
+
+微服务消息处理器（`defineMessageHandler('orders.find', handler)`），由 `@hazejs/microservices` 的 `microservicesProvider()` 注册。每个文件默认导出一个处理器或处理器数组。只有监听进程运行时（`haze microservice:listen` 或 `autoListen`）才会收到消息。详见[微服务](./microservices)。
 
 ### `app/socket`
 
@@ -185,6 +204,10 @@ Socket.IO 命名空间（`defineNamespace()`），注册 `@hazejs/socket.io` 的
 ### `config/`
 
 一个文件对应一个配置键，通常配合 `defineXxxConfig()` 辅助函数使用。详见[配置](./configuration)。
+
+### `lang/`
+
+翻译文件，每种语言一个目录：`lang/en/messages.ts` 默认导出一个嵌套对象，用 `t('messages.welcome')` 读取。支持子目录与 JSON 文件。存在 `config/i18n.ts` 时，校验错误与框架自身的错误消息也会按请求的语言翻译。模板自带 `en` 与 `zh-CN`。详见[多语言](./localization)。
 
 ### `route/`
 
@@ -210,10 +233,10 @@ Socket.IO 命名空间（`defineNamespace()`），注册 `@hazejs/socket.io` 的
 
 | 路径 | 用途 | 是否提交到 git |
 | --- | --- | --- |
-| `.haze/` | 生成的类型（`.haze/types/haze.d.ts`）、最近一次构建的记录（`build.json`）和本地预览数据 | 否 |
+| `.haze/` | 生成的文件：配置键、路由与授权能力的类型（`types/haze.d.ts`），翻译键的类型（`types/i18n.d.ts`），[类型安全客户端](./openapi#类型安全的客户端)使用的路由表（`routes.ts`）；以及最近一次构建的记录（`build.json`）、本地预览数据和 REPL 历史 | 否 |
 | `dist/` | 构建产物（`haze.config.ts` 的 `outDir`） | 否 |
 | `data/` | 模板默认的 SQLite 数据库（`DATABASE_URL=file:./data/app.db`） | 否 |
 | `storage/` | 本地文件存储磁盘（`storage/app`、`storage/app/public`） | 否 |
 | `stubs/` | `haze stub:publish` 复制出来、供团队定制的代码生成模板 | 是 |
 
-记得在 `tsconfig.json` 的 `include` 中加入 `.haze/types/**/*.d.ts`（模板已配置好），编辑器才能识别配置键、路由名和授权能力的类型。
+记得在 `tsconfig.json` 的 `include` 中加入 `.haze/types/**/*.d.ts`（模板已配置好），编辑器才能识别配置键、路由名、授权能力和翻译键的类型。`haze dev` 会在代码修改后重新生成这些文件；CI 中运行 `haze typegen`。

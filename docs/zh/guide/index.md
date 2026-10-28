@@ -64,16 +64,22 @@ export class PostController {
 
 | 领域 | 功能 |
 | --- | --- |
-| HTTP | 集中式[路由](./routing)、分组、资源路由、命名路由、[控制器](./controllers)、[中间件](./middleware)、出站拦截器、统一[响应](./responses)格式、带开发错误页的[异常处理](./errors) |
+| HTTP | 集中式[路由](./routing)、分组、资源路由、命名路由、[控制器](./controllers)、[中间件](./middleware)、出站拦截器、统一[响应](./responses)格式、[API 资源](./resources)、带开发错误页的[异常处理](./errors) |
+| 接口文档 | 根据路由与校验规则生成 [OpenAPI](./openapi) 3.1 文档，提供 `/docs` 页面，并为前端生成类型安全的 `fetch` 客户端 |
 | 容器 | `inject()`，singleton / request / transient 三种作用域，服务提供者，跨热重载保留的持久资源，见[服务容器](./container) |
 | 校验 | Standard Schema（valibot、zod、arktype……），路由级 `.validate({ body, query, params })`，带类型的 `ctx.validated`，见[请求与校验](./requests) |
-| 数据库 | 基于 drizzle 的 `@hazejs/orm`：[模型](./models)、查询构造器、软删除、迁移与数据填充，支持 SQLite、PostgreSQL、MySQL、Turso、D1，另有 MongoDB 适配，见[数据库](./database) |
-| 安全 | [认证](./authentication)（JWT 与 Session Guard）、[授权](./authorization)（Gate 与 Policy）、[CSRF、Session、CORS、安全响应头与限流](./security) |
-| 基础设施 | 支持原子锁的[缓存](./cache)、支持重试与延迟的[队列](./queues)、[定时任务](./scheduling)、支持排队监听器的[事件](./events) |
-| 实时通信 | 基于 crossws 的 [WebSocket](./websocket)，以及 `@hazejs/socket.io` 提供的 [Socket.IO](./socket-io) |
-| 文件与邮件 | 本地磁盘、S3、R2 [文件存储](./storage)；SMTP、Resend、Postmark、Mailgun、SES [邮件](./mail) |
-| 工具链 | `haze` [命令行](./cli)：开发服务器、构建、预览、16 个 `make:*` 生成器、`db:*`、`queue:*`、`schedule:*`，以及为配置键、路由名、授权能力生成的类型 |
-| 测试 | `useTestApp()`、`actingAs(user)`，以及队列、事件、邮件、存储的 fake，见[测试](./testing) |
+| 数据库 | 基于 drizzle 的 `@hazejs/orm`：[模型](./models)、查询构造器、软删除、迁移与数据填充，支持 SQLite、PostgreSQL、MySQL、Turso、D1，另有 MongoDB 适配，见[数据库](./database)；`@hazejs/search` 提供[全文搜索](./search)，可使用数据库本身、Meilisearch、Typesense 或 Elasticsearch / OpenSearch |
+| 安全 | [认证](./authentication)（JWT、Session 与 [API 令牌](./api-tokens) Guard，邮箱验证、找回密码）、[两步验证与通行密钥](./two-factor)、`@hazejs/oauth` 提供的[第三方登录](./oauth)、[授权](./authorization)（Gate 与 Policy）、[CSRF、Session、CORS、安全响应头、限流与加密](./security) |
+| 基础设施 | 支持原子锁的[缓存](./cache)、支持重试与延迟的[队列](./queues)、[定时任务](./scheduling)、支持排队监听器的[事件](./events)、[自定义命令](./console)与 REPL |
+| 消息触达 | 经邮件、数据库、广播、Slack、Webhook、企业微信、钉钉、飞书发送的[通知](./notifications)；SMTP、Resend、Postmark、Mailgun、SES [邮件](./mail) |
+| 实时通信 | 基于 crossws 的 [WebSocket](./websocket)、`@hazejs/socket.io` 提供的 [Socket.IO](./socket-io)，以及支持私有频道、在线频道和 `@hazejs/core/echo` 客户端的[广播](./broadcasting) |
+| 文件 | 本地磁盘、S3、R2 [文件存储](./storage) |
+| 多语言 | `lang/` 下的[翻译文件](./localization)、按请求识别语言、校验错误与框架消息的翻译、带类型的翻译键 |
+| 可观测性 | [健康检查](./observability#health-checks)、OpenTelemetry 链路与指标，以及位于 `/__haze`、带队列面板的开发面板，见[可观测性](./observability) |
+| 架构 | 一个项目内的[多应用](./multi-app)、[多租户](./tenancy)（每个租户一个数据库或共用数据库加租户列，缓存与存储相互隔离）、`@hazejs/microservices` 提供的基于 Redis、NATS、gRPC 的[微服务](./microservices) |
+| 集成 | `@hazejs/ai` 提供的 [AI](./ai)（文本生成、流式输出、工具、Embedding、MCP）与 `@hazejs/graphql` 提供的 [GraphQL](./graphql) |
+| 工具链 | `haze` [命令行](./cli)：开发服务器、构建、预览、23 个 `make:*` 生成器、`db:*`、`queue:*`、`schedule:*`、`search:*`、`openapi`、`repl`、自定义命令，以及为配置键、路由、授权能力和翻译键生成的类型 |
+| 测试 | `useTestApp()`、`actingAs(user)`，以及队列、事件、邮件、存储、通知、广播、全文搜索与 AI 的 fake，见[测试](./testing) |
 
 ## 运行时与部署
 

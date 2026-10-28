@@ -12,7 +12,7 @@ Examples on this page use the API template layout (`app/...`, `config/...`). In 
 
 ## Defining notifications
 
-Put notifications in `app/notification/*.ts`, or generate one with `haze make:notification InvoicePaid`:
+Put notifications in `app/notification/*.ts`. `haze make:notification InvoicePaid` generates `app/notification/InvoicePaidNotification.ts` (type `InvoicePaidNotification`); the example below is written by hand:
 
 ```ts
 // app/notification/InvoicePaid.ts

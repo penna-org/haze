@@ -378,19 +378,14 @@ export default defineGraphQLConfig({
 
 ```ts
 // tests/graphql.test.ts
-import { issueTestCredentials } from '@hazejs/core'
+import { useTestApp } from '@hazejs/testing'
 import { expect, it } from 'vitest'
-import { createApp } from './app'
+
+const t = useTestApp()
 
 it('returns the current user', async () => {
-  const app = await createApp()
-  const credentials = await issueTestCredentials(app, { id: 1 })
-  const res = await app.request('/graphql', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...credentials },
-    body: JSON.stringify({ query: '{ me { id } }' }),
-  })
-  expect(await res.json()).toEqual({ data: { me: { id: 1 } } })
+  const res = await (await t.actingAs({ id: 1 })).post('/graphql', { query: '{ me { id } }' })
+  expect(res.body).toEqual({ data: { me: { id: 1 } } })
 })
 ```
 

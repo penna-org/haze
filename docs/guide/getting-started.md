@@ -67,13 +67,18 @@ pnpm install
 The `api` template is a complete, working example — not an empty shell. It includes:
 
 - `GET /api/hello` and `POST /api/hello` with request validation;
-- a `users` resource backed by a SQLite database and a `User` model;
+- a `users` resource backed by a SQLite database and a `User` model, shaped by an [API resource](./resources) (`app/resource/UserResource.ts`) that shows the email only to the user and admins;
 - JWT registration, login and `/api/auth/me`, with a policy that lets users edit only their own profile;
+- account endpoints under `/api/auth`: [personal access tokens](./api-tokens) (`/tokens`), email verification, password reset, and [GitHub login](./oauth) that turns on once `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are set in `.env` (`config/oauth.ts`, `@hazejs/oauth`);
+- a streaming [AI](./ai) chat endpoint, `POST /api/chat` (`config/ai.ts`);
 - an event, listeners, a queued job, a mail and a scheduled task;
+- a [notification](./notifications) (`WelcomeNotification`, sent by mail and broadcast) and a private [broadcast channel](./broadcasting) for each user (`app/channel/user.ts`);
+- translations in `lang/en` and `lang/zh-CN` with `config/i18n.ts`, so the welcome mail, validation errors and framework messages follow the request's language ([Localization](./localization));
+- an example console command, `haze inspire` (`app/command/Inspire.ts`);
 - a WebSocket route at `/api/ws`;
 - tests for all of the above.
 
-The full-stack templates add a Vue or React frontend in `src/` and a Socket.IO namespace. See [Directory Structure](./directory-structure) for a tour of every folder.
+The full-stack templates add a Vue or React frontend in `src/` (including an AI chat component) and a Socket.IO namespace. See [Directory Structure](./directory-structure) for a tour of every folder.
 
 ## Run it
 
@@ -92,6 +97,8 @@ curl localhost:3000/api/hello
 ```
 
 Full-stack projects run through Vite instead, on Vite's port (`http://localhost:5173` by default) — the page and `/api/**` share it. See [Full-stack with Vite](./fullstack).
+
+A few pages come with no setup. In development, `/__haze` opens the [dev dashboard](./observability#dev-dashboard) (requests, queries, jobs, mail, logs) and `/docs` shows the [OpenAPI](./openapi) docs generated from your routes; `/health` answers [health checks](./observability#health-checks) in every mode. In full-stack projects the Vite dev server only passes `/api/**` and `/__haze` to the backend, so move the OpenAPI paths (`path` and `docsPath` in `config/openapi.ts`) and the health path (`config/health.ts`) under `/api` if you need them there.
 
 Edit any controller, service, route or config file and the change is live on the next request. The process does not restart; the terminal prints a `reloaded` line instead.
 
@@ -218,7 +225,7 @@ Every template ships with these scripts:
 | `test` | `haze test` | Run Vitest |
 | `routes` | `haze route:list` | Print the route table |
 | `typecheck` | `tsc --noEmit` | Type check (`vue-tsc --build` / `tsc --build` in full-stack templates) |
-| `typegen` | `haze typegen` | Generate types for config keys, route names and abilities |
+| `typegen` | `haze typegen` | Generate types for config keys, routes, abilities and translation keys, plus the route list for the typed client |
 | `db:generate` | `haze db:generate` | Generate a migration from schema changes |
 | `db:migrate` | `haze db:migrate` | Run pending migrations |
 | `db:seed` | `haze db:seed` | Run seeders |
@@ -231,4 +238,11 @@ Extra flags are passed through, for example `pnpm db:generate --name create_post
 - [Configuration](./configuration) — `config/*.ts`, `.env` and `haze.config.ts`
 - [Routing](./routing) and [Controllers](./controllers) — the HTTP layer in depth
 - [Database](./database) — schemas, migrations and models
+- [API Resources](./resources) and [OpenAPI](./openapi) — shape responses, document the API and call it from a typed client
+- [Authentication](./authentication), [API Tokens](./api-tokens), [Two-Factor & Passkeys](./two-factor) and [OAuth Social Login](./oauth) — the account features the template starts with
+- [Notifications](./notifications) and [Broadcasting](./broadcasting) — reach users by mail, chat apps and realtime channels
+- [Localization](./localization) — translations and per-request language
+- [Console Commands](./console) — your own `haze` commands and the REPL
+- [Observability](./observability) — health checks, OpenTelemetry and the dev dashboard
+- [Testing](./testing) — the test client and fakes
 - [Deployment](./deployment) — build for Node, Docker, serverless or the edge

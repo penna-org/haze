@@ -1,6 +1,6 @@
 # Testing
 
-`@hazejs/testing` runs your application inside [Vitest](https://vitest.dev) without opening a port. Each test gets a fresh application built from the same `config/`, `route/` and `app/` files as `haze dev`, an HTTP client to call it, and fakes for queues, events, mail and storage.
+`@hazejs/testing` runs your application inside [Vitest](https://vitest.dev) without opening a port. Each test gets a fresh application built from the same `config/`, `route/` and `app/` files as `haze dev`, an HTTP client to call it, and fakes for queues, events, mail, storage, notifications, broadcasts, search and AI.
 
 ## Setup
 
@@ -130,6 +130,18 @@ it('lets users update themselves', async () => {
 })
 ```
 
+With the `token` guard of [API tokens](./api-tokens), `actingAs(user, 'token')` issues a real personal access token with every ability (`*`). To test ability checks, issue a token with specific abilities through `issueTestCredentials()`, the helper `actingAs()` is built on:
+
+```ts
+import { issueTestCredentials } from '@hazejs/core'
+
+it('rejects tokens without posts:write', async () => {
+  const headers = await issueTestCredentials(t.app, ada, 'token', { abilities: ['posts:read'] })
+  const res = await t.withHeaders(headers).post('/api/posts', { title: 'Hi' })
+  expect(res.status).toBe(403)
+})
+```
+
 See [Authentication](./authentication) for guards.
 
 ## Database
@@ -198,8 +210,19 @@ describe('registration', () => {
 | `Events.fake(events?)` | `assertEmitted(event, predicate?)`, `assertNotEmitted(event, predicate?)`, `assertEmittedTimes(event, n)`, `emitted`. Pass a list to fake only those events. |
 | `Mail.fake()` | `assertSent`, `assertNotSent`, `assertSentTimes`, `assertQueued`, `assertNotQueued`, `assertNothingSent`, `assertNothingQueued`; `MailFake.hasRecipient(mail, address)` |
 | `Storage.fake(disk?)` | `assertExists`, `assertMissing`, `assertCount`, `assertDirectoryEmpty` (all async); see [File Storage](./storage#testing) for an upload example |
+| `Notification.fake()` | `assertSentTo(notifiable, notification, predicate?)`, `assertNotSentTo`, `assertSentOnDemand`, `assertSentTimes`, `assertNothingSentTo`, `assertNothingSent`, `assertCount`; `sentTo(notifiable, notification)` returns records whose `message(channel)` renders the content |
+| `Broadcast.fake()` | `assertBroadcast(event, predicate?)`, `assertBroadcastOn(channel, event?, predicate?)`, `assertNotBroadcast`, `assertBroadcastTimes`, `assertNothingBroadcast`; `broadcasts` |
 
-Jobs can be matched by definition or by name, e.g. `queue.assertDispatched('mail:send')`. Each fake also has a `restore()` on its facade (`Queue.restore()`, `Events.restore()`, `Mail.restore()`, `Storage.restore()`). More detail lives on each feature's page: [Queues](./queues), [Events](./events), [Mail](./mail#testing), [File Storage](./storage#testing).
+Jobs can be matched by definition or by name, e.g. `queue.assertDispatched('mail:send')`. Each fake also has a `restore()` on its facade (`Queue.restore()`, `Events.restore()`, `Mail.restore()`, `Storage.restore()`, `Notification.restore()`, `Broadcast.restore()`). More detail lives on each feature's page: [Queues](./queues), [Events](./events), [Mail](./mail#testing), [File Storage](./storage#testing), [Notifications](./notifications#testing), [Broadcasting](./broadcasting#testing).
+
+### Other packages
+
+The optional packages follow the same pattern:
+
+- **Search** — `Search.fake()` from `@hazejs/search` replaces every engine with one in-memory engine and syncs without the queue. The returned engine exposes the indexed documents: `engine.documents('posts')`. See [Search](./search#testing).
+- **AI** — `AI.fake(replies)` from `@hazejs/ai` answers every model call with the given replies, so no request leaves the process; the templates' `tests/chat.test.ts` uses it. See [AI](./ai#testing).
+- **Microservices** — there is no fake; use the in-process `memory` transport instead (for example `MICROSERVICE_TRANSPORT=memory` in `.env.test`, if your config reads it), call `listenMicroservices(t.app)` in the test and send messages with `t.make(MicroserviceManager).client()`. See [Microservices](./microservices#testing).
+- **OAuth** — set the `fetch` option of the OAuth config to an in-process fake so tests never reach the real providers. See [OAuth Social Login](./oauth#testing).
 
 ## Testing against real services
 

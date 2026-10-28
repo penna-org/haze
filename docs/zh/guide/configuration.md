@@ -36,23 +36,35 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | --- | --- | --- |
 | `config/app.ts`、`config/logger.ts`、业务自定义配置 | `defineConfig` | `@hazejs/core` |
 | `config/auth.ts` | `defineAuthConfig` | `@hazejs/core` |
+| `config/broadcasting.ts` | `defineBroadcastingConfig` | `@hazejs/core` |
 | `config/cache.ts` | `defineCacheConfig` | `@hazejs/core` |
 | `config/compress.ts` | `defineCompressConfig` | `@hazejs/core` |
 | `config/cors.ts` | `defineCorsConfig` | `@hazejs/core` |
 | `config/csrf.ts` | `defineCsrfConfig` | `@hazejs/core` |
 | `config/filesystem.ts` | `defineFilesystemConfig` | `@hazejs/core` |
+| `config/health.ts` | `defineHealthConfig` | `@hazejs/core` |
+| `config/i18n.ts` | `defineI18nConfig` | `@hazejs/core` |
 | `config/mail.ts` | `defineMailConfig` | `@hazejs/core` |
 | `config/middleware.ts` | `defineMiddlewareConfig` | `@hazejs/core` |
+| `config/notification.ts` | `defineNotificationConfig` | `@hazejs/core` |
+| `config/observability.ts` | `defineObservabilityConfig` | `@hazejs/core` |
+| `config/openapi.ts` | `defineOpenAPIConfig` | `@hazejs/core` |
 | `config/queue.ts` | `defineQueueConfig` | `@hazejs/core` |
 | `config/schedule.ts` | `defineScheduleConfig` | `@hazejs/core` |
 | `config/secureHeaders.ts` | `defineSecureHeadersConfig` | `@hazejs/core` |
 | `config/session.ts` | `defineSessionConfig` | `@hazejs/core` |
+| `config/tenancy.ts` | `defineTenancyConfig` | `@hazejs/core` |
 | `config/throttle.ts` | `defineThrottleConfig` | `@hazejs/core` |
 | `config/websocket.ts` | `defineWebSocketConfig` | `@hazejs/core` |
 | `config/database.ts` | `defineDatabaseConfig` | `@hazejs/orm` |
+| `config/ai.ts` | `defineAIConfig` | `@hazejs/ai` |
+| `config/graphql.ts` | `defineGraphQLConfig` | `@hazejs/graphql` |
+| `config/microservices.ts` | `defineMicroservicesConfig` | `@hazejs/microservices` |
+| `config/oauth.ts` | `defineOAuthConfig` | `@hazejs/oauth` |
+| `config/search.ts` | `defineSearchConfig` | `@hazejs/search` |
 | `config/socketio.ts` | `defineSocketIOConfig` | `@hazejs/socket.io` |
 
-各文件的具体选项见对应模块的文档页。
+各文件的具体选项见对应模块的文档页，例如[广播](./broadcasting)、[可观测性](./observability)（`health` 与 `observability`）、[多语言](./localization)、[通知](./notifications)、[OpenAPI 文档](./openapi)、[多租户](./tenancy)、[AI](./ai)、[GraphQL](./graphql)、[微服务](./microservices)、[第三方登录](./oauth)和[全文搜索](./search)。其中大部分文件是可选的：不建文件时 OpenAPI 文档与健康检查照常可用；建了 `config/i18n.ts` 后，校验错误与框架消息也会按请求的语言翻译。
 
 ### 对象形式与函数形式
 
@@ -154,6 +166,7 @@ config('app.nmae')   // 类型错误
 | `debug` | 开发环境为 `true` | 错误响应携带堆栈，并显示开发错误页 |
 | `url` | — | 应用的外部访问地址，用于生成绝对链接，例如存储的签名临时链接 |
 | `key` | `APP_KEY` | 应用密钥，见下文 |
+| `previousKeys` | `APP_PREVIOUS_KEYS` | 轮换前使用过的旧密钥，见下文 |
 | `bodyLimit` | `'1mb'` | 请求体上限；单个路由可以用 `bodyLimit:10mb` 中间件调整 |
 | `trustProxy` | `false` | 从 `X-Forwarded-For` / `X-Forwarded-Proto` 读取客户端 IP 与协议 |
 | `cookie` | — | 默认 Cookie 选项（默认 httpOnly、`SameSite=Lax`，非 debug 时加 `Secure`） |
@@ -174,6 +187,8 @@ npx haze key:generate --show    # 只输出新密钥，不写入文件
 ```
 
 生产环境请通过真实的环境变量设置 `APP_KEY`。在 `config/app.ts` 中设置 `key` 会覆盖它。
+
+更换密钥时，把旧密钥写进 `APP_PREVIOUS_KEYS`（逗号分隔）或 `config/app.ts` 的 `previousKeys`。旧密钥只用于读取已有数据：解密 `Crypt` 密文、校验[签名链接](./routing#签名链接)时先用当前密钥，再依次尝试旧密钥；新的加密与签名始终使用 `APP_KEY`。签名 Cookie、Session、JWT 与存储临时链接只使用当前密钥，更换后仍会失效。详见[密钥轮换](./security#密钥轮换)。
 
 ### `APP_URL`
 

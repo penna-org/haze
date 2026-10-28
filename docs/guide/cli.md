@@ -10,7 +10,7 @@ npx haze make:model --help   # options of one command
 
 Every command accepts `--root <dir>` to run against a project other than the current directory (default `.`).
 
-Commands that need the application — `route:list`, `typegen`, `repl`, `db:*`, `queue:*`, `schedule:*` and your own commands — boot it in the same Vite module graph as the dev server, without opening a port. They run your TypeScript source directly; no build is needed.
+Commands that need the application — `route:list`, `typegen`, `openapi`, `repl`, `db:*`, `queue:*`, `schedule:*`, `search:*`, `microservice:listen` and your own commands — boot it in the same Vite module graph as the dev server, without opening a port. They run your TypeScript source directly; no build is needed.
 
 ## Development and production
 
@@ -78,11 +78,21 @@ Print every route with its method, path, name, handler and middleware. With [mul
 
 ### `haze typegen`
 
-Write `.haze/types/haze.d.ts`: types for config keys, named routes (with their inputs and outputs, for the [typed client](./openapi#typed-client)) and policy abilities. `haze dev` does this automatically (unless `typegen: false` in `haze.config.ts`); run it in CI before type checking.
+Write the generated types and files in `.haze/`:
+
+- `.haze/types/haze.d.ts` — config keys, named routes (with their inputs and outputs) and policy abilities;
+- `.haze/types/i18n.d.ts` — translation keys from `lang/` ([Localization](./localization#typed-keys));
+- `.haze/routes.ts` — the runtime route list used by the [typed client](./openapi#typed-client).
+
+`haze dev` does this automatically (unless `typegen: false` in `haze.config.ts`); run it in CI before type checking.
 
 ### `haze openapi`
 
-Print the [OpenAPI](./openapi) document for the application, or write it to a file with `-o openapi.json`.
+Print the [OpenAPI](./openapi) 3.1 document for the application to stdout. The docs do not need to be enabled for this, so you can export the document in CI.
+
+| Option | Description |
+| --- | --- |
+| `--output`, `-o` | Write the document to a file instead, for example `-o openapi.json` |
 
 ### `haze repl`
 
@@ -114,7 +124,7 @@ Copy the built-in generator templates into `stubs/` so your team can customize w
 | `--force` | Overwrite stubs that already exist in `stubs/` |
 
 ::: v-pre
-Stub names: `controller`, `controller.resource`, `service`, `repository`, `middleware`, `interceptor`, `provider`, `event`, `listener`, `job`, `policy`, `validate`, `validate.zod`, `test`, `config`, `route`, `seeder`, `command`, `mail`, `model`, `model.mongodb`, `schema.sqlite`, `schema.postgres`, `schema.mysql`. Stubs use `{{ placeholder }}` variables such as `{{ className }}`, `{{ camelName }}`, `{{ kebabName }}`, `{{ routePath }}` and `{{ commandName }}`.
+Stub names: `controller`, `controller.resource`, `service`, `repository`, `middleware`, `interceptor`, `provider`, `event`, `listener`, `job`, `policy`, `validate`, `validate.zod`, `test`, `config`, `route`, `seeder`, `command`, `mail`, `notification`, `channel`, `resource`, `model`, `model.mongodb`, `schema.sqlite`, `schema.postgres`, `schema.mysql`, `notifications.sqlite`, `notifications.postgres`, `notifications.mysql`, `auth-tables.sqlite`, `auth-tables.postgres`, `auth-tables.mysql`. Stubs use `{{ placeholder }}` variables such as `{{ className }}`, `{{ camelName }}`, `{{ kebabName }}`, `{{ routePath }}` and `{{ commandName }}`.
 :::
 
 ## Code generation
@@ -145,7 +155,11 @@ Paths are relative to `srcDir` (except tests). Examples show the file generated 
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
 | `make:command` | `SendReport` | `app/command/SendReport.ts` (runs as `haze send:report`) |
 | `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
+| `make:notification` | `InvoicePaid` | `app/notification/InvoicePaidNotification.ts` |
+| `make:channel` | `Order` | `app/channel/order.ts` (authorizes `private-order.{id}`) |
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
+| `make:notifications-table` | — | `database/schema/notifications.ts`; see [below](#make-notifications-table) |
+| `make:auth-tables` | — | `database/schema/auth.ts`; see [below](#make-auth-tables) |
 
 After generating, most commands print a hint — where to register the file, or how to use it.
 
@@ -153,17 +167,18 @@ After generating, most commands print a hint — where to register the file, or 
 
 - Names are converted to the right case, and a redundant suffix is dropped: `user`, `User` and `UserController` all produce `UserController`.
 - Names may include subdirectories, for example `make:controller admin/User` → `app/controller/admin/UserController.ts`.
-- Auto-discovered kinds only load the first level of their directory, so `make:interceptor`, `make:event`, `make:listener`, `make:job`, `make:policy`, `make:config`, `make:route` and `make:seeder` reject subdirectories.
+- Auto-discovered kinds only load the first level of their directory, so `make:interceptor`, `make:event`, `make:listener`, `make:job`, `make:policy`, `make:notification`, `make:channel`, `make:config`, `make:route` and `make:seeder` reject subdirectories.
+- The notification type is the file name, so `make:notification InvoicePaid` creates the type `InvoicePaidNotification`. Rename the file if you want a shorter type.
 
 ### Common options
 
-All `make:*` commands accept:
+All `make:*` commands that take a name accept:
 
 | Option | Description |
 | --- | --- |
 | `<name>` | Required. Name, optionally with subdirectories |
 | `--force` | Overwrite the file if it exists |
-| `--app`, `-a` | [Multiple apps](./multi-app): generate into `app/<app>/…` (for example `app/admin/controller`). Ignored by `make:test`; not supported by `make:command` |
+| `--app`, `-a` | [Multiple apps](./multi-app): generate into `app/<app>/…` (for example `app/admin/controller`). Ignored by `make:test`; not supported by `make:command`. Per app, only `route`, `config`, `provider`, `exception` and `response` are discovered, so keep jobs, events, listeners, policies, notifications and channels in the shared `app/` folders |
 
 ### `make:controller`
 
@@ -188,6 +203,21 @@ Generates a model in `app/model` and its drizzle table in `database/schema`. An 
 | `--force` | Overwrite the model if it exists |
 
 With `--dialect mongodb` a `MongoModel` is generated and no schema file is written. For SQL dialects, run `haze db:generate` and `haze db:migrate` afterwards.
+
+### `make:notifications-table` {#make-notifications-table}
+
+Write `database/schema/notifications.ts`, the table used by the `database` channel of [notifications](./notifications). Then run `haze db:generate` and `haze db:migrate`, and point `channels.database.store` in `config/notification.ts` at `databaseNotificationStore(notifications)`.
+
+### `make:auth-tables` {#make-auth-tables}
+
+Write `database/schema/auth.ts` with the tables for [API tokens](./api-tokens), password resets, [two-factor secrets and passkeys](./two-factor). Delete the tables you don't need, then run `haze db:generate` and `haze db:migrate`. The templates already contain a trimmed version (tokens and password resets).
+
+Both commands take no name and accept:
+
+| Option | Description |
+| --- | --- |
+| `--dialect` | `sqlite`, `postgres` or `mysql`. Inferred from the installed driver like `make:model`; MongoDB is not supported |
+| `--force` | Overwrite the schema file if it exists |
 
 ## Database
 
@@ -268,11 +298,35 @@ Run the tasks due in the current minute, then exit. Call it from the system cron
 
 Keep running and check for due tasks at the start of every minute. Edits to `schedule/*.ts` take effect on the next minute.
 
+## Search
+
+These commands work with the searchable models of [`@hazejs/search`](./search) (it must be installed). They load the files in `app/model` and `app/<app>/model`, so call `searchable()` in the model's own file. The model argument is the class name or the index name.
+
+### `haze search:import <model>`
+
+Write every record of the model to its search index, in batches. Skips soft-deleted records and those `shouldBeSearchable` rejects.
+
+| Option | Description |
+| --- | --- |
+| `--chunk` | Records read per batch. Defaults to `chunk` in `config/search.ts` (500) |
+
+### `haze search:flush <model>`
+
+Remove every document from the model's index.
+
+### `haze search:sync-settings [model]`
+
+Create the indexes and apply their settings (searchable, filterable and sortable fields); for the database engine, create the full-text index. Without a model, every searchable model is synced.
+
 ## Microservices
 
 ### `haze microservice:listen`
 
-Listen for [microservice](./microservices) messages without opening an HTTP port. `--transport nats,grpc` picks the transports (default: `listen` or `default` in `config/microservices.ts`). Handler changes apply without a restart; new message patterns need one. Requires `@hazejs/microservices`.
+Listen for [microservice](./microservices) messages without opening an HTTP port. Requires `@hazejs/microservices`. Handler changes apply without a restart; new message patterns need one.
+
+| Option | Description |
+| --- | --- |
+| `--transport`, `-t` | Transports to listen on, comma-separated, for example `nats,grpc`. Default: `listen` or `default` in `config/microservices.ts` |
 
 ## Your own commands
 
@@ -296,3 +350,5 @@ node dist/worker.mjs command <name> [args]                       # haze <name> (
 ```
 
 The paths above are for backend-only projects with the `node` or `bun` preset. Full-stack projects and the `deno` / `docker` presets put these files in `dist/server/`. `migrate.mjs` is only emitted when the project uses `@hazejs/orm`. See [Deployment](./deployment) for serverless and edge platforms.
+
+`search:*`, `microservice:listen`, `openapi`, `typegen` and `repl` have no production entry. For search, call `importSearchable()` / `syncSearchSettings()` from one of your commands and run it with `worker.mjs command`; for microservices, see [Deployment](./deployment#microservice-listeners).

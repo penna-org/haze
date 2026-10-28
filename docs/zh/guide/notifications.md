@@ -12,7 +12,7 @@ await notify(user, InvoicePaid({ amount: 99 }))
 
 ## 定义通知
 
-通知放在 `app/notification/*.ts`，也可以用 `haze make:notification InvoicePaid` 生成：
+通知放在 `app/notification/*.ts`。`haze make:notification InvoicePaid` 会生成 `app/notification/InvoicePaidNotification.ts`（类型为 `InvoicePaidNotification`）；下面的示例是手写的：
 
 ```ts
 // app/notification/InvoicePaid.ts

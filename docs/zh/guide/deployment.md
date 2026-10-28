@@ -104,7 +104,7 @@ export default defineHazeConfig({
 
 只有项目使用 `@hazejs/orm` 时才会生成 `migrate.mjs`。详见[数据库](./database)。
 
-## 队列 worker 与定时任务
+## 队列 worker、定时任务与命令
 
 `node`、`bun`、`deno` 与 `docker` 预设还会输出 `worker.mjs`：
 
@@ -113,11 +113,40 @@ node dist/worker.mjs queue                     # 消费任务（默认队列 def
 node dist/worker.mjs queue --queue emails,default --concurrency 5 --connection redis
 node dist/worker.mjs schedule                  # 常驻的定时任务调度器
 node dist/worker.mjs schedule:run              # 执行一次到期任务（由系统 cron 每分钟调用）
+node dist/worker.mjs command                   # 列出自定义命令（app/command）
+node dist/worker.mjs command inspire --all     # 运行其中一个，退出码与命令一致
 ```
 
 worker 收到 `SIGTERM` / `SIGINT` 后会等执行中的任务完成再退出。全栈项目（以及 `deno` 预设）的路径为 `dist/server/worker.mjs`；Docker 中为 `docker run <镜像> node server/worker.mjs queue`。
 
+`worker.mjs command` 不依赖命令行工具和源码，直接运行 `app/command` 下的[自定义命令](./console)，生产环境中的一次性维护操作和由 cron 触发的脚本都可以放在这里。Serverless 与 Edge 预设没有命令入口。
+
 其它平台的定时任务由平台触发：Cloudflare 用 Cron Triggers，Lambda 用 EventBridge 规则，Vercel 用 Vercel Cron。详见[队列](./queues)与[定时任务](./scheduling)。
+
+### 微服务监听进程 {#microservice-listeners}
+
+`app/message` 下的[微服务](./microservices)处理器只有在监听进程运行时才会收到消息。`haze microservice:listen` 是开发命令，依赖命令行工具和源码。生产环境中，可以在 `config/microservices.ts` 中设置 `autoListen: true`，让每个 Web 实例同时监听；也可以单独运行一个进程。构建产物没有专门的微服务入口，写一个常驻的命令即可：
+
+```ts
+// app/command/ListenMessages.ts —— node dist/worker.mjs command listen:messages
+import process from 'node:process'
+import { defineCommand } from '@hazejs/core'
+import { listenMicroservices } from '@hazejs/microservices'
+
+export default defineCommand({
+  description: '监听微服务消息',
+  async run(_args, { app }) {
+    const listener = await listenMicroservices(app)
+    await new Promise((resolve) => {
+      process.once('SIGTERM', resolve)
+      process.once('SIGINT', resolve)
+    })
+    await listener.close() // 停止接收新消息，等执行中的处理器完成
+  },
+})
+```
+
+与队列 worker 一样，监听进程需要常驻运行，因此 Serverless 与 Edge 预设不支持。
 
 ## 健康检查
 
