@@ -5,6 +5,7 @@ import type { AnyDatabase, ColumnKey, Insert, Operator, Paginated, Row } from '.
 import type { ModelSettings, TimestampOptions } from './meta'
 import type { RelationCondition } from './query'
 import type { EagerLoad, FieldOf, RecordClass, RelationName } from './record'
+import { currentTenancy } from '@hazejs/core'
 import { getTableColumns, sql } from 'drizzle-orm'
 import { atomically, transaction } from '../context'
 import { DatabaseError, OptimisticLockException } from '../errors'
@@ -77,6 +78,12 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
   static optimLock: boolean | string = false
   /** 全局作用域：对应 `static scopeXxx(query)`，所有查询自动应用，`withoutGlobalScope()` 关闭 */
   static globalScope: readonly string[] = []
+  /**
+   * 多租户（单库 + 租户 ID 列）：true 使用 tenantId 列，或指定列名。
+   * 租户上下文中查询自动加上 `tenantId = 当前租户`（全局作用域 `tenant`，`withoutGlobalScope(['tenant'])` 关闭），
+   * 新建时自动填充
+   */
+  static belongsToTenant: boolean | string = false
 
   /** 允许批量赋值的字段（allowField() 设置） */
   protected $allowField: string[] | undefined
@@ -298,6 +305,10 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
       return this
 
     if (!this.$exists) {
+      // 多租户：新建时填充当前租户 ID
+      const tenant = meta.tenantColumn && currentTenancy()
+      if (tenant && this.$attributes[meta.tenantColumn!] == null)
+        this.$attributes[meta.tenantColumn!] = tenant.id
       if (!await this.runHook('onBeforeInsert'))
         return this
       for (const key of [meta.createdAt, meta.updatedAt]) {

@@ -4,7 +4,8 @@ import type { Operator, Paginated } from '../types'
 import type { ModelClass, ModelLike, TableOf } from './model'
 import type { ActiveRecord, EagerLoad, RelationName } from './record'
 import type { AggregateFn, EagerInput } from './relations'
-import { avg, count, getTableColumns, isNotNull, isNull, max, min, sql, sum } from 'drizzle-orm'
+import { currentTenancy } from '@hazejs/core'
+import { avg, count, eq, getTableColumns, isNotNull, isNull, max, min, sql, sum } from 'drizzle-orm'
 import { ModelNotFoundException } from '../errors'
 import { andAll, QueryBuilder } from '../query/builder'
 import { nowFor, pascalCase } from '../utils'
@@ -317,7 +318,18 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & T
       : this.trashed === 'only'
         ? isNotNull(this.columnOf(softDelete))
         : isNull(this.columnOf(softDelete))
-    return andAll(this.buildWhere(ctx), trashed, this.globalWhere(ctx))
+    return andAll(this.buildWhere(ctx), trashed, this.tenantWhere(), this.globalWhere(ctx))
+  }
+
+  /** 多租户（belongsToTenant）：租户上下文中只查询当前租户的数据（全局作用域 `tenant`） */
+  protected tenantWhere(): SQL | undefined {
+    const { tenantColumn } = metaOf(this.model)
+    if (!tenantColumn || this.withoutScopes === true || this.withoutScopes?.has('tenant'))
+      return undefined
+    const tenant = currentTenancy()
+    return tenant
+      ? eq(this.columnOf(tenantColumn), tenant.id)
+      : undefined
   }
 
   /** 全局作用域（static globalScope = ['status']）组合成的条件，与其它条件以 AND 连接 */

@@ -116,7 +116,7 @@ const ROLLBACK = Symbol('rollback')
  */
 export function startTrans(connection?: string, config?: TransactionConfig): Promise<void> {
   const databases = useDatabaseManager()
-  const name = connection ?? databases.defaultConnection
+  const name = databases.resolveName(connection)
   try {
     assertTransactional(name, databases.connectionConfig(name).driver)
   }
@@ -160,7 +160,7 @@ export function startTrans(connection?: string, config?: TransactionConfig): Pro
 }
 
 async function finish(commit: boolean, connection?: string): Promise<void> {
-  const name = connection ?? useDatabaseManager().defaultConnection
+  const name = useDatabaseManager().resolveName(connection)
   const store = transactions.getStore()
   const state = active(store?.get(name))
   if (!state?.manual)
@@ -190,7 +190,7 @@ export function rollback(connection?: string): Promise<void> {
 
 /** 当前上下文是否处于该连接的事务中 */
 export function inTransaction(connection?: string): boolean {
-  const name = connection ?? useDatabaseManager().defaultConnection
+  const name = useDatabaseManager().resolveName(connection)
   return active(transactions.getStore()?.get(name)) !== undefined
 }
 
@@ -200,7 +200,7 @@ export function inTransaction(connection?: string): boolean {
  */
 export async function atomically<R>(callback: () => Promise<R>, connection?: string): Promise<R> {
   const databases = useDatabaseManager()
-  const name = connection ?? databases.defaultConnection
+  const name = databases.resolveName(connection)
   const driver = databases.connectionConfig(name).driver
   if (driver === 'd1' || driver === 'mongodb' || inTransaction(name))
     return callback()

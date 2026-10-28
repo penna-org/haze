@@ -5,6 +5,7 @@ import type { DiskDriver } from './types'
 import { ForbiddenException, NotFoundException } from '../exception/exceptions'
 import { getRequestStore } from '../request'
 import { appKey, sign, verify } from '../security/key'
+import { tenantStoragePrefix } from '../tenancy/context'
 import { defaultFilesystemConfig } from './config'
 import { Disk, normalizePath } from './disk'
 import { localDisk } from './drivers/local'
@@ -35,6 +36,28 @@ function withUrl(driver: DiskDriver, url: string | undefined): DiskDriver {
   return {
     ...driver,
     url: path => `${url.replace(/\/$/, '')}/${path.split('/').map(encodeURIComponent).join('/')}`,
+  }
+}
+
+/** 在驱动的所有路径前加上前缀（多租户的存储隔离） */
+function prefixedDriver(driver: DiskDriver, prefix: string): DiskDriver {
+  const add = (path: string): string => path
+    ? `${prefix}/${path}`
+    : prefix
+  return {
+    driver: driver.driver,
+    put: (path, content, options) => driver.put(add(path), content, options),
+    get: path => driver.get(add(path)),
+    stream: path => driver.stream(add(path)),
+    meta: async (path) => {
+      const meta = await driver.meta(add(path))
+      return meta && { ...meta, path }
+    },
+    delete: path => driver.delete(add(path)),
+    copy: (from, to) => driver.copy(add(from), add(to)),
+    list: async listPrefix => (await driver.list(`${prefix}/${listPrefix}`)).map(path => path.slice(prefix.length + 1)),
+    url: driver.url && (path => driver.url!(add(path))),
+    temporaryUrl: driver.temporaryUrl && ((path, seconds, options) => driver.temporaryUrl!(add(path), seconds, options)),
   }
 }
 
@@ -77,6 +100,8 @@ export class FakeDisk extends Disk {
 /** 文件存储管理（应用单例，`inject(StorageManager)`；config/filesystem.ts 缺省时为 local 与 public 两个本地磁盘） */
 export class StorageManager {
   readonly #disks = new Map<string, Disk>()
+  /** 租户磁盘：磁盘 → 租户前缀 → 加前缀的磁盘 */
+  readonly #scoped = new WeakMap<Disk, Map<string, Disk>>()
 
   constructor(readonly appConfig: Config) {}
 
@@ -96,8 +121,27 @@ export class StorageManager {
     return (this.config.signedRoute ?? '/__haze/storage').replace(/\/$/, '')
   }
 
-  /** 取磁盘（默认 default） */
+  /** 取磁盘（默认 default）；处于租户上下文时路径自动加上租户前缀（`tenants/<id>/`） */
   disk(name: string = this.config.default): Disk {
+    const disk = this.#base(name)
+    const prefix = tenantStoragePrefix(name)
+    if (!prefix)
+      return disk
+    let scoped = this.#scoped.get(disk)
+    if (!scoped)
+      this.#scoped.set(disk, scoped = new Map())
+    let tenantDisk = scoped.get(prefix)
+    if (!tenantDisk) {
+      // 保留磁盘的类（FakeDisk 的断言同样作用于租户目录）
+      const DiskClass = disk.constructor as typeof Disk
+      tenantDisk = new DiskClass(name, prefixedDriver(disk.driver, prefix), (diskName, path, expires, download) => this.#signUrl(diskName, `${prefix}/${path}`, expires, download))
+      scoped.set(prefix, tenantDisk)
+    }
+    return tenantDisk
+  }
+
+  /** 配置中的磁盘（不加租户前缀） */
+  #base(name: string): Disk {
     let disk = this.#disks.get(name)
     if (!disk) {
       const config = this.config.disks[name]
@@ -153,8 +197,9 @@ export class StorageManager {
       return undefined
     if (!this.config.disks[name])
       return undefined
+    // 签名中的路径已含租户前缀：使用不加前缀的磁盘
     return {
-      disk: this.disk(name),
+      disk: this.#base(name),
       path,
       download,
     }
@@ -195,7 +240,7 @@ export class StorageManager {
         if (!path)
           return next()
         try {
-          return await this.disk(name).response(path, { request: event.req })
+          return await this.#base(name).response(path, { request: event.req })
         }
         catch (error) {
           if (error instanceof NotFoundException)

@@ -6,6 +6,7 @@ import { getCookie } from 'h3'
 import { CacheManager } from '../cache/manager'
 import { mutableResponse, serializeCookie } from '../http/cookie'
 import { appKey, fromBase64Url, sign, toBase64Url, verify } from '../security/key'
+import { tenantSessionKey } from '../tenancy/context'
 import { parseDuration } from '../utils'
 import { cacheSessionStore, memorySessionStore } from './store'
 
@@ -195,7 +196,13 @@ export async function startSession(ctx: HttpContext): Promise<Session> {
     ...defaultSessionConfig,
     ...ctx.config.get<Partial<SessionConfig>>('session', {}),
   }
-  const secret = appKey(ctx.config)
+  // 多租户：每个租户使用独立的 Cookie 名与派生密钥，会话不能跨租户使用
+  const tenant = tenantSessionKey()
+  if (tenant)
+    config.cookie = `${config.cookie}_${tenant.replace(/\W/g, '_')}`
+  const secret = tenant
+    ? `${appKey(ctx.config)}:tenant:${tenant}`
+    : appKey(ctx.config)
   const lifetime = parseDuration(config.lifetime)
   const store = resolveStore(ctx, config)
   const raw = getCookie(ctx.event, config.cookie)

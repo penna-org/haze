@@ -19,6 +19,7 @@ export interface ModelSettings {
   append: readonly string[]
   readonly?: readonly string[]
   optimLock?: boolean | string
+  belongsToTenant?: boolean | string
 }
 
 export interface ModelMeta {
@@ -31,6 +32,8 @@ export interface ModelMeta {
   updatedAt: string | undefined
   /** 乐观锁版本列 */
   lockVersion: string | undefined
+  /** 多租户（单库）的租户 ID 列 */
+  tenantColumn: string | undefined
 }
 
 const cache = new WeakMap<object, ModelMeta>()
@@ -77,6 +80,11 @@ export function metaOf(model: ModelSettings): ModelMeta {
       ? pick(typeof model.optimLock === 'string'
           ? model.optimLock
           : undefined, 'lockVersion', true)
+      : undefined,
+    tenantColumn: model.belongsToTenant
+      ? pick(typeof model.belongsToTenant === 'string'
+          ? model.belongsToTenant
+          : undefined, 'tenantId', true)
       : undefined,
   }
   cache.set(model, meta)

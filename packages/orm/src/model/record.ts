@@ -25,6 +25,23 @@ export type Hook = 'onBeforeWrite' | 'onAfterWrite' | 'onBeforeInsert' | 'onAfte
 
 type AttrTransform = (value: any, data: Record<string, any>) => unknown
 
+/** 模型事件观察者：before 事件返回 false 时取消操作 */
+export type ModelObserver<R = ActiveRecord> = (record: R, event: Hook) => unknown
+
+const observers = new WeakMap<object, Set<ModelObserver<any>>>()
+
+/**
+ * 在模型类（含子类）上注册事件观察者，供扩展包使用（如全文搜索的索引同步）；返回取消注册的函数。
+ * 观察者在模型自身的 onXxx 事件方法之后执行。
+ */
+export function observeModel<R extends ActiveRecord>(model: abstract new () => R, observer: ModelObserver<R>): () => void {
+  let set = observers.get(model)
+  if (!set)
+    observers.set(model, set = new Set())
+  set.add(observer)
+  return () => void set.delete(observer)
+}
+
 /** 序列化选项：`posts.title` 这类带点号的字段作用于关联 */
 interface SerializeOptions {
   hidden?: readonly string[]
@@ -330,12 +347,19 @@ export abstract class ActiveRecord<TRow extends object = any> {
     return true
   }
 
-  /** 执行事件方法；before 事件返回 false 时取消操作（返回 false） */
+  /** 执行事件方法与 observeModel() 注册的观察者；before 事件返回 false 时取消操作（返回 false） */
   protected async runHook(name: Hook): Promise<boolean> {
     const hook = (this as unknown as Record<string, unknown>)[name]
-    if (typeof hook !== 'function')
-      return true
-    return (await hook.call(this)) !== false
+    if (typeof hook === 'function' && (await hook.call(this)) === false)
+      return false
+    // 观察者注册在模型类上，对子类同样生效
+    for (let target: unknown = this.constructor; target; target = Object.getPrototypeOf(target)) {
+      for (const observer of observers.get(target as object) ?? []) {
+        if ((await observer(this, name)) === false)
+          return false
+      }
+    }
+    return true
   }
 
   /** 写入成功后同步原始值 */
