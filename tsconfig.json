@@ -19,6 +19,12 @@
       ],
       "@hazejs/ai": [
         "./packages/ai/src/index.ts"
+      ],
+      "@hazejs/graphql": [
+        "./packages/graphql/src/index.ts"
+      ],
+      "@hazejs/microservices": [
+        "./packages/microservices/src/index.ts"
       ]
     }
   },

@@ -267,6 +267,12 @@ Run the tasks due in the current minute, then exit. Call it from the system cron
 
 Keep running and check for due tasks at the start of every minute. Edits to `schedule/*.ts` take effect on the next minute.
 
+## Microservices
+
+### `haze microservice:listen`
+
+Listen for [microservice](./microservices) messages without opening an HTTP port. `--transport nats,grpc` picks the transports (default: `listen` or `default` in `config/microservices.ts`). Handler changes apply without a restart; new message patterns need one. Requires `@hazejs/microservices`.
+
 ## Your own commands
 
 Every file in `app/command` (subdirectories included) that default-exports `defineCommand()` becomes a command: `app/command/SendReport.ts` runs as `haze send:report`, `app/command/db/Cleanup.ts` as `haze db:cleanup`. They are listed in `haze --help`, accept `--help` and `--root` like built-in commands, and exit with the code their `run()` returns. See [Console Commands](./console).

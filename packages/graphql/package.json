@@ -1,0 +1,52 @@
+{
+  "name": "@hazejs/graphql",
+  "type": "module",
+  "version": "0.1.2",
+  "description": "GraphQL for hazejs: schema-first and code-first schemas, GraphQL over HTTP, GraphiQL, depth / complexity limits, batching loaders and graphql-transport-ws subscriptions",
+  "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/graphql#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/graphql"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "graphql",
+    "graphiql",
+    "dataloader",
+    "subscriptions"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "@hazejs/core": "workspace:^",
+    "graphql": "^16.9.0 || ^17.0.0"
+  },
+  "devDependencies": {
+    "@hazejs/core": "workspace:*",
+    "graphql": "catalog:",
+    "valibot": "catalog:"
+  }
+}

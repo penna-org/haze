@@ -1,0 +1,77 @@
+{
+  "name": "@hazejs/microservices",
+  "type": "module",
+  "version": "0.1.2",
+  "description": "Message-pattern microservices for hazejs: request / reply and events over Redis, NATS, gRPC or in-memory transports",
+  "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/microservices#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/microservices"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "microservices",
+    "rpc",
+    "redis",
+    "nats",
+    "grpc",
+    "message-pattern"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "@grpc/grpc-js": "^1.10.0",
+    "@grpc/proto-loader": "^0.7.13 || ^0.8.0",
+    "@hazejs/core": "workspace:^",
+    "@nats-io/transport-node": "^3.0.0",
+    "ioredis": "^5.4.0 || ^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@grpc/grpc-js": {
+      "optional": true
+    },
+    "@grpc/proto-loader": {
+      "optional": true
+    },
+    "@nats-io/transport-node": {
+      "optional": true
+    },
+    "ioredis": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@standard-schema/spec": "catalog:"
+  },
+  "devDependencies": {
+    "@grpc/grpc-js": "catalog:",
+    "@grpc/proto-loader": "catalog:",
+    "@hazejs/core": "workspace:*",
+    "@nats-io/transport-node": "catalog:",
+    "ioredis": "catalog:",
+    "valibot": "catalog:"
+  }
+}

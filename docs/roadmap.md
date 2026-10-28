@@ -59,6 +59,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M19 | Documentation site (VitePress, English + 中文) on GitHub Pages; `@hazejs/ai`: 17 providers without SDK dependencies, streaming, tools, structured output, embeddings & RAG, agents with memory, images, speech, MCP, `useChat` |
 | M20 | **OpenAPI** generated from routes and Standard Schema validators, Swagger / Scalar UI, typed HTTP client for frontends |
 | M21 | **Console**: user-defined commands (`app/command`, `haze make:command`), `haze repl`, `make:mail`, `make:command` |
+| M27 | Optional packages: GraphQL, microservice transports (Redis, NATS, gRPC) |
 
 ## Next
 
@@ -71,7 +72,6 @@ Priorities may shift with community feedback. Each milestone ships with tests, t
 | M24 | **Observability**: health checks, OpenTelemetry traces and metrics, log transports, a dev dashboard for requests, queries, jobs and mail; queue dashboard |
 | M25 | **Auth extensions**: OAuth social login, personal access tokens, email verification and password reset flows, TOTP 2FA, passkeys |
 | M26 | **Search** (database, Meilisearch, Typesense) and multi-tenancy helpers |
-| M27 | Optional packages: GraphQL, microservice transports (Redis, NATS, gRPC) |
 | 1.0 | API freeze, benchmarks, upgrade guides, long-term support policy |
 
 Have an idea or need something sooner? Open a [feature request](https://github.com/penna-org/haze/issues/new/choose).

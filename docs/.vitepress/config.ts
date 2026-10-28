@@ -59,6 +59,8 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
       ['storage', ['File Storage', '文件存储']],
       ['mail', ['Mail', '邮件']],
       ['ai', ['AI', 'AI']],
+      ['graphql', ['GraphQL', 'GraphQL']],
+      ['microservices', ['Microservices', '微服务']],
     ],
   },
   {

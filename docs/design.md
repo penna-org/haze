@@ -1515,3 +1515,29 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - 生成器：`make:command`（无后缀、可带子目录、不支持 `--app`）、`make:mail`（后缀 `Mail`）。模板新增示例命令 `inspire`。
 
 已知限制：命令不区分应用（没有 `app/<name>/command`）；Serverless / 边缘预设没有命令入口。
+
+### M27 实施记录（2026-10-28）：@hazejs/graphql 与 @hazejs/microservices
+
+确认的决策：协议库作为可选 peer（graphql、@grpc/grpc-js + @grpc/proto-loader、NATS、ioredis）。
+
+**@hazejs/graphql**
+- schema-first：`defineSchema({ typeDefs, resolvers })` 通过各类型的 `toConfig()` 重建 schema（不修改 graphql-js 内部字段），标量与枚举内部值可用，解析器指向不存在的类型或字段时启动即报错；code-first 只提供 `objectType` / `inputType` / `field` 等薄封装，原生 graphql-js schema 直接可用。peer 范围 graphql 16 / 17（测试使用 17）。
+- GraphQL over HTTP：GET / POST，按 Accept 协商 `application/graphql-response+json`（请求错误返回 400）与 `application/json`（一律 200）；GET 执行 mutation 返回 405，415 / 406；请求体遵守 bodyLimit。
+- 上下文：`http`、`auth`、`can`、`authorize`、`inject`、`loader(def)`；解析器在请求作用域内执行。`createLoader` / `defineLoader` 自研，语义同 DataLoader，每个请求一个实例。
+- 错误映射到 `extensions.code`（401 UNAUTHENTICATED、403 FORBIDDEN、404 NOT_FOUND、422 BAD_USER_INPUT 附 issues、业务异常 BUSINESS_ERROR），未知错误在非 debug 下隐藏消息并上报。
+- 限制：`maxDepth` 默认 15（展开片段），`maxComplexity` 默认关闭；生产环境默认关闭内省与 GraphiQL。GraphiQL 从 esm.sh 加载固定版本并带 SRI。
+- 订阅：同一路径的 WebSocket 升级，`graphql-transport-ws` 协议；`connection_init` 时按升级请求头重建上下文，payload 中的 token 作为 Authorization。`createPubSub()` 仅限本进程。
+- `graphqlProvider()` 注册的路由在 OpenAPI 文档中隐藏。
+
+**@hazejs/microservices**
+- `defineMessageHandler(pattern, handler, { schema })`，放在 `app/message/*.ts`；同一处理器响应 `send`（请求 / 响应）与 `emit`（事件），`ctx.kind` 区分；可选 Standard Schema 校验（失败返回 422）。
+- `Microservice.client(name).send(pattern, data, { timeout })` / `emit()`；错误均为 HttpException：远端 4xx 与业务异常保留状态码（RemoteError），其它远端错误 502，超时 504，无监听者 503，无对应处理器 404。
+- 传输：
+  - memory：进程内总线，载荷经 JSON 序列化，与网络传输行为一致；
+  - redis：请求写入列表、各实例 BRPOP 竞争消费（每个请求只处理一次），事件与回复走 pub/sub；无监听者只能等到超时；
+  - nats：request / reply + 队列组（队列组 = 配置中的 `name`），无订阅者立即 503；使用官方后继包 `@nats-io/transport-node`（`nats` 包已弃用），加载失败时回退到 `nats` v2；
+  - grpc：仅 Node、仅一元方法，proto 方法映射到消息模式（默认 `服务名.方法名`），错误详情放在 `x-haze-error-bin` 元数据。
+- `haze microservice:listen [--transport a,b]`：在开发服务器的模块图中启动应用，每条消息使用热替换后的最新应用；未安装包、未注册 provider 或未配置传输时给出明确错误。
+- protobufjs（@grpc/proto-loader 的依赖）的 postinstall 只做版本检查，在 `allowBuilds` 中设为 false。
+
+已知限制：没有 `Microservice.fake()`（测试使用 memory 传输）；gRPC 不支持流式方法；GraphQL 订阅的 pubsub 不跨实例。

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package orders;
+
+service OrderService {
+  rpc FindOne (OrderById) returns (Order);
+  rpc Create (CreateOrder) returns (Order);
+  rpc Slow (OrderById) returns (Order);
+  rpc Unhandled (OrderById) returns (Order);
+  rpc Watch (OrderById) returns (stream Order);
+}
+
+message OrderById {
+  int32 id = 1;
+}
+
+message CreateOrder {
+  string item = 1;
+  int32 quantity = 2;
+}
+
+message Order {
+  int32 id = 1;
+  string item = 2;
+  int32 quantity = 3;
+  string status = 4;
+}

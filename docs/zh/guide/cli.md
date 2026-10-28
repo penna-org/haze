@@ -267,6 +267,12 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 
 常驻运行，每分钟整点检查并执行到期任务。修改 `schedule/*.ts` 后从下一分钟开始生效。
 
+## 微服务
+
+### `haze microservice:listen`
+
+监听[微服务](./microservices)消息，不监听 HTTP 端口。`--transport nats,grpc` 指定传输（默认取 `config/microservices.ts` 的 `listen` 或 `default`）。处理器代码修改后立即生效，新增消息模式需要重启。需要安装 `@hazejs/microservices`。
+
 ## 自定义命令
 
 `app/command` 下（含子目录）默认导出 `defineCommand()` 的文件都会成为命令：`app/command/SendReport.ts` 用 `haze send:report` 运行，`app/command/db/Cleanup.ts` 用 `haze db:cleanup` 运行。它们会出现在 `haze --help` 的列表中，和内置命令一样支持 `--help` 与 `--root`，并以 `run()` 返回的退出码结束。详见[自定义命令](./console)。

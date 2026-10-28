@@ -20,6 +20,7 @@ const builtin = {
   'stub:publish': () => import('./commands/stub-publish').then(m => m.default),
   'repl': () => import('./commands/repl').then(m => m.default),
   'openapi': () => import('./commands/openapi').then(m => m.default),
+  'microservice:listen': () => import('./commands/microservice').then(m => m.default),
   ...makeCommands,
   'make:model': makeModelCommand,
   'db:generate': generateCommand,

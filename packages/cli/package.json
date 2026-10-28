@@ -48,6 +48,7 @@
   },
   "devDependencies": {
     "@hazejs/core": "workspace:*",
+    "@hazejs/microservices": "workspace:*",
     "@hazejs/orm": "workspace:*",
     "vite": "catalog:"
   }
