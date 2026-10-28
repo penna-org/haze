@@ -1444,3 +1444,51 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - changesets/action v2 通过 `CHANGESETS_OUTPUT` 读取 Changesets CLI 写出的 NDJSON 事件来创建 tag 与 Release，事件只在 CLI 自己打 tag 时写出；CLI 的 "tag-only" 补打只针对私有包，已发布的公开包不会补 tag。因此本地发布的版本不会有 tag 与 Release。
 - `.github/scripts/sync-releases.mjs` 在 Release 工作流的每次运行末尾执行（幂等）：对每个公开包的当前版本，若已在 npm 上而缺少 tag，则在把 package.json 改成该版本的提交上打 tag 并推送；缺少 GitHub Release 时用 CHANGELOG 中该版本的段落创建。checkout 改为完整历史。`--dry-run` 只打印操作。
 - 可信发布：pnpm 11 原生支持，在 GitHub Actions 中用 OIDC 身份令牌按包换取短期 npm 令牌，并自动判断附带 provenance（`publishConfig.provenance` / `NPM_CONFIG_PROVENANCE` 不再需要；此前 `pnpm publish` 不读取该环境变量，0.1.1 没有 provenance）。工作流去掉了 `registry-url` 与 `NODE_AUTH_TOKEN`，只保留 `id-token: write`。前提：每个包在 npmjs.com 的 Settings → Trusted Publisher 中登记 GitHub Actions：`penna-org` / `haze` / `release.yml`。
+
+### M19 实施记录（2026-10-28）：@hazejs/ai
+
+确认的决策：
+- 自研 fetch 适配器，不依赖任何厂商 SDK，可运行在 Node、Bun、Deno 与 Workers；
+- 厂商：OpenAI 与兼容厂商、Anthropic、Gemini，以及 Azure、Bedrock、Workers AI；
+- 能力：文本、流式、工具、结构化输出（必备），以及 Embedding 与向量检索、Agent 与对话记忆、图像与语音、MCP；
+- 前端协议两者都支持：hazejs 自有 SSE + Vue / React 的 `useChat`，以及 Vercel AI SDK 的 UI Message Stream。
+
+**核心**
+- 统一的数据模型（`types.ts`）：`Message` 与各类 part（文本、图片、文件、推理、工具调用、工具结果），厂商专属数据放在 `providerMetadata` 中原样回传（Anthropic thinking 签名、Gemini thoughtSignature、Bedrock reasoning 签名）。
+- 模型接口 `LanguageModel / EmbeddingModel / ImageModel / SpeechModel / TranscriptionModel`，适配器只做协议转换。
+- `generateText`：多步工具循环（工具参数先按 schema 校验，非法参数与执行异常作为错误结果回传给模型；没有 execute 的工具结束循环交给调用方），`maxSteps`（有可执行工具时默认 10）、`stopWhen`、`onStepFinish`。
+- `streamText`：后台运行，事件写入可重放缓冲，`fullStream` / `textStream` / Promise / `toResponse()`（自有 SSE）/ `toUIMessageStreamResponse()` / `toTextStreamResponse()` 互不影响；工具在流继续时就开始执行。
+- `generateObject` / `streamObject`：按模型能力选择 native（JSON Schema 约束）、json（JSON 模式 + 提示）或 tool；结果按 schema 校验；流式时解析不完整的 JSON。
+- schema：Standard Schema 1.1 的 Standard JSON Schema（zod 4、arktype）直接转换，valibot 经可选依赖 `@valibot/to-json-schema`，或 `jsonSchema()`。
+- HTTP：429 / 408 / 409 / 5xx / 网络错误按指数退避重试，遵循 `retry-after(-ms)`；SSE 解析处理多行 data、注释、CRLF 与跨块的 `\r\n`；每步请求传入消息快照（避免模型持有引用时看到后续修改）。
+- 模型注册表：`provider:model` 与别名、各类默认模型；`setModelOverride` 供 `AI.fake()` 拦截所有模型（包括直接传入的模型对象）。
+
+**适配器**（共 17 个厂商）
+- OpenAI（Chat Completions、embedding、图像、语音合成与识别）；`ChatCompat` 描述兼容厂商的差异（max_tokens 字段、reasoning_content / reasoning、推理内容回传、json_schema 或 json_object），预设 DeepSeek、通义千问、Kimi、智谱、豆包、硅基流动、OpenRouter、Groq、xAI、Mistral、Ollama，以及通用的 `createOpenAICompatible`。
+- Anthropic：`anthropic-version: 2026-10-21`（该版本对采样参数一律返回 400，因此不发送并给出警告）；自适应思考 + `output_config.effort`，`output_config.format` 结构化输出（对象补 `additionalProperties: false`）；thinking / redacted_thinking 签名回传；提示缓存；PDF。
+- Gemini：`parametersJsonSchema` / `responseJsonSchema`；thoughtSignature 回传（函数调用上的签名会被严格校验）；thinkingLevel / thinkingBudget 按模型代际选择；embedding、图像（Imagen `:predict` 与图像模型）、TTS（PCM 封装为 WAV）。
+- Azure：v1 API 或部署地址 + api-version，复用 OpenAI 实现。
+- Bedrock：Converse / ConverseStream，Web Crypto 实现 SigV4（通过 AWS 官方测试向量校验）与 AWS event stream 二进制帧解码（CRC32 校验），也支持 Bedrock API Key；Claude 4.6 起用自适应思考 + effort，旧版用 budget_tokens；Titan / Cohere embedding，Nova Canvas / Titan 图像。
+- Workers AI：REST（OpenAI 兼容接口）或 `env.AI` 绑定；配置中 `binding: 'AI'` 在调用时经 `@hazejs/core` 的平台绑定读取。
+
+**其它能力**
+- Embedding：`embed` / `embedMany`（按模型上限分批、并发）、`cosineSimilarity`；`createKnowledgeBase`（切分 → 向量化 → 存储 → 检索，`asTool()` 交给模型），`VectorStore` 接口与内存实现。
+- Agent：`defineAgent`（指令可按调用上下文生成、工具、记忆、`asTool()` 多 Agent 协作）；对话记忆 `memoryConversationStore` / `cacheConversationStore`（兼容 hazejs 的缓存，二进制内容转为 data URL，截断以用户消息为界）。
+- 图像、语音合成与识别：`generateImage`（按单次上限分批）、`generateSpeech`、`transcribe`。
+- MCP：客户端支持 Streamable HTTP 与 stdio，使用最新规范 2026-07-28（无握手、每个请求带协议元数据、`server/discover`），并能自动回退到 2025-11-25 及更早的 initialize 握手协议；服务端为无状态 Streamable HTTP（JSON 响应），默认校验 Origin，可挂在路由上。
+- 前端：`@hazejs/ai/client`（与框架无关的 `createChat`）、`@hazejs/ai/vue`、`@hazejs/ai/react` 的 `useChat`；`convertUIMessages` 把 AI SDK 的 UIMessage 转为 `Message`。
+
+**框架集成与模板**
+- `config/ai.ts`（`defineAIConfig`：default、aliases、defaults、providers 的 driver 配置）+ `aiProvider()`；`registerAIDriver` 扩展 driver。`@hazejs/ai` 对 `@hazejs/core` 只是可选 peer 依赖，单独使用时直接传模型对象或调用 `configureAI()`。
+- `AI` 门面与 `AI.fake()`（按顺序回复、记录请求、断言；Embedding / 图像 / 语音返回确定性假数据）。
+- 模板：`config/ai.ts`、`AIProvider`、`POST /api/chat`（`ChatController`：流式 SSE、示例工具、限流、valibot 校验）、`tests/chat.test.ts`；全栈模板首页加入 `AiChat` 组件（经 `headers` 函数带上 CSRF 令牌）。
+
+**实现方式与验证**
+- 核心、OpenAI / 兼容厂商、Agent / 记忆 / 向量、框架集成与模板由主线完成；Anthropic、Gemini、云平台、MCP、前端客户端由 5 个子代理并行实现（各自独占文件，对照官方文档核对协议细节），再统一集成与审阅。
+- 测试：本地模拟服务器按各厂商真实的请求 / 响应格式（JSON、SSE、AWS event stream、multipart）校验，共 134 个；未使用真实 API Key 做在线验证。
+
+**已知限制**
+- Gemini 流式输出中文本上的签名经推理事件传递（文本 part 暂无 providerMetadata），无推理的回答 `reasoningText` 可能为空字符串。
+- Workers AI 的 JSON 模式不支持流式，流式时忽略 `response_format` 并给出警告。
+- MCP 尚未实现多轮请求（elicitation、sampling）与资源订阅；服务端只返回 JSON，不返回 SSE。
+- 我们的 SSE 协议不传递推理签名，客户端回传的历史中推理内容不带签名（Anthropic / Bedrock 适配器会丢弃无签名的推理）。

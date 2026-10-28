@@ -1,10 +1,12 @@
 import type { GenerateTextOptions, StepResult, ToolCall, ToolResult } from './generate-text'
+import type { UIMessageStreamOptions } from './protocol/ui-message-stream'
 import type { ToolSet } from './tool'
 import type { AssistantContentPart, FinishReason, Message, ModelStreamPart, ProviderMetadata, ResponseInfo, Usage } from './types'
 import { defaultMaxSteps, executeToolCall, shouldContinue, toolResultMessage } from './generate-text'
 import { abortSignal, safeParseJSON, withRetry } from './http'
 import { addUsage, buildMessages, buildRequest, buildToolSpecs, emptyUsage, reasoningOf, resolveToolChoice, textOf } from './prompt'
 import { toEventStreamResponse } from './protocol/sse'
+import { toUIMessageStreamResponse } from './protocol/ui-message-stream'
 import { resolveModel } from './registry'
 
 /** streamText 产生的事件（fullStream） */
@@ -95,6 +97,8 @@ export interface StreamTextResult {
   consume: () => Promise<void>
   /** hazejs 的 SSE 协议（配合 @hazejs/ai/client 的 createChat / useChat） */
   toResponse: (init?: ResponseInit & { sendReasoning?: boolean }) => Response
+  /** Vercel AI SDK 的 UI Message Stream 协议（配合 @ai-sdk/react、@ai-sdk/vue 的 useChat） */
+  toUIMessageStreamResponse: (init?: UIMessageStreamOptions) => Response
   /** 纯文本流（text/plain） */
   toTextStreamResponse: (init?: ResponseInit) => Response
 }
@@ -185,7 +189,8 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
               break
             case 'reasoning-end': {
               const last = content.at(-1)
-              if (last?.type === 'reasoning')
+              // 已带签名的推理块不能被覆盖（紧随其后的 redacted_thinking / 空 thinking 块单独成段）
+              if (last?.type === 'reasoning' && !last.providerMetadata)
                 last.providerMetadata = part.providerMetadata
               else if (part.providerMetadata)
                 content.push({ type: 'reasoning', text: '', providerMetadata: part.providerMetadata })
@@ -338,6 +343,9 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
     consume: () => done,
     toResponse(init) {
       return toEventStreamResponse(buffer.iterate(), init)
+    },
+    toUIMessageStreamResponse(init) {
+      return toUIMessageStreamResponse(buffer.iterate(), init)
     },
     toTextStreamResponse(init) {
       const encoder = new TextEncoder()

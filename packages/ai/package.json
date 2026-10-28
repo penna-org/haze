@@ -35,6 +35,18 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
+    "./client": {
+      "types": "./dist/client/index.d.mts",
+      "default": "./dist/client/index.mjs"
+    },
+    "./vue": {
+      "types": "./dist/client/vue.d.mts",
+      "default": "./dist/client/vue.mjs"
+    },
+    "./react": {
+      "types": "./dist/client/react.d.mts",
+      "default": "./dist/client/react.mjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -48,7 +60,9 @@
   },
   "peerDependencies": {
     "@hazejs/core": "workspace:^",
-    "@valibot/to-json-schema": "^1.0.0"
+    "@valibot/to-json-schema": "^1.0.0",
+    "react": "^19.0.0",
+    "vue": "^3.5.0"
   },
   "peerDependenciesMeta": {
     "@hazejs/core": {
@@ -56,12 +70,23 @@
     },
     "@valibot/to-json-schema": {
       "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
     }
+  },
+  "dependencies": {
+    "@standard-schema/spec": "catalog:"
   },
   "devDependencies": {
     "@hazejs/core": "workspace:*",
-    "@standard-schema/spec": "catalog:",
+    "@types/react": "catalog:",
     "@valibot/to-json-schema": "catalog:",
-    "valibot": "catalog:"
+    "react": "catalog:",
+    "valibot": "catalog:",
+    "vue": "catalog:"
   }
 }

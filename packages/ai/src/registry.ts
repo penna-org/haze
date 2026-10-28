@@ -13,7 +13,7 @@ export interface Provider {
 
 export type ModelKind = 'language' | 'embedding' | 'image' | 'speech' | 'transcription'
 
-interface ModelByKind {
+export interface ModelByKind {
   language: LanguageModel
   embedding: EmbeddingModel
   image: ImageModel
@@ -88,7 +88,18 @@ export function getModelRegistry(): ModelRegistry | undefined {
   return registry
 }
 
+type ModelOverride = <K extends ModelKind>(kind: K, ref: ModelRef<ModelByKind[K]> | undefined) => ModelByKind[K]
+
+let override: ModelOverride | undefined
+
+/** 测试替身：设置后所有模型（包括直接传入的模型对象）都从这里解析（AI.fake() 使用） */
+export function setModelOverride(value: ModelOverride | undefined): void {
+  override = value
+}
+
 export function resolveModel<K extends ModelKind>(kind: K, ref: ModelRef<ModelByKind[K]> | undefined): ModelByKind[K] {
+  if (override)
+    return override(kind, ref)
   if (ref !== undefined && typeof ref !== 'string')
     return ref
   if (!registry)

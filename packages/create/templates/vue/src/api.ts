@@ -20,7 +20,7 @@ function readCookie(name: string): string | undefined {
 }
 
 /** CSRF：修改类请求带上 XSRF-TOKEN（没有时先向后端取一次） */
-async function csrfHeader(method: string): Promise<Record<string, string>> {
+export async function csrfHeader(method: string): Promise<Record<string, string>> {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method))
     return {}
   if (!readCookie('XSRF-TOKEN'))

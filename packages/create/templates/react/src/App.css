@@ -20,3 +20,21 @@
   color: #666;
   font-size: 14px;
 }
+
+.chat {
+  margin-top: 40px;
+}
+.messages {
+  list-style: none;
+  padding: 0;
+}
+.messages li {
+  margin: 8px 0;
+  white-space: pre-wrap;
+}
+.messages .user {
+  font-weight: 600;
+}
+.tool {
+  color: #888;
+}

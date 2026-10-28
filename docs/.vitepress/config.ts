@@ -54,6 +54,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
       ['socket-io', ['Socket.IO', 'Socket.IO']],
       ['storage', ['File Storage', '文件存储']],
       ['mail', ['Mail', '邮件']],
+      ['ai', ['AI', 'AI']],
     ],
   },
   {

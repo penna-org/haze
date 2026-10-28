@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
+import { AiChat } from '@/AiChat'
 import { api } from '@/api'
 import { chat } from '@/socket'
 import './App.css'
@@ -60,6 +61,8 @@ export function App() {
       </form>
       {reply && <p className="reply">{reply}</p>}
       {error && <p className="error">{error}</p>}
+
+      <AiChat />
 
       <p className="tip">
         修改

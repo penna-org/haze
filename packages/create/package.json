@@ -49,6 +49,7 @@
     "consola": "catalog:"
   },
   "devDependencies": {
+    "@hazejs/ai": "workspace:*",
     "@hazejs/cli": "workspace:*",
     "@hazejs/core": "workspace:*",
     "@hazejs/orm": "workspace:*",

@@ -26,6 +26,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | WebSocket / Socket.IO | ✅ both | ✅ gateways | ◐ SSE (Transmit) | ✅ Reverb | 🧩 |
 | File storage (local / S3 / R2) | ✅ | 🧩 | ✅ Drive | ✅ | 🧩 |
 | Mail with queued sending | ✅ | 🧩 | ✅ | ✅ | 🧩 |
+| AI: multi-provider LLMs, tools, agents, RAG, MCP | ✅ `@hazejs/ai` | 🧩 | 🧩 | 🧩 | 🧩 |
 | Testing fakes (queue, events, mail, storage) | ✅ | ◐ | ✅ | ✅ | — |
 | Code generators & CLI | ✅ `haze make:*` | ✅ | ✅ | ✅ | — |
 | Generated types (config, routes, abilities) | ✅ | — | ◐ | — | ◐ (Hono RPC) |
@@ -42,7 +43,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | OAuth social login, API tokens, 2FA | planned | 🧩 | ◐ Ally / tokens | ✅ | 🧩 |
 | Full-text search | planned | 🧩 | 🧩 | ✅ Scout | 🧩 |
 | GraphQL, microservice transports | planned | ✅ | 🧩 | 🧩 | 🧩 |
-| Documentation site | planned | ✅ | ✅ | ✅ | ✅ |
+| Documentation site | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Done so far
 
@@ -55,6 +56,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M12–M13 | Built-in middleware, uploads, sessions, authentication (JWT / session), authorization (gates / policies), CSRF |
 | M14–M16 | Cache, queues, scheduler, events, WebSocket (Redis fan-out, Durable Objects) |
 | M17–M18 | Socket.IO, file storage (local / S3 / R2), mail (SMTP / Resend / Postmark / Mailgun / SES) |
+| M19 | Documentation site (VitePress, English + 中文) on GitHub Pages; `@hazejs/ai`: 17 providers without SDK dependencies, streaming, tools, structured output, embeddings & RAG, agents with memory, images, speech, MCP, `useChat` |
 
 ## Next
 
@@ -62,7 +64,6 @@ Priorities may shift with community feedback. Each milestone ships with tests, t
 
 | Milestone | Scope |
 | --- | --- |
-| M19 | **Documentation site** (VitePress, English + 中文): guides for every module, API reference, deployment recipes; English template READMEs |
 | M20 | **OpenAPI** generated from routes and Standard Schema validators, Swagger / Scalar UI, typed HTTP client for frontends |
 | M21 | **Console**: user-defined commands (`app/command`, `haze make:command`), `haze repl`, `make:mail`, `make:command` |
 | M22 | **Notifications** (mail, database, broadcast, Slack / webhooks) and **broadcasting** with private / presence channel authorization over WebSocket, Socket.IO and SSE |

@@ -19,6 +19,7 @@
     "db:seed": "haze db:seed"
   },
   "dependencies": {
+    "@hazejs/ai": "{{version}}",
     "@hazejs/core": "{{version}}",
     "@hazejs/orm": "{{version}}",
     "@hazejs/socket.io": "{{version}}",

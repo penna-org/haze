@@ -25,7 +25,7 @@ hazejs gives you the productivity of Laravel / ThinkPHP and the ergonomics of a 
 
 ## Highlights
 
-- **Everything in the box** — routing, IoC container, validation, ORM + migrations, auth (JWT / session), authorization (gates & policies), CSRF, rate limiting, cache, queues, scheduler, events, WebSocket, Socket.IO, file storage, mail and test fakes. No glue code, one config style.
+- **Everything in the box** — routing, IoC container, validation, ORM + migrations, auth (JWT / session), authorization (gates & policies), CSRF, rate limiting, cache, queues, scheduler, events, WebSocket, Socket.IO, file storage, mail, AI and test fakes. No glue code, one config style.
 - **Hot reload without restarts** — `haze dev` swaps controllers, services, routes and config in place; database pools, Redis connections and sockets survive edits.
 - **Full-stack with Vite** — add `haze()` to any Vite project: `/api/**` goes to your backend in dev, `vite build` emits client + server, `vite preview` runs the real build output.
 - **Deploy anywhere** — `haze build --preset node | bun | deno | docker | cloudflare | vercel | netlify | aws-lambda`. Native dependencies are traced into `dist/node_modules` (like Nitro), so the output runs on its own.
@@ -118,6 +118,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | Infrastructure | Cache (memory / Redis / Upstash / KV, atomic locks, response cache), queues (sync / memory / BullMQ / Cloudflare Queues), scheduler (cron, timezones, single-server), events & queued listeners |
 | Realtime | WebSocket via crossws (Redis fan-out, Durable Objects on Workers), Socket.IO via `@hazejs/socket.io` (Node & Bun, guard auth, Redis adapter) |
 | Files & mail | Disks: local / S3 (AWS SDK v3, multipart, presigned) / R2 / memory with signed URLs; mail: SMTP / Resend / Postmark / Mailgun / SES, queued sending, layout helpers |
+| AI | `@hazejs/ai`: OpenAI, Anthropic, Gemini, Azure, Bedrock, Workers AI and 11 OpenAI-compatible providers with no SDK dependencies — streaming, tool loops, structured output, embeddings & RAG, agents with memory, images, speech, MCP client/server, `useChat` for Vue/React, `AI.fake()` |
 | Tooling | `haze` CLI: `dev`, `build`, `preview`, `start`, `test`, `route:list`, `typegen`, `make:*` (16 generators), `db:*`, `queue:*`, `schedule:*`, `key:generate` |
 | Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda — with migration and worker entries |
 
@@ -132,6 +133,7 @@ See how this compares with other Node.js frameworks, and what is coming next, in
 | [`@hazejs/cli`](./packages/cli) | The `haze` command line |
 | [`@hazejs/orm`](./packages/orm) | Models, query builder and migrations on drizzle; MongoDB adapter |
 | [`@hazejs/testing`](./packages/testing) | Vitest integration and HTTP test client |
+| [`@hazejs/ai`](./packages/ai) | AI toolkit: providers, streaming, tools, structured output, agents, RAG, MCP, `useChat` |
 | [`@hazejs/socket.io`](./packages/socketio) | Socket.IO server integration |
 | [`create-hazejs`](./packages/create) | Project scaffolding (api / vue / react templates) |
 

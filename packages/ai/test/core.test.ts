@@ -258,6 +258,53 @@ describe('streamText', () => {
     })
   })
 
+  it('keeps the signature of each reasoning block (redacted blocks get their own part)', async () => {
+    const model = mockModel('x')
+    model.stream = async () => new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: 'reasoning-delta', text: 'step one' })
+        controller.enqueue({
+          type: 'reasoning-end',
+          providerMetadata: {
+            anthropic: { signature: 'sig-1' },
+          },
+        })
+        controller.enqueue({
+          type: 'reasoning-end',
+          providerMetadata: {
+            anthropic: { redactedData: 'opaque' },
+          },
+        })
+        controller.enqueue({ type: 'text-delta', text: 'answer' })
+        controller.enqueue({
+          type: 'finish',
+          finishReason: 'stop',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        })
+        controller.close()
+      },
+    })
+    const result = streamText({ model, prompt: 'x' })
+    const [assistant] = (await result.response).messages
+    expect(assistant.content).toEqual([
+      {
+        type: 'reasoning',
+        text: 'step one',
+        providerMetadata: {
+          anthropic: { signature: 'sig-1' },
+        },
+      },
+      {
+        type: 'reasoning',
+        text: '',
+        providerMetadata: {
+          anthropic: { redactedData: 'opaque' },
+        },
+      },
+      { type: 'text', text: 'answer' },
+    ])
+  })
+
   it('encodes the hazejs SSE protocol in toResponse()', async () => {
     const response = streamText({
       model: mockModel('Hi there'),

@@ -25,7 +25,7 @@ hazejs 把 Laravel / ThinkPHP 式的开发效率和现代 Vite 工具链放进�
 
 ## 亮点
 
-- **功能齐全**：路由、IoC 容器、校验、ORM 与迁移、认证（JWT / Session）、授权（Gate / Policy）、CSRF、限流、缓存、队列、定时任务、事件、WebSocket、Socket.IO、文件存储、邮件和测试替身，统一的配置方式，无需自己拼装。
+- **功能齐全**：路由、IoC 容器、校验、ORM 与迁移、认证（JWT / Session）、授权（Gate / Policy）、CSRF、限流、缓存、队列、定时任务、事件、WebSocket、Socket.IO、文件存储、邮件、AI 和测试替身，统一的配置方式，无需自己拼装。
 - **热更新不重启**：`haze dev` 原地替换控制器、服务、路由和配置；数据库连接池、Redis 连接和 Socket 在修改代码后保持不断。
 - **Vite 全栈**：在任意 Vite 项目中加入 `haze()`：开发时 `/api/**` 交给后端，`vite build` 同时产出前端与服务端，`vite preview` 运行真实产物。
 - **随处部署**：`haze build --preset node | bun | deno | docker | cloudflare | vercel | netlify | aws-lambda`。原生依赖按实际引用追踪进 `dist/node_modules`（参考 Nitro），产物可独立运行。
@@ -118,6 +118,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | 基础设施 | 缓存（memory / Redis / Upstash / KV，原子锁，响应缓存）、队列（sync / memory / BullMQ / Cloudflare Queues）、定时任务（cron、时区、单实例执行）、事件与排队监听器 |
 | 实时通信 | 基于 crossws 的 WebSocket（Redis 多实例广播，Workers 上使用 Durable Object）；`@hazejs/socket.io` 集成 Socket.IO（Node 与 Bun、Guard 鉴权、Redis 适配器） |
 | 文件与邮件 | 磁盘：local / S3（AWS SDK v3、分片上传、预签名）/ R2 / memory，签名临时链接；邮件：SMTP / Resend / Postmark / Mailgun / SES，排队发送，布局辅助 |
+| AI | `@hazejs/ai`：OpenAI、Anthropic、Gemini、Azure、Bedrock、Workers AI 与 11 个 OpenAI 兼容厂商，不依赖厂商 SDK；流式输出、工具循环、结构化输出、Embedding 与 RAG、带记忆的 Agent、图像、语音、MCP 客户端与服务端、Vue / React 的 `useChat`、`AI.fake()` |
 | 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`typegen`、`make:*`（16 种生成器）、`db:*`、`queue:*`、`schedule:*`、`key:generate` |
 | 部署 | node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda，提供迁移与 worker 入口 |
 
@@ -132,6 +133,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | [`@hazejs/cli`](./packages/cli) | `haze` 命令行 |
 | [`@hazejs/orm`](./packages/orm) | 基于 drizzle 的模型、查询构造器与迁移；MongoDB 适配器 |
 | [`@hazejs/testing`](./packages/testing) | Vitest 集成与 HTTP 测试客户端 |
+| [`@hazejs/ai`](./packages/ai) | AI 工具包：多厂商、流式、工具、结构化输出、Agent、RAG、MCP、`useChat` |
 | [`@hazejs/socket.io`](./packages/socketio) | Socket.IO 服务端集成 |
 | [`create-hazejs`](./packages/create) | 项目脚手架（api / vue / react 模板） |
 

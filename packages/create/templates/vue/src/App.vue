@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import AiChat from '@/AiChat.vue'
 import { api } from '@/api'
 import { chat } from '@/socket'
 
@@ -59,6 +60,8 @@ async function greet() {
     <p v-if="error" class="error">
       {{ error }}
     </p>
+
+    <AiChat />
 
     <p class="tip">
       修改 <code>server/app/service/GreetingService.ts</code>，刷新页面即可看到后端变化，无需重启。
