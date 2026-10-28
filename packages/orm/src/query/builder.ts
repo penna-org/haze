@@ -672,10 +672,10 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     if (!list.length)
       return 0
     const session = await this.session()
-    const query = session.db.insert(this.table).values(list)
+    // MySQL 的 ignore() 在 insert 构造器上（values 之前）
     return affectedRows(await this.write(() => session.dialect === 'mysql'
-      ? query.ignore()
-      : query.onConflictDoNothing()))
+      ? session.db.insert(this.table).ignore().values(list)
+      : session.db.insert(this.table).values(list).onConflictDoNothing()))
   }
 
   /**
