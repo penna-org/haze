@@ -1,6 +1,10 @@
 version: 2
 updates:
+  # 工作流中的 action 固定到完整提交 SHA（组织策略要求），Dependabot 会同时更新 SHA 与版本注释
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      github-actions:
+        patterns: ['*']

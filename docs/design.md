@@ -1416,3 +1416,5 @@ HAZE_TEST_MYSQL_URL='mysql://root:haze@127.0.0.1:3307/haze_test' pnpm vitest run
   - `release.yml`：Changesets 自动开 "Version Packages" PR，合并后带 provenance 发布到 npm（需要仓库密钥 `NPM_TOKEN`）；
   - Issue 模板（Bug / Feature）、PR 模板、dependabot（GitHub Actions）。
 - Changesets 3：所有 `@hazejs/*` 与 `create-hazejs` 为 fixed 组，共用一个版本号；首个 changeset 为 minor，首次发布即 0.1.0。
+- 组织策略要求 action 固定到完整提交 SHA：工作流中的 action 均写成 `owner/action@<sha> # vX.Y.Z`（checkout v7、setup-node v7、pnpm/action-setup v6、setup-bun v2、changesets/action v2），Dependabot 按组每月更新 SHA 与注释。
+- changesets/action v2 对应 Changesets 3（v1 对应 Changesets 2），输入改名为 `version-script` / `publish-script` / `pr-title` / `commit-message`；npm 令牌由 setup-node 的 `registry-url` 与 `NODE_AUTH_TOKEN` 提供。仓库与组织都需开启 "Allow GitHub Actions to create and approve pull requests"。
