@@ -1,0 +1,19 @@
+import { defineNotification, html, mailLayout } from '@hazejs/core'
+
+export interface {{className}}Payload {
+  message: string
+}
+
+/**
+ * 通知（类型名即文件名）：via() 决定渠道，to<渠道>() 返回各渠道的内容。
+ * 发送：await notify(user, {{className}}({ message: '...' }))；排队发送加 queue: true
+ * 其它渠道：database（toDatabase）、broadcast（toBroadcast）、slack、webhook、wecom、dingtalk、feishu
+ */
+export default defineNotification<{{className}}Payload>({
+  via: () => ['mail'],
+  toMail: (user, { message }) => ({
+    subject: '{{name}}',
+    html: mailLayout({ body: html`<p>你好，${user.name}</p><p>${message}</p>` }),
+  }),
+  toArray: (user, { message }) => ({ message }),
+})

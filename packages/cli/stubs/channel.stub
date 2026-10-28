@@ -1,0 +1,9 @@
+import { defineChannels } from '@hazejs/core'
+
+/**
+ * 广播频道授权（app/channel 下自动注册）：客户端订阅 private-<name> / presence-<name> 时调用。
+ * 私有频道返回真值表示允许；在线频道返回成员信息（如 { id, name }），false 表示拒绝。公共频道无需定义。
+ */
+export default defineChannels((c) => {
+  c.private('{{camelName}}.{id}', (user, { id }) => String(user.id) === id)
+})

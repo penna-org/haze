@@ -7,7 +7,24 @@ import { useEventManager } from './context'
 const kEvent = Symbol.for('hazejs.event')
 const kListener = Symbol.for('hazejs.listener')
 
-export interface EventDefinition<P = void> {
+/** 触发事件时同时广播到频道（见 Broadcasting） */
+export interface EventBroadcastOptions<P = void> {
+  /** 广播到的频道（如 `privateChannel('orders.1')`），返回空时不广播 */
+  broadcastOn?: (payload: P) => string | string[] | undefined | null
+  /** 客户端收到的事件名，默认为事件名（app/event 下的文件名） */
+  broadcastAs?: string | ((payload: P) => string)
+  /** 广播的数据，默认为 payload */
+  broadcastWith?: (payload: P) => unknown
+  /** 返回 false 时不广播 */
+  broadcastWhen?: (payload: P) => boolean
+}
+
+export interface EventOptions<P = void> extends EventBroadcastOptions<P> {
+  /** 事件名，默认 app/event 下的文件名 */
+  name?: string
+}
+
+export interface EventDefinition<P = void> extends EventBroadcastOptions<P> {
   readonly [kEvent]: true
   /** 事件名，默认 app/event 下的文件名 */
   readonly name?: string
@@ -22,9 +39,18 @@ export interface EventDefinition<P = void> {
  * export default defineEvent<{ userId: number }>()
  * await UserRegistered.emit({ userId: 1 })
  * ```
+ *
+ * 声明 `broadcastOn` 时，触发事件会同时广播到这些频道（在监听器之前，Events.fake() 时不广播）：
+ *
+ * ```ts
+ * export default defineEvent<{ orderId: number }>({
+ *   broadcastOn: ({ orderId }) => privateChannel(`orders.${orderId}`),
+ * })
+ * ```
  */
-export function defineEvent<P = void>(options: { name?: string } = {}): EventDefinition<P> {
+export function defineEvent<P = void>(options: EventOptions<P> = {}): EventDefinition<P> {
   const event: EventDefinition<P> = {
+    ...options,
     [kEvent]: true,
     name: options.name,
     emit: payload => useEventManager().emit(event, payload),

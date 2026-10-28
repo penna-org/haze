@@ -1,6 +1,6 @@
 import type { Application, ConfigInput, ServerExtension, ServiceProvider } from '@hazejs/core'
 import type { Namespace, Server, ServerOptions, Socket } from 'socket.io'
-import { createToken, definePersistent, registerServerExtension, unregisterServerExtension } from '@hazejs/core'
+import { BroadcastManager, createToken, definePersistent, registerServerExtension, subscribeEnvelope, unregisterServerExtension } from '@hazejs/core'
 
 export type { Namespace, Server, Socket }
 
@@ -15,6 +15,11 @@ export interface SocketIOConfig {
   adapter?: { driver: 'redis', url?: string, key?: string }
   /** 透传给 socket.io Server 的其它选项（pingInterval、connectionStateRecovery 等） */
   options?: Partial<ServerOptions>
+  /**
+   * 广播（Broadcasting）的 Socket.IO 传输：true 或 `{ namespace }`（默认 `/broadcasting`）。
+   * 前端 `createEcho({ transport: 'socket.io', io })` 连接；频道授权与 WebSocket / SSE 相同。
+   */
+  broadcasting?: boolean | { namespace?: string }
 }
 
 /** `config/socketio.ts` 的默认导出 */
@@ -221,8 +226,99 @@ export function socketIoProvider(): ServiceProvider {
           })
         })
       }
+
+      const broadcasting = app.config.get<SocketIOConfig['broadcasting']>('socketio.broadcasting', undefined)
+      if (broadcasting) {
+        const name = typeof broadcasting === 'object' && broadcasting.namespace
+          ? broadcasting.namespace
+          : '/broadcasting'
+        if (!current.wired.has(`broadcasting:${name}`)) {
+          current.wired.add(`broadcasting:${name}`)
+          wireBroadcasting(io.of(name), current)
+        }
+      }
     },
   }
+}
+
+/**
+ * 广播命名空间：每个 socket 接入 BroadcastManager（订阅时加入同名房间）。
+ * 客户端事件：`subscribe`（{ channel, auth?, channel_data? }，ack 返回订阅结果）、`unsubscribe`、`whisper`；
+ * 服务端推送 `broadcast` 事件（与 WebSocket / SSE 相同的消息格式）。
+ * 投递经广播总线（config/broadcasting.ts 的 bus），多实例请配置 Redis 总线。
+ */
+function wireBroadcasting(namespace: Namespace, current: State): void {
+  namespace.on('connection', (socket) => {
+    const app = current.app
+    if (!app?.container.has(BroadcastManager)) {
+      socket.disconnect(true)
+      return
+    }
+    // 没有签名时按握手请求（Cookie / auth.token）直接授权
+    const request = handshakeRequest(socket)
+    const handle = app.make(BroadcastManager).connect({
+      id: socket.id,
+      transport: 'socket.io',
+      send: envelope => socket.emit('broadcast', envelope),
+    }, {
+      request: () => request,
+    })
+    const input = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null
+      ? value as Record<string, unknown>
+      : {}
+    socket.on('subscribe', async (raw: unknown, ack?: (envelope: unknown) => void) => {
+      const { channel, auth, channel_data } = input(raw)
+      const name = String(channel ?? '')
+      const result = await handle.subscribe({
+        channel: name,
+        auth: typeof auth === 'string'
+          ? auth
+          : undefined,
+        channelData: typeof channel_data === 'string'
+          ? channel_data
+          : undefined,
+      })
+      if (result.ok)
+        await socket.join(name)
+      const envelope = subscribeEnvelope(name, result)
+      if (typeof ack === 'function')
+        ack(envelope)
+      else
+        socket.emit('broadcast', envelope)
+    })
+    socket.on('unsubscribe', async (raw: unknown) => {
+      const name = String(input(raw).channel ?? '')
+      await handle.unsubscribe(name)
+      await socket.leave(name)
+    })
+    socket.on('whisper', async (raw: unknown) => {
+      const { channel, name, data } = input(raw)
+      await handle.whisper(String(channel ?? ''), String(name ?? ''), data)
+    })
+    socket.on('disconnect', () => {
+      handle.close().catch(error => current.app?.logger.error('socket.io broadcasting disconnect failed', error))
+    })
+  })
+}
+
+/** 由握手信息构造 Request：请求头（含 Cookie），`auth.token` 作为 Bearer 令牌 */
+function handshakeRequest(socket: Socket): Request {
+  const { headers, url, auth } = socket.handshake
+  const requestHeaders = new Headers()
+  for (const [key, value] of Object.entries(headers)) {
+    if (value !== undefined) {
+      requestHeaders.set(key, Array.isArray(value)
+        ? value.join(', ')
+        : String(value))
+    }
+  }
+  if (typeof auth?.token === 'string')
+    requestHeaders.set('authorization', `Bearer ${auth.token}`)
+  // Node 的握手 url 为路径，Bun 引擎为完整 URL
+  const target = /^https?:\/\//.test(url)
+    ? url
+    : `http://${headers.host ?? 'localhost'}${url}`
+  return new Request(target, { headers: requestHeaders })
 }
 
 /**
@@ -235,22 +331,7 @@ export function authenticate(options: { guard?: string, optional?: boolean } = {
     const app = state().app
     if (!app)
       return next(new Error('socket.io is not configured'))
-    const { headers, url, auth } = socket.handshake
-    const requestHeaders = new Headers()
-    for (const [key, value] of Object.entries(headers)) {
-      if (value !== undefined) {
-        requestHeaders.set(key, Array.isArray(value)
-          ? value.join(', ')
-          : String(value))
-      }
-    }
-    if (typeof auth?.token === 'string')
-      requestHeaders.set('authorization', `Bearer ${auth.token}`)
-    // Node 的握手 url 为路径，Bun 引擎为完整 URL
-    const target = /^https?:\/\//.test(url)
-      ? url
-      : `http://${headers.host ?? 'localhost'}${url}`
-    const ctx = app.contextFor(new Request(target, { headers: requestHeaders }))
+    const ctx = app.contextFor(handshakeRequest(socket))
     const user = await ctx.auth.guard(options.guard).user().catch(() => undefined)
     if (user === undefined && !options.optional) {
       return next(Object.assign(new Error('unauthorized'), {

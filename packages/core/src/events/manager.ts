@@ -1,5 +1,7 @@
 import type { Application } from '../application'
 import type { EventDefinition, ListenerDefinition, ListenerHandler } from './event'
+import { BroadcastManager } from '../broadcast/manager'
+import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { defineJob } from '../queue/job'
 import { QueueManager } from '../queue/manager'
 import { useEventManager } from './context'
@@ -132,8 +134,14 @@ export class EventManager {
       this.#fake.emitted.push({ event: name, payload, definition: event })
       return
     }
+    // 声明了 broadcastOn 的事件同时广播（先于监听器，与 Laravel 一致）
+    if (event.broadcastOn && this.app.container.has(BroadcastManager))
+      await this.app.make(BroadcastManager).broadcastEvent(event, payload, name)
+    const listeners = this.#listeners.get(event) ?? []
+    if (telemetryActive())
+      recordTelemetry('event', { event: name, payload, listeners: listeners.length })
     const logger = this.app.logger.child({ event: name })
-    for (const { name: listener, definition } of this.#listeners.get(event) ?? []) {
+    for (const { name: listener, definition } of listeners) {
       const queue = definition.options.queue
       if (queue) {
         const delay = queue === true

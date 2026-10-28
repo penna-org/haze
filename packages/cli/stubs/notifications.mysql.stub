@@ -1,0 +1,15 @@
+import { index, json, mysqlTable, timestamp, varchar } from 'drizzle-orm/mysql-core'
+
+// 通知表（通知的 database 渠道）：此文件只依赖 drizzle-orm，不要使用 ~ 别名（drizzle-kit 需要直接读取）
+// 生成迁移：haze db:generate && haze db:migrate
+export const notifications = mysqlTable('notifications', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  type: varchar('type', { length: 255 }).notNull(),
+  notifiableType: varchar('notifiable_type', { length: 255 }).notNull(),
+  notifiableId: varchar('notifiable_id', { length: 64 }).notNull(),
+  data: json('data').notNull(),
+  readAt: timestamp('read_at', { fsp: 3 }),
+  createdAt: timestamp('created_at', { fsp: 3 }).notNull(),
+}, table => [
+  index('notifications_notifiable_index').on(table.notifiableType, table.notifiableId),
+])
