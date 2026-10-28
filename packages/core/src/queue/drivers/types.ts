@@ -14,6 +14,14 @@ export interface ConsumeOptions {
   tries: (message: JobMessage) => number
 }
 
+/** 队列积压统计（各驱动按自己的能力提供） */
+export interface QueueCounts {
+  waiting: number
+  delayed: number
+  active: number
+  failed: number
+}
+
 export interface QueueDriver {
   readonly driver: string
   push: (message: JobMessage, delaySeconds: number) => Promise<void>
@@ -24,5 +32,7 @@ export interface QueueDriver {
   retry: (id?: string) => Promise<number>
   forget: (id: string) => Promise<boolean>
   flush: () => Promise<number>
+  /** 积压统计（可选，队列面板与 queueCheck 使用） */
+  counts?: () => Promise<QueueCounts>
   close: () => Promise<void>
 }

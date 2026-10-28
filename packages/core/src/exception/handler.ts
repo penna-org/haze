@@ -5,7 +5,9 @@ import { HTTPError } from 'h3'
 import { Config } from '../config/config'
 import { inject } from '../container/container'
 import { ResponseFormatter } from '../http/formatter'
+import { localizeHttpMessage } from '../i18n/http'
 import { Logger } from '../logger'
+import { dashboardLink, reportException } from '../observability/observability'
 import { Router } from '../routing/router'
 import { renderErrorPage } from './error-page'
 import { HttpException, ValidationException } from './exceptions'
@@ -51,6 +53,8 @@ export class ExceptionHandler {
 
   render(error: unknown, ctx: HttpContext): MaybePromise<unknown> {
     const normalized = this.normalize(error, ctx)
+    // 可观测性：记录到请求 span 与开发面板（未启用时为空操作）
+    reportException(error, normalized.status)
     ctx.status(normalized.status)
     normalized.headers?.forEach((value, key) => ctx.setHeader(key, value))
     if (this.isDebug(ctx) && this.wantsHtml(ctx))
@@ -70,6 +74,7 @@ export class ExceptionHandler {
       code: normalized.code,
       request: ctx.req,
       requestId: ctx.requestId,
+      dashboardUrl: dashboardLink(ctx.requestId),
       params: ctx.params(),
       issues: normalized.errors,
       routes: normalized.status === 404
@@ -101,7 +106,8 @@ export class ExceptionHandler {
         code: error instanceof HttpException
           ? error.code
           : error.status,
-        message: hidden ? 'Internal Server Error' : error.message,
+        // 配置了 config/i18n.ts 时翻译框架内置的消息（404 / 401 / 403 / 419 / 429 ...）
+        message: localizeHttpMessage(error.status, hidden ? 'Internal Server Error' : error.message),
         data: hidden ? undefined : error.data,
         errors: error instanceof ValidationException
           ? error.issues
@@ -116,7 +122,7 @@ export class ExceptionHandler {
       code: 500,
       message: debug && error instanceof Error
         ? error.message
-        : 'Internal Server Error',
+        : localizeHttpMessage(500, 'Internal Server Error'),
       stack,
     }
   }

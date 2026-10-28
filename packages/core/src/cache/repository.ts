@@ -1,4 +1,7 @@
+import type { TelemetryEvents } from '../observability/telemetry'
 import type { CacheStore } from './store'
+import { recordTelemetry, telemetryActive } from '../observability/telemetry'
+import { tenantCachePrefix } from '../tenancy/context'
 import { parseDuration } from '../utils'
 import { Lock } from './lock'
 
@@ -26,7 +29,12 @@ function decode<T>(raw: string | undefined): T | undefined {
 
 /** 某个存储上的缓存操作（Cache.store(name) 返回） */
 export class CacheRepository {
-  constructor(readonly name: string, readonly store: CacheStore, readonly prefix: string) {}
+  constructor(readonly name: string, readonly store: CacheStore, readonly basePrefix: string) {}
+
+  /** 键前缀：配置的前缀 + 当前租户的前缀（多租户隔离，没有租户时为空） */
+  get prefix(): string {
+    return this.basePrefix + tenantCachePrefix(this.name)
+  }
 
   key(key: string): string {
     return this.prefix + key
@@ -35,7 +43,7 @@ export class CacheRepository {
   async get<T = unknown>(key: string): Promise<T | undefined>
   async get<T>(key: string, fallback: T | (() => T | Promise<T>)): Promise<T>
   async get<T>(key: string, fallback?: T | (() => T | Promise<T>)): Promise<T | undefined> {
-    const value = decode<T>(await this.store.get(this.key(key)))
+    const value = decode<T>(await this.#observe('get', key, () => this.store.get(this.key(key)), raw => raw !== undefined))
     if (value !== undefined)
       return value
     return typeof fallback === 'function'
@@ -53,7 +61,7 @@ export class CacheRepository {
   }
 
   async set(key: string, value: unknown, ttl?: CacheTtl): Promise<void> {
-    await this.store.set(this.key(key), encode(value), seconds(ttl))
+    await this.#observe('set', key, () => this.store.set(this.key(key), encode(value), seconds(ttl)))
   }
 
   async setMany(values: Record<string, unknown>, ttl?: CacheTtl): Promise<void> {
@@ -66,7 +74,7 @@ export class CacheRepository {
   }
 
   forget(key: string): Promise<boolean> {
-    return this.store.delete(this.key(key))
+    return this.#observe('forget', key, () => this.store.delete(this.key(key)))
   }
 
   /** 读取并删除 */
@@ -113,5 +121,25 @@ export class CacheRepository {
   /** 以已知的持有者标识恢复锁（在别的进程中释放） */
   restoreLock(name: string, owner: string): Lock {
     return this.lock(name, 60, owner)
+  }
+
+  /** 有遥测监听者时上报缓存操作（开发面板的命中 / 未命中，可选的 OpenTelemetry span） */
+  async #observe<R>(operation: TelemetryEvents['cache']['operation'], key: string, fn: () => Promise<R>, hit?: (result: R) => boolean): Promise<R> {
+    if (!telemetryActive())
+      return fn()
+    const startTime = Date.now()
+    const started = performance.now()
+    const result = await fn()
+    recordTelemetry('cache', {
+      store: this.name,
+      operation,
+      key,
+      ...(hit && {
+        hit: hit(result),
+      }),
+      startTime,
+      duration: performance.now() - started,
+    })
+    return result
   }
 }

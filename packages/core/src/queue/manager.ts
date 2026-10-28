@@ -1,8 +1,14 @@
 import type { Application } from '../application'
 import type { CloudflareQueueConfig } from './drivers/cloudflare'
 import type { RedisQueueConfig } from './drivers/redis'
-import type { ProcessResult, QueueDriver } from './drivers/types'
+import type { ProcessResult, QueueCounts, QueueDriver } from './drivers/types'
 import type { DispatchOptions, FailedJob, JobContext, JobDefinition, JobMessage } from './job'
+import { traceJobDispatch, traceJobProcess } from '../observability/otel'
+import { currentTelemetryScope, runInTelemetryScope } from '../observability/scope'
+import { recordTelemetry, telemetryActive } from '../observability/telemetry'
+import { getRequestStore } from '../request'
+import { tenantQueueKey } from '../tenancy/context'
+import { tenancyOf } from '../tenancy/manager'
 import { parseDuration } from '../utils'
 import { cloudflareQueue } from './drivers/cloudflare'
 import { memoryQueue } from './drivers/memory'
@@ -222,6 +228,24 @@ export class QueueManager {
       dispatchedAt: Date.now(),
       tries: definition.tries ?? 1,
     }
+    // 可观测性：追踪上下文与投递时的请求 ID 随消息传递，worker 中接续同一条链路
+    const context = this.#messageContext(message)
+    if (context)
+      message.context = context
+    // 多租户：携带当前租户 ID，worker 中恢复租户上下文
+    const tenant = tenantQueueKey()
+    if (tenant)
+      message.context = { ...message.context, tenant }
+    if (telemetryActive()) {
+      recordTelemetry('job.dispatched', {
+        id: message.id,
+        job: name,
+        queue,
+        connection,
+        delay,
+        payload: message.payload,
+      })
+    }
     const driver = this.connection(connection)
     if (driver.driver === 'sync') {
       const result = await this.process(message, 1)
@@ -238,6 +262,50 @@ export class QueueManager {
    * 最后一次失败时调用任务的 failed() 并返回 failed。
    */
   async process(message: JobMessage, attempt: number): Promise<ProcessResult> {
+    if (!telemetryActive())
+      return traceJobProcess(message, attempt, () => this.#processInTenant(message, attempt))
+    const startTime = Date.now()
+    const started = performance.now()
+    const scope = { requestId: message.context?.requestId, jobId: message.id }
+    const result = await runInTelemetryScope(scope, () => traceJobProcess(message, attempt, () => this.#processInTenant(message, attempt)))
+    runInTelemetryScope(scope, () => recordTelemetry('job.processed', {
+      id: message.id,
+      job: message.job,
+      queue: message.queue,
+      attempt,
+      status: result.status,
+      startTime,
+      duration: performance.now() - started,
+      ...(result.status !== 'ok' && {
+        error: String((result.error as Error)?.stack ?? result.error),
+      }),
+    }))
+    return result
+  }
+
+  /** 追踪上下文（启用 OpenTelemetry 时）与请求 ID（有遥测监听者时） */
+  #messageContext(message: JobMessage): Record<string, string> | undefined {
+    const trace = traceJobDispatch(message.job, message.queue, message.id)
+    const scope = currentTelemetryScope()
+    const requestId = !telemetryActive()
+      ? undefined
+      : scope
+        ? scope.requestId
+        : getRequestStore()?.ctx.requestId
+    if (!requestId) {
+      return trace && Object.keys(trace).length
+        ? trace
+        : undefined
+    }
+    return { ...trace, requestId }
+  }
+
+  /** 按消息携带的租户 ID 恢复租户上下文（没有时以无租户执行，租户已不存在时任务失败） */
+  #processInTenant(message: JobMessage, attempt: number): Promise<ProcessResult> {
+    return tenancyOf(this.app).runForMessage(message, () => this.#process(message, attempt)).catch((error: unknown): ProcessResult => ({ status: 'failed', error }))
+  }
+
+  async #process(message: JobMessage, attempt: number): Promise<ProcessResult> {
     const definition = this.#jobs.get(message.job)
     const logger = this.app.logger.child({ job: message.job, jobId: message.id, attempt })
     if (!definition) {
@@ -325,6 +393,11 @@ export class QueueManager {
 
   flush(connection?: string): Promise<number> {
     return this.connection(connection).flush()
+  }
+
+  /** 积压统计；驱动不支持时返回 undefined */
+  async counts(connection?: string): Promise<QueueCounts | undefined> {
+    return this.connection(connection).counts?.()
   }
 
   /** 等待 memory 连接上的任务全部完成（测试中使用） */

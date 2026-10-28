@@ -71,16 +71,17 @@ async function boot(queue: Record<string, unknown> = {}, options: ApplicationOpt
 describe('queue (memory)', () => {
   it('registers jobs by file name or explicit name and processes them in-process', async () => {
     const instance = await boot()
-    expect([
+    const jobs = [
       ...instance.make(QueueManager).jobs().keys(),
-    ]).toEqual([
+    ]
+    expect(jobs.filter(name => !name.includes(':'))).toEqual([
       'Flaky',
       'Greet',
       'custom-name',
       'Slow',
-      // 框架内置：排队发送邮件
-      'mail:send',
     ])
+    // 框架内置：排队发送邮件（以及 notification:send 等）
+    expect(jobs).toContain('mail:send')
     await Greet.dispatch({ name: 'Ada' })
     await Queue.dispatch('Greet', { name: 'Bob' })
     await Named.dispatch(null as never)

@@ -13,6 +13,8 @@ export interface ErrorPageInput {
   code?: number | string
   request?: Request
   requestId?: string
+  /** 开发面板中该请求的链接 */
+  dashboardUrl?: string
   params?: Record<string, string>
   issues?: ValidationIssue[]
   /** 404 时列出可用路由 */
@@ -200,7 +202,9 @@ function requestInfo(input: ErrorPageInput): string {
     <table class="grid kv">
       <tr><td>URL</td><td><code>${escape(`${request.method} ${url.pathname}${url.search}`)}</code></td></tr>
       ${input.requestId
-        ? `<tr><td>Request ID</td><td><code>${escape(input.requestId)}</code></td></tr>`
+        ? `<tr><td>Request ID</td><td><code>${escape(input.requestId)}</code>${input.dashboardUrl
+          ? ` · <a href="${escape(input.dashboardUrl)}">在开发面板中查看</a>`
+          : ''}</td></tr>`
         : ''}
       ${params.length
         ? pairs(params)

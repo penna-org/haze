@@ -202,8 +202,63 @@ export default defineConfig(() => ({
 | `requests` | Access log line per request | on, except in tests |
 | `tag` | Tag shown in output | `hazejs` |
 | `write` | Custom sink for JSON lines, `(line, level) => void` | `error` to stderr, the rest to stdout |
+| `channel` | Channel name(s) to write to, see [Channels](#channels) | `'console'` |
+| `channels` | Channel definitions | `console` and `json` are built in |
 
-In development the output is colored, with access lines such as `GET /api/hello 200 3ms`. In production, each line is JSON with `time`, `level`, `tag`, `msg`, `requestId`, any context fields, and `err` (name, message, stack) when an error is logged. This works well with log collectors.
+In development the output is colored, with access lines such as `GET /api/hello 200 3ms`. In production, each line is JSON with `time`, `level`, `tag`, `msg`, `requestId`, any context fields, and `err` (name, message, stack) when an error is logged. This works well with log collectors. When [OpenTelemetry](./observability#opentelemetry) is enabled and a span is active, JSON lines also carry `trace_id` and `span_id`.
+
+### Channels {#channels}
+
+Like Laravel's logging channels, a log line can go to several destinations at once. Everything above describes the default `console` channel. Define more channels and pick them with `channel`:
+
+```ts
+// config/logger.ts
+import { defineConfig, env } from '@hazejs/core'
+
+export default defineConfig(() => ({
+  level: env('LOG_LEVEL', 'info'),
+  channel: 'production',
+  channels: {
+    production: { driver: 'stack', channels: ['console', 'file', 'loki'] },
+    file: { driver: 'file', path: 'storage/logs/app.log', daily: true, maxFiles: 14 },
+    loki: {
+      driver: 'http',
+      url: env('LOKI_URL', 'http://localhost:3100/loki/api/v1/push'),
+      format: 'loki',
+      labels: { app: 'shop' },
+      level: 'warn',
+    },
+    audit: { driver: 'file', path: 'storage/logs/audit.log', daily: false },
+  },
+}))
+```
+
+| Driver | Writes | Options |
+|--------|--------|---------|
+| `console` | Console output, `pretty` or `json` according to `format` (the default channel) | `level` |
+| `json` | One JSON object per line to stdout, whatever `format` says | `level`, `stream: 'stdout' \| 'stderr'` |
+| `file` | JSON lines to a file (Node, Bun and Deno only) | `path` (default `storage/logs/haze.log`), `daily` (default `true`: `haze-2026-10-28.log`), `maxFiles` (default 14, `0` keeps everything), `level` |
+| `http` | Batched `POST` to a log platform | `url`, `headers`, `format` (`json` array, `ndjson`, `loki`, or `(entries) => body`), `batchSize` (100), `interval` (2000 ms), `maxBuffer` (10000), `labels` (Loki), `level` |
+| `custom` | Your own transport | `transport: { log(entry), flush?(), close?() }` or `(entry) => void`, `level` |
+| `stack` | Several channels | `channels: ['console', 'file']` |
+
+- Each channel can have its own `level`. The logger's `level` is the default for channels without one.
+- Access logs (`requests: true`) go to every channel too.
+- Write to specific channels for one call with `logger.channel('audit').info('Refund approved', { orderId })`. Context added with `child()` is kept.
+- The `http` driver sends a batch as soon as `batchSize` entries are buffered, or after `interval` ms. If the buffer passes `maxBuffer` (for example while the platform is down), the oldest entries are dropped. Delivery errors are printed to stderr and never thrown. `await logger.flush()` sends what is buffered, and the application flushes and closes all channels when it shuts down.
+
+Shipping to common platforms:
+
+```ts
+channels: {
+  // Datadog: JSON array to the HTTP intake
+  datadog: { driver: 'http', url: 'https://http-intake.logs.datadoghq.eu/api/v2/logs', headers: { 'DD-API-KEY': env('DD_API_KEY') } },
+  // Better Stack
+  betterstack: { driver: 'http', url: env('BETTERSTACK_INGEST_URL'), headers: { authorization: `Bearer ${env('BETTERSTACK_TOKEN')}` } },
+  // Grafana Loki
+  loki: { driver: 'http', url: 'http://loki:3100/loki/api/v1/push', format: 'loki' },
+}
+```
 
 ## Request IDs
 

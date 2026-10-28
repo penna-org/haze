@@ -4,9 +4,10 @@ import type { AnyDatabase } from './types'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
-import { definePersistent, usePlatformBinding } from '@hazejs/core'
+import { currentTenancy, definePersistent, usePlatformBinding } from '@hazejs/core'
 import { dialectOf } from './config'
 import { DatabaseError } from './errors'
+import { instrumentDatabase, queryLogger } from './telemetry'
 
 export interface Connection {
   name: string
@@ -48,6 +49,8 @@ export interface DatabaseManagerOptions {
 export class DatabaseManager {
   readonly config: DatabaseConfig
   readonly #options: DatabaseManagerOptions
+  /** 按租户计算出的连接配置：`<连接名>@<租户>` → 配置 */
+  readonly #tenantConfigs = new Map<string, ConnectionConfig>()
 
   constructor(config: DatabaseConfig, options: DatabaseManagerOptions = {}) {
     if (!config?.connections || !config.default)
@@ -61,14 +64,30 @@ export class DatabaseManager {
   }
 
   connectionConfig(name = this.config.default): ConnectionConfig {
-    const config = this.config.connections[name]
+    const config = this.config.connections[name] ?? this.#tenantConfigs.get(name)
     if (!config)
       throw new DatabaseError(`Database connection "${name}" is not defined in config/database.ts`)
     return config
   }
 
+  /**
+   * 实际使用的连接名：处于租户上下文且 config/tenancy.ts 配置了每租户独立数据库时，
+   * 为 `<连接名>@<租户>`（连接配置由租户计算，按租户缓存连接），否则为原连接名
+   */
+  resolveName(name = this.config.default): string {
+    const scope = currentTenancy()
+    const database = scope?.config.database
+    if (!scope || !database?.config || !(database.connections ?? [this.config.default]).includes(name))
+      return name
+    const key = `${name}@${scope.key}`
+    if (!this.#tenantConfigs.has(key))
+      this.#tenantConfigs.set(key, database.config(scope.tenant, this.connectionConfig(name), name) as ConnectionConfig)
+    return key
+  }
+
   /** 获取连接（首次使用时建立） */
   connection(name = this.config.default): Promise<Connection> {
+    name = this.resolveName(name)
     const config = this.connectionConfig(name)
     const hash = JSON.stringify(config)
     const pool = connections()
@@ -101,11 +120,18 @@ export class DatabaseManager {
 }
 
 async function openConnection(name: string, config: ConnectionConfig, options: DatabaseManagerOptions): Promise<Connection> {
-  const logger = config.logging && options.logger
-    ? {
-        logQuery: (query: string, params: unknown[]) => options.logger!.debug(`[db:${name}] ${query}`, params.length ? params : ''),
-      }
-    : undefined
+  const connection = await createConnection(name, config, options)
+  // 查询遥测（开发面板 / OpenTelemetry），没有监听者时为空操作
+  if (connection.dialect !== 'mongodb')
+    instrumentDatabase(connection.db, { connection: name, dialect: connection.dialect })
+  return connection
+}
+
+async function createConnection(name: string, config: ConnectionConfig, options: DatabaseManagerOptions): Promise<Connection> {
+  // 始终传入 logger：遥测借 logQuery 取得实际 SQL 与参数；开启 logging 时同时写日志
+  const logger = queryLogger(config.logging && options.logger
+    ? (query, params) => options.logger!.debug(`[db:${name}] ${query}`, params.length ? params : '')
+    : undefined)
   const base = {
     name,
     driver: config.driver,

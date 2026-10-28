@@ -99,6 +99,8 @@ export interface JobMessage {
   /** 已执行次数 */
   attempts: number
   dispatchedAt: number
+  /** 投递时的追踪上下文（traceparent / tracestate）与请求 ID（requestId），worker 中据此接续链路 */
+  context?: Record<string, string>
 }
 
 export interface FailedJob {

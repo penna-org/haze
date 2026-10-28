@@ -145,6 +145,22 @@ export function redisQueue(config: RedisQueueConfig): QueueDriver {
         count += (await instance.clean(0, 0, 'failed')).length
       return count
     },
+    async counts() {
+      const counts = {
+        waiting: 0,
+        delayed: 0,
+        active: 0,
+        failed: 0,
+      }
+      for (const instance of await managed()) {
+        const item = await instance.getJobCounts('waiting', 'delayed', 'active', 'failed')
+        counts.waiting += item.waiting ?? 0
+        counts.delayed += item.delayed ?? 0
+        counts.active += item.active ?? 0
+        counts.failed += item.failed ?? 0
+      }
+      return counts
+    },
     async close() {
       await Promise.all(workers.splice(0).map(worker => worker.close()))
       await Promise.all([

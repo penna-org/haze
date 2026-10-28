@@ -119,6 +119,26 @@ Workers stop gracefully on `SIGTERM` / `SIGINT`, letting running jobs finish. In
 
 On the other platforms scheduled tasks are triggered by the platform: Cron Triggers on Cloudflare, an EventBridge rule on Lambda, Vercel Cron on Vercel. See [Queues](./queues) and [Task Scheduling](./scheduling).
 
+## Health checks
+
+Every build serves `/health/live` (liveness, always 200) and `/health` / `/health/ready` (readiness: runs the checks in `config/health.ts` and returns 503 when a critical one fails). They bypass global middleware, so load balancers don't need credentials:
+
+```ts
+// config/health.ts
+import { cacheCheck, dbCheck, defineHealthConfig } from '@hazejs/core'
+import { Db } from '@hazejs/orm'
+
+export default defineHealthConfig({
+  checks: { db: dbCheck(Db), cache: cacheCheck() },
+})
+```
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:3000/health/ready || exit 1
+```
+
+Point Kubernetes `livenessProbe` at `/health/live` and `readinessProbe` at `/health/ready`. In production, failure details are logged instead of returned. See [Observability](./observability#health-checks) for the built-in checks and OpenTelemetry setup.
+
 ## Previewing a build
 
 ```bash

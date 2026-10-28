@@ -202,8 +202,63 @@ export default defineConfig(() => ({
 | `requests` | 为每个请求记录访问日志 | 开启（测试时关闭） |
 | `tag` | 输出中显示的标签 | `hazejs` |
 | `write` | 自定义 JSON 行的输出目标 `(line, level) => void` | `error` 写 stderr，其余写 stdout |
+| `channel` | 写入的通道（一个或多个），见[通道](#channels) | `'console'` |
+| `channels` | 通道定义 | 内置 `console` 与 `json` |
 
-开发环境为彩色输出，访问日志形如 `GET /api/hello 200 3ms`。生产环境每行是一个 JSON，包含 `time`、`level`、`tag`、`msg`、`requestId`、上下文字段，记录错误时还有 `err`（name、message、stack），方便日志平台采集。
+开发环境为彩色输出，访问日志形如 `GET /api/hello 200 3ms`。生产环境每行是一个 JSON，包含 `time`、`level`、`tag`、`msg`、`requestId`、上下文字段，记录错误时还有 `err`（name、message、stack），方便日志平台采集。开启 [OpenTelemetry](./observability#opentelemetry) 且有活动的 span 时，JSON 日志还会带上 `trace_id` 与 `span_id`。
+
+### 通道 {#channels}
+
+与 Laravel 的日志通道一样，一条日志可以同时写到多个地方。上文描述的就是默认的 `console` 通道。定义更多通道后用 `channel` 选择：
+
+```ts
+// config/logger.ts
+import { defineConfig, env } from '@hazejs/core'
+
+export default defineConfig(() => ({
+  level: env('LOG_LEVEL', 'info'),
+  channel: 'production',
+  channels: {
+    production: { driver: 'stack', channels: ['console', 'file', 'loki'] },
+    file: { driver: 'file', path: 'storage/logs/app.log', daily: true, maxFiles: 14 },
+    loki: {
+      driver: 'http',
+      url: env('LOKI_URL', 'http://localhost:3100/loki/api/v1/push'),
+      format: 'loki',
+      labels: { app: 'shop' },
+      level: 'warn',
+    },
+    audit: { driver: 'file', path: 'storage/logs/audit.log', daily: false },
+  },
+}))
+```
+
+| 驱动 | 输出 | 选项 |
+|------|------|------|
+| `console` | 控制台，按 `format` 输出 `pretty` 或 `json`（默认通道） | `level` |
+| `json` | 标准输出，每行一个 JSON，不受 `format` 影响 | `level`、`stream: 'stdout' \| 'stderr'` |
+| `file` | 以 JSON 行写入文件（仅 Node、Bun、Deno） | `path`（默认 `storage/logs/haze.log`）、`daily`（默认 `true`，写入 `haze-2026-10-28.log`）、`maxFiles`（默认 14，`0` 为不清理）、`level` |
+| `http` | 批量 `POST` 到日志平台 | `url`、`headers`、`format`（`json` 数组、`ndjson`、`loki` 或 `(entries) => body`）、`batchSize`（100）、`interval`（2000 毫秒）、`maxBuffer`（10000）、`labels`（Loki）、`level` |
+| `custom` | 自定义传输 | `transport: { log(entry), flush?(), close?() }` 或 `(entry) => void`、`level` |
+| `stack` | 组合多个通道 | `channels: ['console', 'file']` |
+
+- 每个通道可以设置自己的 `level`，未设置时使用日志器的 `level`。
+- 访问日志（`requests: true`）同样写入所有通道。
+- 单次写入指定通道：`logger.channel('audit').info('Refund approved', { orderId })`，`child()` 添加的上下文会保留。
+- `http` 驱动缓冲满 `batchSize` 条立即发送，否则最多等待 `interval` 毫秒。缓冲超过 `maxBuffer`（例如日志平台不可用时）会丢弃最旧的日志。发送失败只输出到 stderr，不会抛错。`await logger.flush()` 立即发送缓冲中的日志；应用关闭时会写出并关闭全部通道。
+
+发送到常见的日志平台：
+
+```ts
+channels: {
+  // Datadog：JSON 数组发到 HTTP 接入点
+  datadog: { driver: 'http', url: 'https://http-intake.logs.datadoghq.eu/api/v2/logs', headers: { 'DD-API-KEY': env('DD_API_KEY') } },
+  // Better Stack
+  betterstack: { driver: 'http', url: env('BETTERSTACK_INGEST_URL'), headers: { authorization: `Bearer ${env('BETTERSTACK_TOKEN')}` } },
+  // Grafana Loki
+  loki: { driver: 'http', url: 'http://loki:3100/loki/api/v1/push', format: 'loki' },
+}
+```
 
 ## 请求 ID
 

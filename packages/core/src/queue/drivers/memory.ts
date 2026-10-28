@@ -141,6 +141,16 @@ export function memoryQueue(name: string): QueueDriver & { idle: () => Promise<v
       state.failed = []
       return count
     },
+    async counts() {
+      return {
+        waiting: [
+          ...state.ready.values(),
+        ].reduce((sum, list) => sum + list.length, 0),
+        delayed: state.delayed.size,
+        active,
+        failed: state.failed.length,
+      }
+    },
     async close() {
       consumer = undefined
     },

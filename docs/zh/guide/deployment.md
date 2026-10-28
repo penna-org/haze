@@ -119,6 +119,26 @@ worker 收到 `SIGTERM` / `SIGINT` 后会等执行中的任务完成再退出。
 
 其它平台的定时任务由平台触发：Cloudflare 用 Cron Triggers，Lambda 用 EventBridge 规则，Vercel 用 Vercel Cron。详见[队列](./queues)与[定时任务](./scheduling)。
 
+## 健康检查
+
+产物默认提供 `/health/live`（存活检查，始终返回 200）与 `/health` / `/health/ready`（就绪检查：执行 `config/health.ts` 中的检查项，关键检查故障时返回 503）。它们不经过全局中间件，负载均衡探测无需凭据：
+
+```ts
+// config/health.ts
+import { cacheCheck, dbCheck, defineHealthConfig } from '@hazejs/core'
+import { Db } from '@hazejs/orm'
+
+export default defineHealthConfig({
+  checks: { db: dbCheck(Db), cache: cacheCheck() },
+})
+```
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:3000/health/ready || exit 1
+```
+
+Kubernetes 中把 `livenessProbe` 指向 `/health/live`，`readinessProbe` 指向 `/health/ready`。生产环境中故障原因只写入日志，不出现在响应里。内置检查与 OpenTelemetry 的配置见[可观测性](./observability#health-checks)。
+
 ## 预览产物
 
 ```bash

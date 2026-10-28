@@ -1,5 +1,6 @@
 import type { EmbeddingModel, ImageModel, LanguageModel, SpeechModel, TranscriptionModel } from './types'
 import { NoSuchModelError } from './errors'
+import { instrumentModel } from './telemetry'
 
 /** 厂商：按模型 ID 创建各类模型 */
 export interface Provider {
@@ -98,6 +99,11 @@ export function setModelOverride(value: ModelOverride | undefined): void {
 }
 
 export function resolveModel<K extends ModelKind>(kind: K, ref: ModelRef<ModelByKind[K]> | undefined): ModelByKind[K] {
+  // 有遥测监听者（开发面板 / OpenTelemetry）时记录模型、token 与耗时
+  return instrumentModel(kind, resolveRawModel(kind, ref))
+}
+
+function resolveRawModel<K extends ModelKind>(kind: K, ref: ModelRef<ModelByKind[K]> | undefined): ModelByKind[K] {
   if (override)
     return override(kind, ref)
   if (ref !== undefined && typeof ref !== 'string')
