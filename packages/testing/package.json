@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/testing",
   "type": "module",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Vitest helpers for hazejs: test app, HTTP client, actingAs and fakes",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/testing#readme",
