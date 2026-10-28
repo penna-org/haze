@@ -5,6 +5,12 @@
       "@hazejs/core": [
         "./packages/core/src/index.ts"
       ],
+      "@hazejs/core/client": [
+        "./packages/core/src/client.ts"
+      ],
+      "@hazejs/core/echo": [
+        "./packages/core/src/broadcast/echo.ts"
+      ],
       "~/*": [
         "./playground/*"
       ],
@@ -25,6 +31,12 @@
       ],
       "@hazejs/microservices": [
         "./packages/microservices/src/index.ts"
+      ],
+      "@hazejs/search": [
+        "./packages/search/src/index.ts"
+      ],
+      "@hazejs/oauth": [
+        "./packages/oauth/src/index.ts"
       ]
     }
   },

@@ -111,15 +111,17 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | 领域 | 内容 |
 | --- | --- |
 | HTTP | 集中路由、分组、资源路由、命名路由、按域名 / 前缀的多应用、类与函数中间件、出站拦截器、统一响应格式、异常处理与开发错误页 |
-| 校验 | Standard Schema（`validate()`、路由级 `.validate({ body, query, params })`），类型化的 `ctx.validated` |
+| 校验 | Standard Schema（`validate()`、路由级 `.validate({ body, query, params })`），类型化的 `ctx.validated`，校验错误消息多语言 |
+| API | OpenAPI 3.1 与 Scalar / Swagger 界面、由 typegen 生成的类型安全 HTTP 客户端、API 资源、签名链接；`@hazejs/graphql` 提供 GraphQL |
 | 容器 | `inject()`，Singleton / Request / Transient 作用域，服务提供者，跨热更新的持久资源 |
-| 数据 | `@hazejs/orm`（基于 drizzle）：模型、查询构造器、软删除、迁移、数据填充，支持 MySQL、PostgreSQL、SQLite、Turso、D1，以及 MongoDB 适配器 |
-| 安全 | JWT（jose）与 Session Guard、`Hash`（scrypt）、签名 / 加密 Cookie、Gate 与 Policy、CSRF、CORS、安全响应头、限流 |
-| 基础设施 | 缓存（memory / Redis / Upstash / KV，原子锁，响应缓存）、队列（sync / memory / BullMQ / Cloudflare Queues）、定时任务（cron、时区、单实例执行）、事件与排队监听器 |
-| 实时通信 | 基于 crossws 的 WebSocket（Redis 多实例广播，Workers 上使用 Durable Object）；`@hazejs/socket.io` 集成 Socket.IO（Node 与 Bun、Guard 鉴权、Redis 适配器） |
+| 数据 | `@hazejs/orm`（基于 drizzle）：模型、关联、查询构造器、事务、软删除、迁移、数据填充，支持 MySQL、PostgreSQL、SQLite、Turso、D1，以及 MongoDB 适配器；`@hazejs/search` 提供全文搜索（数据库、Meilisearch、Typesense、Elasticsearch / OpenSearch） |
+| 安全 | JWT（jose）、Session 与 API 令牌 Guard、`Hash`（scrypt）、`Crypt`（AES-GCM）、签名 / 加密 Cookie、Gate 与 Policy、CSRF、CORS、安全响应头、限流、邮箱验证、重置密码、TOTP 两步验证、通行密钥；`@hazejs/oauth` 提供第三方登录（含微信、QQ、钉钉、飞书、企业微信、支付宝与 OIDC） |
+| 基础设施 | 缓存（memory / Redis / Upstash / KV，原子锁，响应缓存）、队列（sync / memory / BullMQ / Cloudflare Queues）、定时任务（cron、时区、单实例执行）、事件与排队监听器、通知（邮件、数据库、Slack、Webhook、企业微信 / 钉钉 / 飞书机器人）、多租户、多语言 |
+| 实时通信 | 基于 crossws 的 WebSocket（Redis 多实例广播，Workers 上使用 Durable Object）；`@hazejs/socket.io` 集成 Socket.IO（Node 与 Bun、Guard 鉴权、Redis 适配器）；私有 / Presence 频道广播（WS / SSE / Socket.IO）；`@hazejs/microservices` 提供服务间通信（Redis、NATS、gRPC） |
 | 文件与邮件 | 磁盘：local / S3（AWS SDK v3、分片上传、预签名）/ R2 / memory，签名临时链接；邮件：SMTP / Resend / Postmark / Mailgun / SES，排队发送，布局辅助 |
 | AI | `@hazejs/ai`：OpenAI、Anthropic、Gemini、Azure、Bedrock、Workers AI 与 11 个 OpenAI 兼容厂商，不依赖厂商 SDK；流式输出、工具循环、结构化输出、Embedding 与 RAG、带记忆的 Agent、图像、语音、MCP 客户端与服务端、Vue / React 的 `useChat`、`AI.fake()` |
-| 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`typegen`、`make:*`（16 种生成器）、`db:*`、`queue:*`、`schedule:*`、`key:generate` |
+| 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`typegen`、`make:*`、`db:*`、`queue:*`、`schedule:*`、`openapi`、`repl`、`key:generate`，以及 `app/command` 下的自定义命令 |
+| 可观测性 | 健康检查、OpenTelemetry 链路与指标、日志通道（文件、HTTP、JSON）、`/__haze` 开发面板与队列面板 |
 | 部署 | node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda，提供迁移与 worker 入口 |
 
 与其它 Node.js 框架的对比和后续规划见[路线图](https://penna-org.github.io/haze/zh/roadmap)。
@@ -135,6 +137,10 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | [`@hazejs/testing`](./packages/testing) | Vitest 集成与 HTTP 测试客户端 |
 | [`@hazejs/ai`](./packages/ai) | AI 工具包：多厂商、流式、工具、结构化输出、Agent、RAG、MCP、`useChat` |
 | [`@hazejs/socket.io`](./packages/socketio) | Socket.IO 服务端集成 |
+| [`@hazejs/oauth`](./packages/oauth) | OAuth / OpenID Connect 第三方登录 |
+| [`@hazejs/search`](./packages/search) | 模型全文搜索 |
+| [`@hazejs/graphql`](./packages/graphql) | 基于 HTTP 与 WebSocket 的 GraphQL |
+| [`@hazejs/microservices`](./packages/microservices) | 基于 Redis、NATS、gRPC 的服务间通信 |
 | [`create-hazejs`](./packages/create) | 项目脚手架（api / vue / react 模板） |
 
 ## 文档

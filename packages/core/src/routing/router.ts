@@ -5,12 +5,16 @@ import type { MiddlewareRef } from '../middleware/types'
 import type { Constructor } from '../utils'
 import type { RouteModule, RouteRegistrar } from './builder'
 import type { Route, RouteDefinition, RouteHandler } from './route'
+import type { SignedUrlOptions } from './signed'
+import { Config } from '../config/config'
 import { Scope, scopeOf } from '../container/container'
 import { getHttpContext } from '../http/context'
 import { validateRequest } from '../http/validation'
+import { getRequestStore } from '../request'
 import { isPlainObject, joinPath } from '../utils'
 import { isRouteModule, RouteBuilder } from './builder'
 import { isControllerAction } from './route'
+import { signUrl } from './signed'
 
 /** 控制器级中间件声明：`static middleware = ['auth', { use: 'log', only: ['store'] }]` */
 export interface ControllerMiddleware {
@@ -34,6 +38,11 @@ type UrlArgs<N> = N extends KnownRoute
       ? [params?: Record<string, never>, query?: Query]
       : [params: RouteNames[N], query?: Query]
   : [params?: Record<string, string | number>, query?: Query]
+type SignedUrlArgs<N> = N extends KnownRoute
+  ? [keyof RouteNames[N]] extends [never]
+      ? [params?: Record<string, never>, options?: SignedUrlOptions]
+      : [params: RouteNames[N], options?: SignedUrlOptions]
+  : [params?: Record<string, string | number>, options?: SignedUrlOptions]
 
 export interface RouteInfo {
   method: string
@@ -69,6 +78,8 @@ export class Router {
   readonly #routes: Route[] = []
   readonly #mounts: Array<{ router: Router } & MountOptions> = []
   #compiled: RouteRecord[] = []
+  /** compile() 时记录，签名链接在请求之外读取 APP_KEY / APP_URL */
+  #container: Container | undefined
 
   /** 加载路由模块；`as` 为路由名前缀（多应用时为 `<app>.`） */
   load(module: RouteModule | RouteRegistrar, options: { as?: string } = {}): this {
@@ -136,6 +147,36 @@ export class Router {
       : path
   }
 
+  /**
+   * 生成带签名的链接（HMAC-SHA256，密钥为 APP_KEY，覆盖路径与排序后的查询参数），
+   * 配合 `signed` 中间件或 `ctx.hasValidSignature()` 校验；设置了 APP_URL 时为绝对链接：
+   *
+   * ```ts
+   * await router.signedUrl('unsubscribe', { id: user.id })
+   * await router.signedUrl('invitations.accept', { id }, { expiresIn: '7d' })
+   * ```
+   */
+  signedUrl<N extends RouteName>(name: N, ...args: SignedUrlArgs<N>): Promise<string>
+  signedUrl(name: string, params: Record<string, string | number> = {}, options: SignedUrlOptions = {}): Promise<string> {
+    const { query, ...rest } = options
+    return signUrl(this.url(name as RouteName, params as never), {
+      ...rest,
+      query,
+      config: getRequestStore()?.ctx.config ?? this.#container?.make(Config),
+    })
+  }
+
+  /** 带有效期的签名链接：`await router.temporarySignedUrl('downloads.show', '30m', { id })` */
+  temporarySignedUrl<N extends RouteName>(name: N, expiresIn: string | number | Date, ...args: SignedUrlArgs<N>): Promise<string>
+  temporarySignedUrl(name: string, expiresIn: string | number | Date, params: Record<string, string | number> = {}, options: SignedUrlOptions = {}): Promise<string> {
+    return this.signedUrl(name as RouteName, params as never, {
+      ...options,
+      ...(expiresIn instanceof Date
+        ? { expiresAt: expiresIn }
+        : { expiresIn }),
+    } as never)
+  }
+
   #pathOf(name: string): string | undefined {
     const own = this.definitions().find(def => def.name === name)
     if (own)
@@ -149,6 +190,7 @@ export class Router {
   }
 
   compile({ h3, container, middleware }: CompileOptions): void {
+    this.#container = container
     const names = new Set<string>()
     this.#compiled = this.definitions().map((definition) => {
       if (definition.name) {

@@ -64,6 +64,29 @@ jobs:
       mailpit:
         image: axllent/mailpit:latest
         ports: ['11025:1025', '18025:8025']
+      nats:
+        image: nats:2
+        ports: ['4222:4222']
+      meilisearch:
+        image: getmeili/meilisearch:v1.56.0
+        ports: ['7700:7700']
+        env:
+          MEILI_MASTER_KEY: haze-test-master-key-1234567890
+          MEILI_NO_ANALYTICS: 'true'
+      typesense:
+        image: typesense/typesense:30.2
+        ports: ['8108:8108']
+        env:
+          TYPESENSE_DATA_DIR: /tmp
+          TYPESENSE_API_KEY: haze-ts-key
+      elasticsearch:
+        image: elasticsearch:9.5.5
+        ports: ['9200:9200']
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: 'false'
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        options: --health-cmd "curl -fs http://localhost:9200/_cluster/health" --health-interval 10s --health-timeout 5s --health-retries 30
     env:
       HAZE_TEST_REDIS_URL: redis://127.0.0.1:6379
       HAZE_TEST_UPSTASH_URL: http://127.0.0.1:8079
@@ -73,6 +96,12 @@ jobs:
       HAZE_TEST_S3_ENDPOINT: http://127.0.0.1:19000
       HAZE_TEST_SMTP_URL: smtp://127.0.0.1:11025
       HAZE_TEST_MAILPIT_API: http://127.0.0.1:18025
+      HAZE_TEST_NATS_URL: nats://127.0.0.1:4222
+      HAZE_TEST_MEILISEARCH_URL: http://127.0.0.1:7700
+      HAZE_TEST_MEILISEARCH_KEY: haze-test-master-key-1234567890
+      HAZE_TEST_TYPESENSE_URL: http://127.0.0.1:8108
+      HAZE_TEST_TYPESENSE_KEY: haze-ts-key
+      HAZE_TEST_ELASTICSEARCH_URL: http://127.0.0.1:9200
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -83,4 +112,9 @@ jobs:
       # Bun 预设与 Socket.IO Bun 引擎的测试（未安装时跳过）
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: pnpm install --frozen-lockfile
+      # 等待搜索服务就绪（没有内置健康检查的服务）
+      - run: |
+          for url in http://127.0.0.1:7700/health http://127.0.0.1:8108/health; do
+            for i in $(seq 1 60); do curl -fs "$url" > /dev/null && break; sleep 1; done
+          done
       - run: pnpm test

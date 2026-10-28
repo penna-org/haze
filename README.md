@@ -111,15 +111,17 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | Area | What you get |
 | --- | --- |
 | HTTP | Centralized routes, groups, resources, named routes, domain / prefix sub-apps, class & function middleware, interceptors, unified response envelope, exception handler with dev error page |
-| Validation | Standard Schema (`validate()`, per-route `.validate({ body, query, params })`), typed `ctx.validated` |
+| Validation | Standard Schema (`validate()`, per-route `.validate({ body, query, params })`), typed `ctx.validated`, translated error messages |
+| API | OpenAPI 3.1 with Scalar / Swagger UI, typed HTTP client from typegen, API resources, signed URLs; GraphQL via `@hazejs/graphql` |
 | Container | `inject()`, singleton / request / transient scopes, service providers, HMR-persistent resources |
-| Data | `@hazejs/orm` on drizzle: models, query builder, soft deletes, migrations, seeders — MySQL, PostgreSQL, SQLite, Turso, D1; MongoDB adapter |
-| Security | JWT (jose) and session guards, `Hash` (scrypt), signed / encrypted cookies, gates & policies, CSRF, CORS, secure headers, rate limiting |
-| Infrastructure | Cache (memory / Redis / Upstash / KV, atomic locks, response cache), queues (sync / memory / BullMQ / Cloudflare Queues), scheduler (cron, timezones, single-server), events & queued listeners |
-| Realtime | WebSocket via crossws (Redis fan-out, Durable Objects on Workers), Socket.IO via `@hazejs/socket.io` (Node & Bun, guard auth, Redis adapter) |
+| Data | `@hazejs/orm` on drizzle: models, relations, query builder, transactions, soft deletes, migrations, seeders — MySQL, PostgreSQL, SQLite, Turso, D1; MongoDB adapter; full-text search via `@hazejs/search` (database, Meilisearch, Typesense, Elasticsearch / OpenSearch) |
+| Security | JWT (jose), session and API token guards, `Hash` (scrypt), `Crypt` (AES-GCM), signed / encrypted cookies, gates & policies, CSRF, CORS, secure headers, rate limiting, email verification, password reset, TOTP 2FA, passkeys, OAuth social login via `@hazejs/oauth` (incl. WeChat, QQ, DingTalk, Feishu, WeCom, Alipay, OIDC) |
+| Infrastructure | Cache (memory / Redis / Upstash / KV, atomic locks, response cache), queues (sync / memory / BullMQ / Cloudflare Queues), scheduler (cron, timezones, single-server), events & queued listeners, notifications (mail, database, Slack, webhooks, WeCom / DingTalk / Feishu bots), multi-tenancy, i18n |
+| Realtime | WebSocket via crossws (Redis fan-out, Durable Objects on Workers), Socket.IO via `@hazejs/socket.io` (Node & Bun, guard auth, Redis adapter), broadcasting with private / presence channels over WS / SSE / Socket.IO; service-to-service messaging via `@hazejs/microservices` (Redis, NATS, gRPC) |
 | Files & mail | Disks: local / S3 (AWS SDK v3, multipart, presigned) / R2 / memory with signed URLs; mail: SMTP / Resend / Postmark / Mailgun / SES, queued sending, layout helpers |
 | AI | `@hazejs/ai`: OpenAI, Anthropic, Gemini, Azure, Bedrock, Workers AI and 11 OpenAI-compatible providers with no SDK dependencies — streaming, tool loops, structured output, embeddings & RAG, agents with memory, images, speech, MCP client/server, `useChat` for Vue/React, `AI.fake()` |
-| Tooling | `haze` CLI: `dev`, `build`, `preview`, `start`, `test`, `route:list`, `typegen`, `make:*` (16 generators), `db:*`, `queue:*`, `schedule:*`, `key:generate` |
+| Tooling | `haze` CLI: `dev`, `build`, `preview`, `start`, `test`, `route:list`, `typegen`, `make:*`, `db:*`, `queue:*`, `schedule:*`, `openapi`, `repl`, `key:generate`, and your own commands in `app/command` |
+| Observability | Health checks, OpenTelemetry traces and metrics, log channels (file, HTTP, JSON), dev dashboard at `/__haze` with a queue dashboard |
 | Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda — with migration and worker entries |
 
 See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](https://penna-org.github.io/haze/roadmap).
@@ -135,6 +137,10 @@ See how this compares with other Node.js frameworks, and what is coming next, in
 | [`@hazejs/testing`](./packages/testing) | Vitest integration and HTTP test client |
 | [`@hazejs/ai`](./packages/ai) | AI toolkit: providers, streaming, tools, structured output, agents, RAG, MCP, `useChat` |
 | [`@hazejs/socket.io`](./packages/socketio) | Socket.IO server integration |
+| [`@hazejs/oauth`](./packages/oauth) | OAuth / OpenID Connect social login |
+| [`@hazejs/search`](./packages/search) | Full-text search for models |
+| [`@hazejs/graphql`](./packages/graphql) | GraphQL over HTTP and WebSocket |
+| [`@hazejs/microservices`](./packages/microservices) | Messaging between services over Redis, NATS and gRPC |
 | [`create-hazejs`](./packages/create) | Project scaffolding (api / vue / react templates) |
 
 ## Documentation

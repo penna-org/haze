@@ -179,6 +179,35 @@ export const KINDS = {
     stub: 'mail',
     hint: v => `发送：await Mail.to(user.email).send(${v.className}, { name: user.name })；排队发送用 .queue(...)`,
   },
+  notification: {
+    description: '通知',
+    suffix: 'Notification',
+    dir: 'app/notification',
+    base: 'src',
+    file: 'class',
+    flat: true,
+    stub: 'notification',
+    hint: v => `发送：await notify(user, ${v.className}({ message: '...' }))；数据库渠道需要 haze make:notifications-table`,
+  },
+  channel: {
+    description: '广播频道授权',
+    suffix: '',
+    dir: 'app/channel',
+    base: 'src',
+    file: 'kebab',
+    flat: true,
+    stub: 'channel',
+    hint: v => `前端订阅：echo.private('${v.camelName}.1')；服务端：await broadcast({ channel: privateChannel('${v.camelName}.1'), event, data })`,
+  },
+  resource: {
+    description: 'API 资源',
+    suffix: 'Resource',
+    dir: 'app/resource',
+    base: 'src',
+    file: 'class',
+    stub: 'resource',
+    hint: v => `返回：${v.className}.make(model) / ${v.className}.collection(await Model.paginate(page, 20))`,
+  },
   seeder: {
     description: '数据填充',
     suffix: 'Seeder',
@@ -344,4 +373,44 @@ export async function makeModel(options: MakeModelOptions): Promise<{ model: str
 
 export function render(content: string, vars: StubVariables): string {
   return content.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) => (vars as unknown as Record<string, string>)[key] ?? match)
+}
+
+export interface MakeNotificationsTableOptions {
+  root: string
+  srcDir: string
+  dialect?: Exclude<Dialect, 'mongodb'>
+  force?: boolean
+}
+
+/** 通知的 database 渠道使用的表结构（database/schema/notifications.ts） */
+export async function makeNotificationsTable(options: MakeNotificationsTableOptions): Promise<{ schema: string, hint: string }> {
+  const schema = join(options.srcDir, 'database/schema', 'notifications.ts')
+  if (existsSync(schema) && !options.force)
+    throw new Error(`${schema} already exists. Use --force to overwrite.`)
+  await mkdir(dirname(schema), { recursive: true })
+  await writeFile(schema, readStub(options.root, `notifications.${options.dialect ?? 'sqlite'}`).content)
+  return {
+    schema,
+    hint: '运行 haze db:generate && haze db:migrate，然后在 config/notification.ts 中设置 channels.database.store: () => databaseNotificationStore(notifications)',
+  }
+}
+
+export interface MakeAuthTablesOptions {
+  root: string
+  srcDir: string
+  dialect?: Exclude<Dialect, 'mongodb'>
+  force?: boolean
+}
+
+/** 认证扩展的表结构（database/schema/auth.ts）：个人访问令牌、找回密码、两步验证、通行密钥 */
+export async function makeAuthTables(options: MakeAuthTablesOptions): Promise<{ schema: string, hint: string }> {
+  const schema = join(options.srcDir, 'database/schema', 'auth.ts')
+  if (existsSync(schema) && !options.force)
+    throw new Error(`${schema} already exists. Use --force to overwrite.`)
+  await mkdir(dirname(schema), { recursive: true })
+  await writeFile(schema, readStub(options.root, `auth-tables.${options.dialect ?? 'sqlite'}`).content)
+  return {
+    schema,
+    hint: '运行 haze db:generate && haze db:migrate，然后在 config/auth.ts 中使用 databaseTokenStore(personalAccessTokens) 等存储（见文档 API 令牌 / 两步验证）',
+  }
 }

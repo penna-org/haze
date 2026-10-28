@@ -104,7 +104,7 @@ hazejs 介于 Express、Fastify、Hono 这类轻量路由库与 NestJS、AdonisJ
 - 希望同一份代码既能部署到云服务器、容器，也能部署到 Serverless 函数或 Cloudflare Workers；
 - 有 Laravel 或 ThinkPHP 背景，希望沿用熟悉的项目结构。
 
-以下情况可能不太合适：只需要寥寥几个接口（轻量路由库更简单）；现在就需要稳定的 1.0 API；或者依赖[路线图](/zh/roadmap)中尚未实现的功能，例如 OpenAPI 生成、国际化。
+以下情况可能不太合适：只需要寥寥几个接口（轻量路由库更简单）；现在就需要稳定的 1.0 API；或者需要像 Express 那样庞大的第三方插件生态。
 
 ## 下一步
 

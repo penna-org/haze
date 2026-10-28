@@ -2,7 +2,7 @@
 
 hazejs aims to be the most complete backend framework in the Node.js ecosystem: everything a production application needs, first-party, consistent, typed and deployable anywhere — without giving up a fast, modern toolchain.
 
-This page compares where hazejs stands today with other popular choices, and lists what is planned to close every remaining gap.
+This page compares where hazejs stands today with other popular choices, and lists what comes next.
 
 ## Comparison
 
@@ -34,15 +34,16 @@ The comparison reflects official packages as of October 2026, to the best of our
 | Full-stack Vite (same port, one build) | ✅ any Vite framework | — | ◐ Inertia / Vite | ◐ Vite / Inertia | — |
 | Edge & serverless deploy presets | ✅ 8 presets | — | — | ◐ Vapor | ◐ Hono |
 | Cloudflare D1 / KV / R2 / Queues / DO drivers | ✅ | — | — | — | ◐ Hono (bindings) |
-| OpenAPI generation | planned | ✅ | 🧩 | 🧩 | ◐ |
-| Internationalization | planned | 🧩 | ✅ | ✅ | 🧩 |
-| Notifications (multi-channel) | planned | — | 🧩 | ✅ | — |
-| Broadcasting with private / presence channels | planned | — | ◐ | ✅ | — |
-| Custom console commands, REPL | planned | 🧩 | ✅ | ✅ | — |
-| Observability (health, tracing, dashboards) | planned | ◐ | ◐ | ✅ Telescope / Pulse / Horizon | 🧩 |
-| OAuth social login, API tokens, 2FA | planned | 🧩 | ◐ Ally / tokens | ✅ | 🧩 |
-| Full-text search | planned | 🧩 | 🧩 | ✅ Scout | 🧩 |
-| GraphQL, microservice transports | planned | ✅ | 🧩 | 🧩 | 🧩 |
+| OpenAPI generation, typed client | ✅ | ✅ | 🧩 | 🧩 | ◐ |
+| Internationalization | ✅ | 🧩 | ✅ | ✅ | 🧩 |
+| Notifications (multi-channel) | ✅ incl. WeCom / DingTalk / Feishu | — | 🧩 | ✅ | — |
+| Broadcasting with private / presence channels | ✅ WS / SSE / Socket.IO | — | ◐ | ✅ | — |
+| Custom console commands, REPL | ✅ | 🧩 | ✅ | ✅ | — |
+| Observability (health, tracing, dashboards) | ✅ OpenTelemetry, `/__haze` | ◐ | ◐ | ✅ Telescope / Pulse / Horizon | 🧩 |
+| OAuth social login, API tokens, 2FA | ✅ incl. passkeys, Chinese providers | 🧩 | ◐ Ally / tokens | ✅ | 🧩 |
+| Full-text search | ✅ `@hazejs/search` | 🧩 | 🧩 | ✅ Scout | 🧩 |
+| Multi-tenancy | ✅ | 🧩 | 🧩 | 🧩 | 🧩 |
+| GraphQL, microservice transports | ✅ `@hazejs/graphql`, `@hazejs/microservices` | ✅ | 🧩 | 🧩 | 🧩 |
 | Documentation site | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Done so far
@@ -59,6 +60,11 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M19 | Documentation site (VitePress, English + 中文) on GitHub Pages; `@hazejs/ai`: 17 providers without SDK dependencies, streaming, tools, structured output, embeddings & RAG, agents with memory, images, speech, MCP, `useChat` |
 | M20 | **OpenAPI** generated from routes and Standard Schema validators, Swagger / Scalar UI, typed HTTP client for frontends |
 | M21 | **Console**: user-defined commands (`app/command`, `haze make:command`), `haze repl`, `make:mail`, `make:command` |
+| M22 | **Notifications** (mail, database, broadcast, Slack / webhooks) and **broadcasting** with private / presence channel authorization over WebSocket, Socket.IO and SSE |
+| M23 | **i18n** (localized messages, validation errors, mail), API resources / transformers, signed route URLs, encryption service |
+| M24 | **Observability**: health checks, OpenTelemetry traces and metrics, log transports, a dev dashboard for requests, queries, jobs and mail; queue dashboard |
+| M25 | **Auth extensions**: OAuth social login, personal access tokens, email verification and password reset flows, TOTP 2FA, passkeys |
+| M26 | **Search** (database full-text, Meilisearch, Typesense, Elasticsearch / OpenSearch) and multi-tenancy |
 | M27 | Optional packages: GraphQL, microservice transports (Redis, NATS, gRPC) |
 
 ## Next
@@ -67,11 +73,6 @@ Priorities may shift with community feedback. Each milestone ships with tests, t
 
 | Milestone | Scope |
 | --- | --- |
-| M22 | **Notifications** (mail, database, broadcast, Slack / webhooks) and **broadcasting** with private / presence channel authorization over WebSocket, Socket.IO and SSE |
-| M23 | **i18n** (localized messages, validation errors, mail), API resources / transformers, signed route URLs, encryption service |
-| M24 | **Observability**: health checks, OpenTelemetry traces and metrics, log transports, a dev dashboard for requests, queries, jobs and mail; queue dashboard |
-| M25 | **Auth extensions**: OAuth social login, personal access tokens, email verification and password reset flows, TOTP 2FA, passkeys |
-| M26 | **Search** (database, Meilisearch, Typesense) and multi-tenancy helpers |
 | 1.0 | API freeze, benchmarks, upgrade guides, long-term support policy |
 
 Have an idea or need something sooner? Open a [feature request](https://github.com/penna-org/haze/issues/new/choose).

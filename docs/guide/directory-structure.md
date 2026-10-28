@@ -9,6 +9,7 @@ The backend source directory is the project root:
 ```
 my-app/
 ├─ app/
+│  ├─ channel/          Broadcast channel authorization (auto-discovered)
 │  ├─ command/          Console commands (auto-discovered)
 │  ├─ controller/       HTTP controllers
 │  ├─ event/            Events (auto-discovered)
@@ -18,6 +19,7 @@ my-app/
 │  ├─ listener/         Event listeners (auto-discovered)
 │  ├─ mail/             Mail definitions
 │  ├─ model/            ORM models
+│  ├─ notification/     Notifications (auto-discovered)
 │  ├─ policy/           Authorization policies (auto-discovered)
 │  ├─ provider/         Service providers (auto-discovered)
 │  ├─ response/
@@ -100,6 +102,8 @@ The Vite plugin builds a manifest of these files with `import.meta.glob`. Only t
 | `app/listener/*.ts` | Listeners, run in file-name order |
 | `schedule/*.ts` | Scheduled tasks |
 | `app/socket/*.ts` | Socket.IO namespaces, read by `@hazejs/socket.io` |
+| `app/notification/*.ts` | Notifications. The file name is the notification type |
+| `app/channel/*.ts` | Broadcast channel authorization (`defineChannels()`) |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | Per-app modules for [multiple apps](./multi-app) |
 
 Adding or deleting one of these files in dev regenerates the manifest — no restart needed.
@@ -153,6 +157,14 @@ Events (`defineEvent()`) and listeners (`defineListener(Event, handler)`). Both 
 ### `app/mail`
 
 Mail definitions (`defineMail()`), imported where you send them: `Mail.to(user.email).send(WelcomeMail, payload)`. Not discovered. See [Mail](./mail).
+
+### `app/notification`
+
+Notifications defined with `defineNotification()`, sent with `notify(user, InvoicePaid(payload))` over mail, database, broadcast, Slack, webhooks and chat robots. They are discovered only to name them: the file name becomes the `type` stored in the database and pushed to the browser. See [Notifications](./notifications).
+
+### `app/channel`
+
+Authorization for private and presence broadcast channels (`defineChannels((c) => { c.private('orders.{id}', …) })`). Every file is loaded; when at least one exists, the `/broadcasting` endpoints are enabled. See [Broadcasting](./broadcasting).
 
 ### `app/socket`
 

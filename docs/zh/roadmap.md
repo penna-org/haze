@@ -2,7 +2,7 @@
 
 hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应用需要的能力都由官方提供，风格统一、类型完整、可以部署到任何平台，同时保持快速、现代的工具链。
 
-本页对比 hazejs 当前的能力与其它常见选择，并列出补齐剩余差距的计划。
+本页对比 hazejs 当前的能力与其它常见选择，并列出后续计划。
 
 ## 对比
 
@@ -34,15 +34,16 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | Vite 全栈（同端口、一次构建） | ✅ 任意 Vite 框架 | — | ◐ Inertia / Vite | ◐ Vite / Inertia | — |
 | Edge 与 Serverless 部署预设 | ✅ 8 个预设 | — | — | ◐ Vapor | ◐ Hono |
 | Cloudflare D1 / KV / R2 / Queues / DO 驱动 | ✅ | — | — | — | ◐ Hono（绑定） |
-| OpenAPI 生成 | 计划中 | ✅ | 🧩 | 🧩 | ◐ |
-| 国际化 | 计划中 | 🧩 | ✅ | ✅ | 🧩 |
-| 多渠道通知 | 计划中 | — | 🧩 | ✅ | — |
-| 私有 / Presence 频道广播 | 计划中 | — | ◐ | ✅ | — |
-| 自定义命令、REPL | 计划中 | 🧩 | ✅ | ✅ | — |
-| 可观测性（健康检查、链路追踪、面板） | 计划中 | ◐ | ◐ | ✅ Telescope / Pulse / Horizon | 🧩 |
-| OAuth 社交登录、API Token、双因素认证 | 计划中 | 🧩 | ◐ Ally / Token | ✅ | 🧩 |
-| 全文搜索 | 计划中 | 🧩 | 🧩 | ✅ Scout | 🧩 |
-| GraphQL、微服务传输 | 计划中 | ✅ | 🧩 | 🧩 | 🧩 |
+| OpenAPI 生成、类型安全的客户端 | ✅ | ✅ | 🧩 | 🧩 | ◐ |
+| 国际化 | ✅ | 🧩 | ✅ | ✅ | 🧩 |
+| 多渠道通知 | ✅ 含企业微信 / 钉钉 / 飞书 | — | 🧩 | ✅ | — |
+| 私有 / Presence 频道广播 | ✅ WS / SSE / Socket.IO | — | ◐ | ✅ | — |
+| 自定义命令、REPL | ✅ | 🧩 | ✅ | ✅ | — |
+| 可观测性（健康检查、链路追踪、面板） | ✅ OpenTelemetry、`/__haze` | ◐ | ◐ | ✅ Telescope / Pulse / Horizon | 🧩 |
+| OAuth 社交登录、API Token、双因素认证 | ✅ 含通行密钥、国内厂商 | 🧩 | ◐ Ally / Token | ✅ | 🧩 |
+| 全文搜索 | ✅ `@hazejs/search` | 🧩 | 🧩 | ✅ Scout | 🧩 |
+| 多租户 | ✅ | 🧩 | 🧩 | 🧩 | 🧩 |
+| GraphQL、微服务传输 | ✅ `@hazejs/graphql`、`@hazejs/microservices` | ✅ | 🧩 | 🧩 | 🧩 |
 | 文档站 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## 已完成
@@ -59,6 +60,11 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | M19 | 文档站（VitePress，英文 + 中文，GitHub Pages）；`@hazejs/ai`：17 个厂商、无 SDK 依赖，流式输出、工具、结构化输出、Embedding 与 RAG、带记忆的 Agent、图像、语音、MCP、`useChat` |
 | M20 | **OpenAPI**：由路由与 Standard Schema 校验生成，提供 Swagger / Scalar 界面，以及给前端用的类型化 HTTP 客户端 |
 | M21 | **命令行扩展**：自定义命令（`app/command`、`haze make:command`）、`haze repl`、`make:mail` |
+| M22 | **通知**（邮件、数据库、广播、Slack / Webhook）与**广播频道**（私有 / Presence 频道鉴权，基于 WebSocket、Socket.IO 与 SSE） |
+| M23 | **国际化**（消息、校验错误、邮件）、API Resource / 转换器、签名路由链接、加密服务 |
+| M24 | **可观测性**：健康检查、OpenTelemetry 链路与指标、日志传输、开发面板（请求、查询、任务、邮件）、队列面板 |
+| M25 | **认证扩展**：OAuth 社交登录、个人访问令牌、邮箱验证与重置密码流程、TOTP 双因素认证、Passkey |
+| M26 | **搜索**（数据库全文检索、Meilisearch、Typesense、Elasticsearch / OpenSearch）与多租户 |
 | M27 | 可选包：GraphQL、微服务传输（Redis、NATS、gRPC） |
 
 ## 后续计划
@@ -67,11 +73,6 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 
 | 里程碑 | 内容 |
 | --- | --- |
-| M22 | **通知**（邮件、数据库、广播、Slack / Webhook）与**广播频道**（私有 / Presence 频道鉴权，基于 WebSocket、Socket.IO 与 SSE） |
-| M23 | **国际化**（消息、校验错误、邮件）、API Resource / 转换器、签名路由链接、加密服务 |
-| M24 | **可观测性**：健康检查、OpenTelemetry 链路与指标、日志传输、开发面板（请求、查询、任务、邮件）、队列面板 |
-| M25 | **认证扩展**：OAuth 社交登录、个人访问令牌、邮箱验证与重置密码流程、TOTP 双因素认证、Passkey |
-| M26 | **搜索**（数据库、Meilisearch、Typesense）与多租户辅助 |
 | 1.0 | API 冻结、性能基准、升级指南、长期支持策略 |
 
 有想法或急需某个功能？欢迎提交 [Feature Request](https://github.com/penna-org/haze/issues/new/choose)。

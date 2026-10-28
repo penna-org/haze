@@ -8,7 +8,7 @@ import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'
 import { resolveRoot, rootArg } from '../args'
-import { KINDS, make, makeModel } from '../make/generator'
+import { KINDS, make, makeAuthTables, makeModel, makeNotificationsTable } from '../make/generator'
 
 function makeCommand(kind: KindName): CommandDef<any> {
   return defineCommand({
@@ -125,3 +125,61 @@ function detectDialect(root: string): string {
     return 'postgres'
   return 'sqlite'
 }
+
+export const makeNotificationsTableCommand = defineCommand({
+  meta: { name: 'make:notifications-table', description: '生成通知表结构（database/schema/notifications.ts）' },
+  args: {
+    ...rootArg,
+    dialect: { type: 'string', description: 'sqlite | postgres | mysql（默认按已安装的驱动推断）' },
+    force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
+  },
+  async run({ args }) {
+    const root = resolveRoot(args.root)
+    const { srcDir } = await loadHazeConfig(root)
+    const dialect = args.dialect ?? detectDialect(root)
+    if (![
+      'sqlite',
+      'postgres',
+      'mysql',
+    ].includes(dialect)) {
+      throw new Error(`The notifications table needs a SQL database (got "${dialect}")`)
+    }
+    const result = await makeNotificationsTable({
+      root,
+      srcDir,
+      dialect: dialect as 'sqlite' | 'postgres' | 'mysql',
+      force: args.force,
+    })
+    consola.success(`Created ${colors.cyan(relative(process.cwd(), result.schema))} ${colors.dim(`(${dialect})`)}`)
+    consola.info(result.hint)
+  },
+})
+
+export const makeAuthTablesCommand = defineCommand({
+  meta: { name: 'make:auth-tables', description: '生成认证扩展的表结构（database/schema/auth.ts：API 令牌、找回密码、两步验证、通行密钥）' },
+  args: {
+    ...rootArg,
+    dialect: { type: 'string', description: 'sqlite | postgres | mysql（默认按已安装的驱动推断）' },
+    force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
+  },
+  async run({ args }) {
+    const root = resolveRoot(args.root)
+    const { srcDir } = await loadHazeConfig(root)
+    const dialect = args.dialect ?? detectDialect(root)
+    if (![
+      'sqlite',
+      'postgres',
+      'mysql',
+    ].includes(dialect)) {
+      throw new Error(`The auth tables need a SQL database (got "${dialect}")`)
+    }
+    const result = await makeAuthTables({
+      root,
+      srcDir,
+      dialect: dialect as 'sqlite' | 'postgres' | 'mysql',
+      force: args.force,
+    })
+    consola.success(`Created ${colors.cyan(relative(process.cwd(), result.schema))} ${colors.dim(`(${dialect})`)}`)
+    consola.info(result.hint)
+  },
+})

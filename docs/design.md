@@ -1541,3 +1541,74 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - protobufjs（@grpc/proto-loader 的依赖）的 postinstall 只做版本检查，在 `allowBuilds` 中设为 false。
 
 已知限制：没有 `Microservice.fake()`（测试使用 memory 传输）；gRPC 不支持流式方法；GraphQL 订阅的 pubsub 不跨实例。
+
+### M23 实施记录（2026-10-28）：多语言、API 资源、签名链接与加密
+
+- 多语言：`lang/<locale>/*.ts`（默认导出嵌套对象，键为 `文件.路径`），`{name}` 插值，`Intl.PluralRules` 复数（`{ one, other }` + `{count}`），回退语言。`config/i18n.ts` 的 `detect` 依次检测查询参数、Cookie、Accept-Language（先精确匹配，再按语言部分匹配，`zh` / `zh-TW` → `zh-CN`），结果按请求缓存。优先级：`withLocale`（AsyncLocalStorage）> 请求语言 > 请求之外的 `setLocale()` > 默认语言。
+- 只有存在 `config/i18n.ts` 时才翻译校验错误与框架异常消息，`t()` 始终可用；未配置时行为不变。校验消息只替换校验库的默认英文消息（valibot、zod 4；arktype 不翻译），schema 中自定义的消息原样保留（若本身是翻译键则翻译）；支持 `validation.attributes.<字段>` 与 `validation.custom.<路径>.<规则>`。框架异常按"已知默认消息 → `http.*` 键"翻译，zh-CN 文案与原有中文一致。
+- 邮件：`defineMail({ locale })` 与 `Mail.to(...).locale()`，渲染时包在 `withLocale` 中。typegen 以 `lang/en`（没有时取第一个语言）生成翻译键类型（`.haze/types/i18n.d.ts`），拼错的键编译报错。
+- API 资源：`defineResource((model, ctx) => ({ ... }))`，`make()` / `collection()` 返回可 await 的 `PendingResource`；条件不成立的字段整个移除（`when`、`whenLoaded`、`whenNotNull`、`merge`），字段可以是异步的。分页结果输出 `{ data, meta, links }`，放在信封的 `data` 中（类型安全的客户端只解出 `data`，不丢分页信息）。`haze make:resource`。
+- 签名链接：HMAC-SHA256（APP_KEY）覆盖用途前缀 + 路径 + 排序后的查询参数，不含主机；校验使用原始请求 URL（多应用剥离前缀不影响）。`signed` 中间件（`signed:a,b` 忽略这些查询参数）、`ctx.hasValidSignature()`；旧密钥签发的链接在轮换后仍然有效。
+- 加密：`Crypt.encrypt / decrypt / encryptString / decryptString`，AES-256-GCM（WebCrypto，各运行时可用），密钥经 HKDF（info `hazejs crypt`）从 APP_KEY 派生，与 Session 加密隔离；载荷 `v1.` + base64url(iv ‖ 密文 ‖ 标签)，AAD 绑定版本；`app.previousKeys` / `APP_PREVIOUS_KEYS` 用于解密；失败抛出 `DecryptException`。
+- 模板：默认语言 zh-CN（不带语言头的响应与之前一致），`lang/en` 与 `lang/zh-CN`，`UserResource`（只对本人和管理员输出邮箱），欢迎邮件使用 `t()`；用户列表的响应变为 `{ data, meta, links }`。
+
+已知限制：多应用模式下只读取全局的 `config/i18n.ts`；请求之外调用 `I18n.setLocale()` 影响整个进程（建议使用 `withLocale`）；前端暂不共享翻译。
+
+### M22 实施记录（2026-10-28）：通知与广播
+
+**通知**
+- `defineNotification({ via, toMail, toDatabase, toBroadcast, toSlack, toWebhook, toWecom, toDingtalk, toFeishu, queue })`；`notify(user, n)` / `Notification.send(users, n)`，按需发送 `Notification.route('mail', ...).route('slack', url).notify(n)`。
+- 渠道：mail（M18 邮件）、database（`@hazejs/orm` 的 `databaseNotificationStore`，表由 `haze make:notifications-table` 生成）、broadcast（默认 `private-<type>.<id>`，事件名 `notification`）、slack（incoming webhook）、webhook（JSON POST，可选 HMAC 签名与 `verifyWebhookSignature`）、企业微信 / 钉钉（可选加签）/ 飞书（可选签名）群机器人；`registerNotificationChannel` 自定义渠道。厂商返回的 errcode 与 HTTP 错误都会抛出。
+- 排队：渲染在发送时完成，每个渠道一个 `notification:send` 任务，任务携带地址与内容的 JSON（worker 不需要通知定义）；重试取 `config.notification.queue`（默认 3 次，退避 [10, 60]）。
+- 被通知者：ID 取 `getKey()` 或 `id`，类型取 `notifiableType` 或类名（普通对象为 `User`）。`Notification.fake()` 提供断言。
+
+**广播**
+- 频道授权放在 `app/channel/*.ts`（`route/*.ts` 会被当作路由模块加载），`defineChannels(c => { c.private('orders.{id}', ...); c.presence('chat.{room}', ...) })`。
+- `broadcast({ channel, event, data })`；`defineEvent` 可声明 `broadcastOn / broadcastAs / broadcastWith / broadcastWhen`，`Events.dispatch()` 时先广播再执行监听器（`Events.fake()` 时不广播）。
+- 投递路径：`broadcast()` → 总线（memory / redis，未配置时复用 `config/websocket.ts` 的 Redis）→ 进程级 hub → 各连接；不使用 crossws topic 或 `io.to(room)`，避免与已有的跨实例同步重复投递。Presence 成员存于 Redis hash（MULTI 保证原子性），同一用户多连接去重。
+- 传输：内置 `/broadcasting/ws`、`/broadcasting/sse`，Socket.IO 在 `config/socketio.ts` 中开启 `broadcasting: true`。授权：ws / socket.io 默认调用 `POST /broadcasting/auth` 获取 APP_KEY 的 HMAC 签名（任意实例可校验），未带签名时按升级 / 握手请求头直接授权；SSE 在请求内逐个授权，频道变化时先建新流再关旧流。
+- 前端客户端 `@hazejs/core/echo`（零依赖，socket.io 通过传入 `io` 支持）：`channel / private / join / listen / notification / whisper / here / joining / leaving`。`Broadcast.fake()`。
+
+已知限制：进程崩溃时 Redis 中的 presence 成员不会过期；Workers 中 `broadcast()` 到不了 Durable Object 内的 WebSocket；SSE 重新订阅的重叠期间可能收到重复消息；模板暂不包含通知表。
+
+### M24 实施记录（2026-10-28）：可观测性
+
+- 健康检查：默认开启 `/health`（与 `/health/ready` 相同）与 `/health/live`，默认没有检查项；内置 `cacheCheck / dbCheck / redisCheck / storageCheck / queueCheck`，区分关键与非关键（degraded），超时中止；生产环境响应只给出 `check failed`（原因写日志）；用户定义了同路径的 GET 路由时让位。安装在全局中间件之前，不包信封，不写访问日志。
+- OpenTelemetry（`@opentelemetry/api` 为可选 peer，`observability.otel.enabled` 显式开启）：请求 SERVER span（`http.request.method`、`url.path`、`http.route`、`http.response.status_code`），入站 traceparent 接续，`tracedFetch` 出站传播；队列投递时把追踪上下文写入任务，worker 中 PRODUCER → CONSUMER 接续；SQL、邮件、缓存（默认关闭）、AI（`gen_ai.*`）的 span 在操作结束后按真实开始时间补建；指标 `http.server.request.duration`、活跃请求数、任务耗时与失败数；日志带 `trace_id / span_id`。未安装、未开启或被打包器替换为空模块时都是空操作。
+- 遥测总线：`globalThis[Symbol.for('hazejs.telemetry')]` 上的约定结构，ORM 与 AI 不依赖 core（ORM 包装 drizzle session 的 `prepareQuery` 并通过 `logQuery` 取 SQL 与绑定；AI 用 Proxy 包装模型），没有监听者时只判断一次 `Set.size`。
+- 日志通道：`channel` / `channels`，stack 组合与按通道级别；`json`、`file`（按天轮转、maxFiles，仅 Node）、`http`（按条数与间隔批量发送，ndjson / loki / 自定义格式，失败写 stderr）、自定义传输；`logger.channel(name)`；应用 dispose 时写出并关闭。未配置时行为不变。
+- 开发面板 `/__haze`：只在 development 模式启用；按请求 ID 关联请求、SQL、任务、邮件（渲染预览，`CSP: sandbox`）、事件、缓存、日志与 AI 调用；环形缓冲（默认每类 500 条，跨 HMR 保留），敏感请求头脱敏，SSE 实时更新，错误页链接到对应请求。写操作要求 `x-haze-dashboard: 1` 请求头并校验同源。全栈开发时 Vite 把 `/__haze` 交给后端。
+- 队列面板：开发面板中的 `/__haze/queues`（待处理与失败任务、重试、删除、清空）；生产环境用 `queueDashboard(r, { path })` 在 `auth` / `can:` 中间件保护下挂载。队列驱动新增可选的 `counts()`。
+
+已知限制：OpenTelemetry SDK（exporter 等）需要用户自行初始化；Workers 中没有 AsyncLocalStorage 之外的上下文传播保证。
+
+### M25 实施记录（2026-10-28）：认证扩展
+
+确认的决策：OAuth、TOTP 等自研；WebAuthn 以 `@simplewebauthn/server` 为可选 peer；OAuth 覆盖国际主流、国内主流与通用 OIDC。
+
+- `@hazejs/oauth`（唯一依赖 jose）：`OAuth.driver('github').redirect(ctx)` / `user(ctx)`，state + PKCE（存于 Cookie / Session）、`scopes()`、`with()`、`stateless()`、`userFromToken()`。驱动：GitHub、Google（OIDC）、Apple（form_post、ES256 client secret、id_token 校验）、Microsoft（Entra ID 租户）、GitLab（可自建）、Discord、微信开放平台（扫码）、微信公众号、QQ（`/oauth2.0/me` 取 openid、unionid）、钉钉、飞书 / Lark、企业微信、支付宝（RSA2 签名）、通用 OIDC（discovery + JWKS 校验 RS256 / ES256 + nonce）；`defineOAuthProvider` 自定义。测试使用进程内的模拟厂商服务。
+- 个人访问令牌：明文 `id|secret`（可加前缀）只返回一次，只存 SHA-256 并常量时间比较；格式错误的 ID 在查库前拒绝（避免 PG 整数主键报 500）；`last_used_at` 至多每分钟写一次；`token` 守卫、`ctx.auth.tokenCan()`（jwt / session 用户视为第一方，返回 true）、`abilities:` / `ability:` 中间件，能力支持 `*` 与 `prefix:*`；注销时撤销当前令牌。
+- 邮箱验证：复用 M23 的签名链接，链接含邮箱的 SHA-256（修改邮箱后失效，登录用户不能验证他人的链接）；`verified` 中间件。密码重置：每个邮箱一个哈希令牌，带过期与节流，返回状态而不抛异常（控制器可以不暴露邮箱是否存在）。
+- TOTP（RFC 6238 / 4226）：密钥用 M23 的 `Encrypter` 加密保存，恢复码哈希保存，记录最后使用的时间步防重放；Session 挑战流程超过 `maxAttempts` 清除；已确认的 2FA 再次 `enable()` 返回 409（除非 `force`）。
+- 通行密钥：挑战默认存于 Session，或按 clientDataJSON 中的 challenge 存于缓存（无状态 API）；按需加载 `@simplewebauthn/server`，未安装时给出明确错误；测试使用软件 ES256 认证器（none attestation）。
+- 存储：core 定义 `TokenStore / PasswordResetStore / TwoFactorStore / PasskeyStore` 与内存实现，`@hazejs/orm` 提供结构兼容的 `database*Store(table)`；表由 `haze make:auth-tables` 生成。`authRoutes()` 注册带校验的现成路由。
+- 模板：令牌、邮箱验证、密码重置与 GitHub 登录（未配置环境变量时不可用）的控制器与路由，新增迁移 `0003_add_auth_tables`。
+
+已知限制：飞书 v2、钉钉、企业微信 SSO 与支付宝沙箱的接口需要对照厂商最新文档复核；Apple 的 POST 回调在全栈模板中需要加入 `csrf.except`；没有 `social_accounts` 表（示例按邮箱关联账号）；模板未接入 2FA 与通行密钥。
+
+### M26 实施记录（2026-10-28）：全文搜索与多租户
+
+确认的决策：搜索引擎支持数据库（MySQL / PG 全文、SQLite FTS5、LIKE）、Meilisearch、Typesense、Elasticsearch / OpenSearch，均通过 fetch 实现，不依赖 SDK。
+
+**@hazejs/search**（peer：core、orm、drizzle-orm）
+- `searchable(Post, opts)` 保持 ORM 的静态类风格，通过 ORM 新增的通用钩子 `observeModel` 注册观察者（不覆盖 `onAfter*`，避免子类覆盖后静默失效）；文档默认取 `toJSON()`（隐藏字段不入索引）。`search(Post, q)` / `Post.search(q)`：`where / whereIn / orderBy / paginate / get / raw / keys / options`。
+- 数据库引擎直接返回 `ModelQuery` 的模型（软删除、全局作用域与租户作用域都生效）：MySQL `MATCH ... AGAINST`（natural / boolean），PostgreSQL `to_tsvector('<lang>'::regconfig, ...) @@ websearch_to_tsquery`（语言内联以匹配 GIN 表达式索引，也可指向 `vectorColumn`），SQLite FTS5（`triggers` 外部内容表 + 触发器，或 `engine` 独立表、可索引计算字段；用户输入加引号避免语法错误，末项前缀匹配），LIKE（`escape '!'`，PG 用 `ilike`）。DDL 由 `search:sync-settings`、`createSearchIndex()` 或 `searchIndexSql()` 生成。
+- 同步：模型事件触发 upsert / delete，可排队（`search:sync` 任务携带预先计算的文档与索引描述，worker 不需要模型）；数据库引擎总是同步执行；`withoutSyncing()`、`Search.fake()`。命令 `haze search:import / search:flush / search:sync-settings`。
+- 引擎细节：Meilisearch 的任务由 `settle()` 等待（命令总会等待）；Typesense 自动建集合并分页越过 250 条上限；Elasticsearch 字符串过滤使用 `.keyword` 子字段。
+
+**多租户**（core + ORM）
+- `config/tenancy.ts`：按域名、子域名、请求头、路径（路由需声明 `/t/:tenant`，不改写 URL）或自定义解析器识别租户，`find(key)` 查询租户，未知租户 404；租户 ID 限定 `[\w.-]`。中间件安装在 OpenAPI 与健康检查之后、全局中间件之前（异常经 ExceptionHandler 渲染）。
+- 上下文：独立的 AsyncLocalStorage，`useTenant()` / `ctx.tenant` / `Tenancy.run(tenant, fn)`；排队任务自动携带租户并在 worker 中恢复（租户已不存在时任务失败）。
+- 隔离：缓存键前缀、存储目录前缀（签名链接带前缀路径，FakeDisk 断言仍可用）、Session Cookie 名与密钥；数据库二选一：每租户独立连接（`DatabaseManager.resolveName` 解析为 `<name>@<tenant>`，连接配置按租户计算并缓存），或共享库 + `static belongsToTenant`（`tenant` 全局作用域自动过滤、插入时自动填充，可 `withoutGlobalScope()`）。每租户独立数据库时搜索索引名自动加 `<tenant>_` 前缀；共享库时外部引擎自动按租户列过滤。
+
+已知限制：搜索同步不等待事务提交（ORM 尚无 after-commit 钩子）；租户上下文之外 `belongsToTenant` 不过滤；租户连接池没有 LRU 淘汰；`Queue.fake().drain()` 不携带租户；开启多租户会改变 Session Cookie 名（已有会话失效）。

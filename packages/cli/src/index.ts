@@ -3,7 +3,8 @@ import process from 'node:process'
 import { defineCommand, runMain, showUsage } from 'citty'
 import { loadUserCommands } from './commands/console'
 import { generateCommand, migrateCommand, seedCommand } from './commands/db'
-import { makeCommands, makeModelCommand } from './commands/make'
+import { makeAuthTablesCommand, makeCommands, makeModelCommand, makeNotificationsTableCommand } from './commands/make'
+import { searchFlushCommand, searchImportCommand, searchSyncSettingsCommand } from './commands/search'
 import { queueFailedCommand, queueFlushCommand, queueForgetCommand, queueRetryCommand, queueWorkCommand, scheduleListCommand, scheduleRunCommand, scheduleWorkCommand } from './commands/worker'
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
@@ -23,6 +24,8 @@ const builtin = {
   'microservice:listen': () => import('./commands/microservice').then(m => m.default),
   ...makeCommands,
   'make:model': makeModelCommand,
+  'make:notifications-table': makeNotificationsTableCommand,
+  'make:auth-tables': makeAuthTablesCommand,
   'db:generate': generateCommand,
   'db:migrate': migrateCommand,
   'db:seed': seedCommand,
@@ -34,6 +37,9 @@ const builtin = {
   'schedule:list': scheduleListCommand,
   'schedule:run': scheduleRunCommand,
   'schedule:work': scheduleWorkCommand,
+  'search:import': searchImportCommand,
+  'search:flush': searchFlushCommand,
+  'search:sync-settings': searchSyncSettingsCommand,
 }
 
 // app/command 下的自定义命令（只在运行自定义命令或打印命令列表时加载）

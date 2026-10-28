@@ -9,6 +9,7 @@ hazejs 沿用 ThinkPHP / Laravel 风格的目录约定：每类代码都有固�
 ```
 my-app/
 ├─ app/
+│  ├─ channel/          广播频道授权（自动发现）
 │  ├─ command/          自定义命令（自动发现）
 │  ├─ controller/       控制器
 │  ├─ event/            事件（自动发现）
@@ -18,6 +19,7 @@ my-app/
 │  ├─ listener/         事件监听器（自动发现）
 │  ├─ mail/             邮件定义
 │  ├─ model/            ORM 模型
+│  ├─ notification/     通知（自动发现）
 │  ├─ policy/           授权策略（自动发现）
 │  ├─ provider/         服务提供者（自动发现）
 │  ├─ response/
@@ -100,6 +102,8 @@ Vite 插件用 `import.meta.glob` 为以下文件生成清单。每个目录**�
 | `app/listener/*.ts` | 监听器，按文件名顺序执行 |
 | `schedule/*.ts` | 定时任务 |
 | `app/socket/*.ts` | Socket.IO 命名空间，由 `@hazejs/socket.io` 读取 |
+| `app/notification/*.ts` | 通知，文件名即通知类型 |
+| `app/channel/*.ts` | 广播频道授权（`defineChannels()`） |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | [多应用](./multi-app)下各应用自己的模块 |
 
 开发时新增或删除这些文件会自动重新生成清单，无需重启。
@@ -153,6 +157,14 @@ Standard Schema 校验规则（默认 valibot，也可以用 zod、arktype 等�
 ### `app/mail`
 
 邮件定义（`defineMail()`），在发送的地方直接导入：`Mail.to(user.email).send(WelcomeMail, payload)`。不会被自动发现。详见[邮件](./mail)。
+
+### `app/notification`
+
+用 `defineNotification()` 定义的通知，通过 `notify(user, InvoicePaid(payload))` 经邮件、数据库、广播、Slack、Webhook 和群机器人发送。自动发现只用于命名：文件名就是写入数据库、推送到前端的 `type`。详见[通知](./notifications)。
+
+### `app/channel`
+
+私有频道与在线频道的授权（`defineChannels((c) => { c.private('orders.{id}', …) })`）。目录下每个文件都会被加载；只要有一个文件，`/broadcasting` 下的内置接口就会启用。详见[广播](./broadcasting)。
 
 ### `app/socket`
 

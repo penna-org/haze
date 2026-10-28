@@ -3,7 +3,10 @@ import type { H3Event, HTTPResponse } from 'h3'
 import type { ModelAbility, PlainAbility } from '../auth/gate'
 import type { Container } from '../container/container'
 import type { InjectionKey } from '../container/token'
+import type { TranslationKey, TranslationParams } from '../i18n/manager'
+import type { SignatureOptions } from '../routing/signed'
 import type { Session } from '../session/session'
+import type { Tenant } from '../tenancy/config'
 import type { CookieOptions } from './cookie'
 import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
@@ -11,10 +14,13 @@ import { Gate } from '../auth/gate'
 import { Config } from '../config/config'
 import { Scope } from '../container/container'
 import { BadRequestException } from '../exception/exceptions'
+import { requestLocale, setRequestLocale, useI18n } from '../i18n/manager'
 import { Logger } from '../logger'
 import { csrfToken } from '../middleware/builtin/csrf'
+import { hasValidSignature } from '../routing/signed'
 import { appKey, sign, verify } from '../security/key'
 import { startSession } from '../session/session'
+import { currentTenant } from '../tenancy/context'
 import { parseSize } from '../utils'
 import { defaultCookieOptions } from './cookie'
 import { formDataToObject, UploadedFile } from './upload'
@@ -79,6 +85,11 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
     this.logger = options.logger ?? new Logger().child({ requestId: this.requestId })
     this.config = options.config ?? new Config()
     this.bodyLimit = parseSize(this.config.get<string | number>('app.bodyLimit', '1mb'))
+  }
+
+  /** 当前租户（多租户中间件识别），没有租户时为 undefined */
+  get tenant(): Tenant | undefined {
+    return currentTenant()
   }
 
   get req(): H3Event['req'] {
@@ -255,6 +266,31 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
   /** 当前会话的 CSRF token（服务端渲染表单时放入隐藏字段 `_token`） */
   csrfToken(): Promise<string> {
     return csrfToken(this)
+  }
+
+  /** 当前请求的语言：按 config/i18n.ts 的 detect（查询参数、Cookie、Accept-Language）检测，可用 setLocale() 修改 */
+  get locale(): string {
+    return requestLocale(this)
+  }
+
+  set locale(locale: string) {
+    setRequestLocale(this, locale)
+  }
+
+  /** 设置本次请求的语言（之后的 t()、校验错误与异常消息都使用该语言） */
+  setLocale(locale: string): this {
+    setRequestLocale(this, locale)
+    return this
+  }
+
+  /** 按本次请求的语言翻译：`ctx.t('messages.welcome', { name })` */
+  t<K extends TranslationKey>(key: K, params?: TranslationParams): string {
+    return useI18n().translate(key, params, this.locale)
+  }
+
+  /** 请求 URL 是否带有有效的签名（router.signedUrl() 生成，未过期且未被篡改） */
+  hasValidSignature(options?: SignatureOptions): Promise<boolean> {
+    return hasValidSignature(this, options)
   }
 
   /** 授权使用的用户：未配置 config/auth.ts 时视为未登录 */

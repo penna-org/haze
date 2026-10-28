@@ -4,6 +4,7 @@ import type { ConfigInput, ConfigPath, ConfigPathValue } from './config/config'
 import type { InjectionKey } from './container/token'
 import type { Interceptor } from './http/interceptor'
 import type { StaticOptions } from './http/static'
+import type { LangInput } from './i18n/manager'
 import type { MiddlewareConfig } from './middleware/types'
 import type { ProviderInput, ServiceProvider } from './provider'
 import type { RouteModule, RouteRegistrar } from './routing/builder'
@@ -13,6 +14,8 @@ import process from 'node:process'
 import { H3, mockEvent, serve, toResponse } from 'h3'
 import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
 import { Gate } from './auth/gate'
+import { setBroadcastManager } from './broadcast/broadcast'
+import { BroadcastManager } from './broadcast/manager'
 import { CacheManager, setCacheManager } from './cache/manager'
 import { Config, defaultConfig, resolveConfigInput } from './config/config'
 import { loadEnv } from './config/env'
@@ -26,9 +29,12 @@ import { mutableResponse } from './http/cookie'
 import { ResponseFormatter } from './http/formatter'
 import { isRaw } from './http/response'
 import { createStaticMiddleware } from './http/static'
+import { I18nManager, setI18nManager } from './i18n/manager'
 import { Logger } from './logger'
 import { MailManager, setMailManager } from './mail/manager'
 import { MiddlewareRegistry } from './middleware/registry'
+import { NotificationManager, setNotificationManager } from './notification/manager'
+import { Observability } from './observability/observability'
 import { openAPIMiddleware } from './openapi/middleware'
 import { disposePersistent } from './persistent'
 import { setQueueManager } from './queue/context'
@@ -37,6 +43,7 @@ import { getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
 import { Scheduler } from './schedule/scheduler'
 import { setStorageManager, StorageManager } from './storage/manager'
+import { tenancyMiddleware } from './tenancy/manager'
 import { isClass, isModuleRecord, normalizeModules } from './utils'
 import { webSocketConfig, webSocketPlugin } from './websocket/server'
 
@@ -68,6 +75,8 @@ export interface ApplicationOptions {
   events?: unknown[] | ModuleRecord
   /** 监听器（app/listener/*.ts：defineListener） */
   listeners?: unknown[] | ModuleRecord
+  /** 翻译文件：import.meta.glob('/lang/**\/*.{ts,json}', { eager: true })，或 { 'zh-CN': { messages: {...} } } */
+  lang?: LangInput
   /** 其它按目录发现的模块，供扩展包读取（如 @hazejs/socket.io 的 app/socket/*.ts） */
   discovered?: Record<string, unknown[] | ModuleRecord>
   /**
@@ -162,6 +171,8 @@ export class Application {
       .instance(Router, this.router)
       .singleton(ExceptionHandler, options.exceptionHandler ?? ExceptionHandler)
       .singleton(ResponseFormatter, options.responseFormatter ?? ResponseFormatter)
+    // 可观测性：OpenTelemetry（可选）与开发面板的记录器
+    this.container.instance(Observability, await Observability.setup(this))
     for (const [, interceptor] of normalizeModules<Interceptor>(options.interceptors))
       this.intercept(interceptor)
     // 授权：提供者可在 register / boot 中继续 app.make(Gate).define(...)
@@ -183,6 +194,10 @@ export class Application {
       queue.register(job as never, name)
     this.container.instance(QueueManager, queue)
     setQueueManager(queue, QueueManager)
+    // 多语言：config/i18n.ts + lang/<locale>/*.ts（邮件渲染会用到，先于邮件创建）
+    const i18n = new I18nManager(this.config, options.lang)
+    this.container.instance(I18nManager, i18n)
+    setI18nManager(i18n)
     // 邮件：config/mail.ts，缺省为 log 驱动；排队发送注册为任务 mail:send
     const mail = new MailManager(this)
     this.container.instance(MailManager, mail)
@@ -199,6 +214,14 @@ export class Application {
       events.registerEvent(event, name)
     for (const [name, listener] of normalizeModules<unknown>(options.listeners))
       events.registerListener(listener, name)
+    // 广播：app/channel 的频道授权，内置接口位于 /broadcasting
+    const broadcast = new BroadcastManager(this)
+    this.container.instance(BroadcastManager, broadcast)
+    setBroadcastManager(broadcast, BroadcastManager)
+    // 通知：config/notification.ts；排队发送注册为任务 notification:send
+    const notifications = new NotificationManager(this)
+    this.container.instance(NotificationManager, notifications)
+    setNotificationManager(notifications, NotificationManager)
 
     // 4. 提供者 register → setup → boot（已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()
@@ -284,6 +307,8 @@ export class Application {
     if (this.container.has(MailManager))
       await this.container.make(MailManager).close().catch(error => this.logger.error('Failed to close mail transports', error))
     await this.container.dispose()
+    // 写出并关闭 http / file 日志通道
+    await this.logger.close()
     if (options.reason !== 'hmr')
       await disposePersistent()
     if (currentApp === this)
@@ -331,6 +356,7 @@ export class Application {
       return handler.render(error, ctx)
     }
 
+    const observability = this.container.make(Observability)
     const requestIdHeader = this.config.get('app.requestIdHeader')
     const logRequests = this.config.get('logger.requests') ?? false
     const createContext = (event: H3Event, container: Container): HttpContext => {
@@ -363,8 +389,9 @@ export class Application {
       },
       // 访问日志在响应生成之后记录，状态码包含异常渲染后的结果
       onResponse: (response, event) => {
+        observability.onResponse(response, event)
         const ctx = getHttpContext(event)
-        if (logRequests && ctx) {
+        if (logRequests && ctx && !observability.isInternal(ctx.path)) {
           ctx.logger.access({
             method: ctx.method,
             path: ctx.path,
@@ -375,6 +402,8 @@ export class Application {
       },
     })
 
+    // 请求 span 包住整个请求（未开启 OpenTelemetry 时直接放行）
+    h3.use(observability.middleware())
     // 请求作用域：子容器 + HttpContext + AsyncLocalStorage
     h3.use(async (event, next) => {
       const container = this.container.createChild()
@@ -416,6 +445,10 @@ export class Application {
     h3.use(this.container.make(StorageManager).middleware())
     // OpenAPI 文档（/openapi.json、/docs），在全局中间件之前，不受 CSP / 鉴权影响
     h3.use(openAPIMiddleware(this))
+    // 健康检查（/health）与开发面板（/__haze，仅开发模式）
+    h3.use(observability.routes())
+    // 多租户：按域名 / 请求头 / 路径识别租户（未配置 config/tenancy.ts 时直接放行）
+    h3.use(tenancyMiddleware(this))
 
     const registry = new MiddlewareRegistry(this.config.get('middleware') as MiddlewareConfig)
     for (const item of registry.resolve(this.config.get('middleware.global') ?? []))
@@ -450,6 +483,7 @@ export class Application {
       })
     }
 
+    this.router.load(this.container.make(BroadcastManager).routes())
     for (const [, module] of normalizeModules<RouteModule | RouteRegistrar>(this.#options.routes))
       this.router.load(module)
     this.router.compile({

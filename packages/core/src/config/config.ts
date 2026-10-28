@@ -1,7 +1,9 @@
 import type { SubAppConfig } from '../apps'
 import type { AuthConfig } from '../auth/config'
+import type { BroadcastingConfig } from '../broadcast/config'
 import type { CacheConfig } from '../cache/config'
 import type { CookieOptions } from '../http/cookie'
+import type { I18nConfig } from '../i18n/config'
 import type { LoggerConfig } from '../logger'
 import type { MailConfig } from '../mail/config'
 import type { CompressOptions } from '../middleware/builtin/compress'
@@ -10,11 +12,15 @@ import type { CsrfConfig } from '../middleware/builtin/csrf'
 import type { SecureHeadersOptions } from '../middleware/builtin/secure-headers'
 import type { ThrottleConfig } from '../middleware/builtin/throttle'
 import type { MiddlewareConfig } from '../middleware/types'
+import type { NotificationConfig } from '../notification/config'
+import type { ObservabilityConfig } from '../observability/config'
+import type { HealthConfig } from '../observability/health'
 import type { OpenAPIConfig } from '../openapi/types'
 import type { QueueConfig } from '../queue/manager'
 import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
 import type { FilesystemConfig } from '../storage/config'
+import type { TenancyConfig } from '../tenancy/config'
 import type { WebSocketConfig } from '../websocket/server'
 import process from 'node:process'
 import { deepMerge, isPlainObject } from '../utils'
@@ -41,6 +47,8 @@ export interface AppConfig {
   url?: string
   /** 应用密钥（默认读取 APP_KEY）：签名 Cookie、加密 Session、JWT 默认密钥 */
   key?: string
+  /** 轮换前的旧 APP_KEY（解密与校验签名链接；也可用逗号分隔的 APP_PREVIOUS_KEYS） */
+  previousKeys?: string[]
   /** 请求体上限，默认 `1mb`；单个路由用 `bodyLimit:10mb` 中间件调整 */
   bodyLimit: string | number
   /** 位于可信反向代理之后：客户端 IP / 协议取 X-Forwarded-For / X-Forwarded-Proto，默认 false */
@@ -68,6 +76,12 @@ export interface CoreConfig {
   schedule?: ScheduleConfig
   auth?: AuthConfig
   openapi?: OpenAPIConfig
+  i18n?: Partial<I18nConfig>
+  broadcasting?: BroadcastingConfig
+  notification?: NotificationConfig
+  health?: HealthConfig
+  observability?: ObservabilityConfig
+  tenancy?: TenancyConfig
 }
 
 /**

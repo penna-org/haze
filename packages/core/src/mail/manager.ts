@@ -3,6 +3,8 @@ import type { DispatchOptions } from '../queue/job'
 import type { MailConfig, MailerConfig } from './config'
 import type { MailDefinition } from './mailable'
 import type { AddressInput, Attachment, MailContent, MailMessage, MailTransport, ResolvedAttachment, ResolvedMessage, SentMessage } from './types'
+import { useI18n } from '../i18n/manager'
+import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { defineJob } from '../queue/job'
 import { QueueManager } from '../queue/manager'
 import { getRequestStore } from '../request'
@@ -29,6 +31,8 @@ export interface Envelope {
   replyTo?: AddressInput
   from?: AddressInput
   mailer?: string
+  /** 渲染邮件内容时使用的语言 */
+  locale?: string
 }
 
 /** 可序列化的消息（排队时写入任务载荷） */
@@ -272,9 +276,16 @@ export class MailManager {
 
   /** 渲染 defineMail，合并信封与默认发件人 */
   async #compose<P>(mail: MailDefinition<P> | MailMessage, payload: P | undefined, envelope: Envelope): Promise<{ message: MailMessage, mailer: string }> {
-    const content: MailContent & { to?: AddressInput } = isMail(mail)
+    // 指定了语言时在该语言下渲染（内容中的 t() 按此翻译），否则沿用当前请求的语言
+    const locale = envelope.locale ?? (isMail(mail)
+      ? mail.locale
+      : undefined)
+    const render = async (): Promise<MailContent & { to?: AddressInput }> => isMail(mail)
       ? await mail.render(payload as P)
       : mail as MailMessage
+    const content = locale
+      ? await useI18n().withLocale(locale, render)
+      : await render()
     const message: MailMessage = {
       ...content,
       to: envelope.to ?? content.to ?? [],
@@ -293,8 +304,42 @@ export class MailManager {
 
   async #deliver(mailer: string, message: MailMessage): Promise<SentMessage> {
     const resolved = await this.#resolve(message)
-    const result = await this.transport(mailer).send(resolved)
-    return { mailer, messageId: result.messageId }
+    const transport = this.transport(mailer)
+    if (!telemetryActive()) {
+      const result = await transport.send(resolved)
+      return { mailer, messageId: result.messageId }
+    }
+    // 可观测性：开发面板（含渲染后的预览）与 OpenTelemetry 的 mail.send span
+    const startTime = Date.now()
+    const started = performance.now()
+    const report = (messageId?: string, error?: unknown): void => recordTelemetry('mail', {
+      mailer,
+      driver: transport.driver,
+      subject: resolved.subject,
+      from: formatAddress(resolved.from),
+      to: resolved.to.map(formatAddress),
+      cc: resolved.cc.map(formatAddress),
+      bcc: resolved.bcc.map(formatAddress),
+      html: resolved.html,
+      text: resolved.text,
+      messageId,
+      startTime,
+      duration: performance.now() - started,
+      ...(error !== undefined && {
+        error: error instanceof Error
+          ? error.message
+          : String(error),
+      }),
+    })
+    try {
+      const result = await transport.send(resolved)
+      report(result.messageId)
+      return { mailer, messageId: result.messageId }
+    }
+    catch (error) {
+      report(undefined, error)
+      throw error
+    }
   }
 
   async #resolve(message: MailMessage): Promise<ResolvedMessage> {
@@ -390,6 +435,12 @@ export class PendingMail {
 
   mailer(name: string): this {
     this.#envelope.mailer = name
+    return this
+  }
+
+  /** 按指定语言渲染：`Mail.to(user.email).locale('zh-CN').send(WelcomeMail, payload)` */
+  locale(locale: string): this {
+    this.#envelope.locale = locale
     return this
   }
 

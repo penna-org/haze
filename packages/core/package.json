@@ -43,6 +43,10 @@
       "types": "./dist/client.d.mts",
       "default": "./dist/client.mjs"
     },
+    "./echo": {
+      "types": "./dist/broadcast/echo.d.mts",
+      "default": "./dist/broadcast/echo.mjs"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.mjs",
@@ -62,6 +66,8 @@
     "@aws-sdk/client-sesv2": "^3.1158.0",
     "@aws-sdk/lib-storage": "^3.1158.0",
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@simplewebauthn/server": "^13.0.0 || ^14.0.0",
     "@upstash/redis": "^1.40.0",
     "@valibot/to-json-schema": "^1.0.0",
     "bullmq": "^6.5.0",
@@ -79,6 +85,12 @@
       "optional": true
     },
     "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "@simplewebauthn/server": {
       "optional": true
     },
     "@upstash/redis": {
@@ -111,12 +123,16 @@
     "@aws-sdk/client-sesv2": "catalog:",
     "@aws-sdk/lib-storage": "catalog:",
     "@aws-sdk/s3-request-presigner": "catalog:",
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/sdk-trace": "catalog:",
+    "@simplewebauthn/server": "catalog:",
     "@upstash/redis": "catalog:",
     "@valibot/to-json-schema": "catalog:",
     "bullmq": "catalog:",
     "ioredis": "catalog:",
     "miniflare": "catalog:",
     "nodemailer": "catalog:",
-    "valibot": "catalog:"
+    "valibot": "catalog:",
+    "zod": "catalog:"
   }
 }

@@ -145,6 +145,7 @@ npx haze make:<type> <name> [options]
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
 | `make:command` | `SendReport` | `app/command/SendReport.ts`（用 `haze send:report` 运行） |
 | `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
+| `make:resource` | `User` | `app/resource/UserResource.ts` |
 
 生成后，大多数命令会打印一行提示：文件需要在哪里注册，或者怎么使用。
 

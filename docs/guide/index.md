@@ -104,7 +104,7 @@ hazejs is a good fit when you want:
 - the freedom to deploy the same code to a VPS, a container, serverless functions or Cloudflare Workers;
 - a familiar structure if you come from Laravel or ThinkPHP.
 
-It is probably not the right choice if you only need a handful of endpoints (a micro-router is lighter), if you need a stable 1.0 API today, or if you rely on features still on the [roadmap](/roadmap) such as OpenAPI generation or i18n.
+It is probably not the right choice if you only need a handful of endpoints (a micro-router is lighter), if you need a stable 1.0 API today, or if you need an ecosystem of third-party plugins as large as Express's.
 
 ## Next steps
 

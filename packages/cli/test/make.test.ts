@@ -4,7 +4,7 @@ import { join, relative } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { KINDS, make, makeModel } from '../src/make/generator'
+import { KINDS, make, makeAuthTables, makeModel, makeNotificationsTable } from '../src/make/generator'
 import { camelCase, commandName, kebabCase, parseName, plural } from '../src/make/naming'
 
 const root = fileURLToPath(new URL(`./.tmp/make-${process.pid}`, import.meta.url))
@@ -58,10 +58,13 @@ describe('make', () => {
       seeder: 'server/database/seeders/user-profile.ts',
       command: 'server/app/command/admin/UserProfile.ts',
       mail: 'server/app/mail/admin/UserProfileMail.ts',
+      notification: 'server/app/notification/UserProfileNotification.ts',
+      channel: 'server/app/channel/user-profile.ts',
+      resource: 'server/app/resource/admin/UserProfileResource.ts',
     }
     for (const kind of Object.keys(KINDS) as KindName[]) {
       // config / route 只按第一层自动发现，不带子目录
-      const name = kind === 'config' || kind === 'route' || kind === 'interceptor' || kind === 'seeder' || kind === 'policy' || kind === 'job' || kind === 'event' || kind === 'listener'
+      const name = kind === 'config' || kind === 'route' || kind === 'interceptor' || kind === 'seeder' || kind === 'policy' || kind === 'job' || kind === 'event' || kind === 'listener' || kind === 'notification' || kind === 'channel'
         ? 'user-profile'
         : 'admin/user-profile'
       const result = await make({ root, srcDir, kind, name })
@@ -215,6 +218,65 @@ describe('make', () => {
     const source = readFileSync(mongo.model, 'utf8')
     expect(source).toContain('export interface ArticleDoc')
     expect(source).toContain(`export class Article extends MongoModel.define<ArticleDoc>('articles')`)
+  })
+
+  it('generates notifications, broadcast channels and the notifications table', async () => {
+    const notification = await make({
+      root,
+      srcDir,
+      kind: 'notification',
+      name: 'InvoicePaid',
+    })
+    expect(rel(notification.file)).toBe('server/app/notification/InvoicePaidNotification.ts')
+    expect(readFileSync(notification.file, 'utf8')).toContain('defineNotification<InvoicePaidNotificationPayload>')
+    const channel = await make({
+      root,
+      srcDir,
+      kind: 'channel',
+      name: 'Order',
+    })
+    expect(readFileSync(channel.file, 'utf8')).toContain(`c.private('order.{id}'`)
+
+    for (const dialect of ['sqlite', 'postgres', 'mysql'] as const) {
+      const table = await makeNotificationsTable({ root, srcDir, dialect, force: true })
+      expect(rel(table.schema)).toBe('server/database/schema/notifications.ts')
+      const content = readFileSync(table.schema, 'utf8')
+      expect(content).toContain(`export const notifications = ${{ sqlite: 'sqliteTable', postgres: 'pgTable', mysql: 'mysqlTable' }[dialect]}('notifications'`)
+      expect(content).toContain(`notifiableId: `)
+    }
+    await expect(makeNotificationsTable({ root, srcDir })).rejects.toThrow(/already exists/)
+  })
+
+  it('generates the auth tables schema for each SQL dialect', async () => {
+    for (const dialect of ['sqlite', 'postgres', 'mysql'] as const) {
+      const result = await makeAuthTables({ root, srcDir, dialect, force: true })
+      expect(rel(result.schema)).toBe('server/database/schema/auth.ts')
+      const content = readFileSync(result.schema, 'utf8')
+      const table = { sqlite: 'sqliteTable', postgres: 'pgTable', mysql: 'mysqlTable' }[dialect]
+      // JS 属性名与 @hazejs/orm 的 database*Store() 一致
+      for (const [name, sqlName] of [
+        ['personalAccessTokens', 'personal_access_tokens'],
+        ['passwordResetTokens', 'password_reset_tokens'],
+        ['twoFactorSecrets', 'two_factor_secrets'],
+        ['webauthnCredentials', 'webauthn_credentials'],
+      ])
+        expect(content).toContain(`export const ${name} = ${table}('${sqlName}'`)
+      for (const field of [
+        'tokenableType:',
+        'tokenableId:',
+        'abilities:',
+        'lastUsedAt:',
+        'expiresAt:',
+        'recoveryCodes:',
+        'lastUsedStep:',
+        'publicKey:',
+        'counter:',
+        'transports:',
+        'backedUp:',
+      ])
+        expect(content).toContain(field)
+    }
+    await expect(makeAuthTables({ root, srcDir })).rejects.toThrow(/already exists/)
   })
 
   it('refuses to overwrite unless forced', async () => {

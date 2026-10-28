@@ -145,6 +145,7 @@ Paths are relative to `srcDir` (except tests). Examples show the file generated 
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
 | `make:command` | `SendReport` | `app/command/SendReport.ts` (runs as `haze send:report`) |
 | `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
+| `make:resource` | `User` | `app/resource/UserResource.ts` |
 
 After generating, most commands print a hint — where to register the file, or how to use it.
 

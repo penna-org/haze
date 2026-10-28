@@ -306,7 +306,8 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       const host = createAppHost({ vite: server, api })
       // Vite 的 connect 服务器是 HTTP/1；srvx 的类型同时覆盖 HTTP/2，这里按 HTTP/1 使用
       const handle = toNodeHandler(host.fetch) as unknown as (req: IncomingMessage, res: ServerResponse) => unknown
-      const matches = (url: string): boolean => settings.prefixes.some(prefix =>
+      // 框架内置的 /__haze/*（开发面板、存储签名链接）同样交给后端
+      const matches = (url: string): boolean => [...settings.prefixes, '/__haze'].some(prefix =>
         url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`))
 
       // 在 Vite 内置中间件之前注册，后端请求不会落入前端的静态资源 / SPA 回退
@@ -452,7 +453,9 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const listeners = ${glob('app/listener/*.{ts,mts,js,mjs}')}`,
     // 扩展包读取的目录（app.discovered(name)）。
     // commands 按需加载（Web 进程不执行命令代码），含子目录（db/Cleanup.ts → db:cleanup），由命令行与 worker.mjs 读取
-    `export const discovered = { sockets: ${glob('app/socket/*.{ts,mts,js,mjs}')}, messages: ${glob('app/message/*.{ts,mts,js,mjs}')}, commands: import.meta.glob(${JSON.stringify(`${base}/app/command/**/*.{ts,mts,js,mjs}`)}) }`,
+    `export const discovered = { sockets: ${glob('app/socket/*.{ts,mts,js,mjs}')}, messages: ${glob('app/message/*.{ts,mts,js,mjs}')}, channels: ${glob('app/channel/*.{ts,mts,js,mjs}')}, notifications: ${glob('app/notification/*.{ts,mts,js,mjs}')}, commands: import.meta.glob(${JSON.stringify(`${base}/app/command/**/*.{ts,mts,js,mjs}`)}) }`,
+    // 翻译文件：lang/<locale>/*.ts
+    `export const lang = ${glob('lang/**/*.{ts,mts,js,mjs,json}')}`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
     `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
@@ -494,6 +497,7 @@ export function createApp(options = {}) {
     events: manifest.events,
     listeners: manifest.listeners,
     discovered: manifest.discovered,
+    lang: manifest.lang,
     apps: manifest.apps,
     ...options,
   })
