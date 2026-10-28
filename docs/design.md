@@ -1437,3 +1437,10 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - 版本：VitePress 1.6 依赖 vite 5.4.21，被 pnpm `trustPolicy: no-downgrade` 拦截（该版本发布时 vite 已启用 trusted publisher，而它本身没有）；改用 2.0.0-alpha.20，它基于 Vite 8，与仓库共用同一个 vite，未放宽安全策略。
 - `docs.yml`：PR 中只构建（VitePress 遇到失效的站内链接会构建失败）；`main` 上构建后用 configure-pages / upload-pages-artifact / deploy-pages 发布，action 均固定到提交 SHA。需要在仓库 Settings → Pages 中把 Source 设为 GitHub Actions。
 - 编写文档时核对出的设计文档与实现不一致之处（以代码为准）：`ctx.json()`、中间件 `priority`、路由分组的 `domain` 并不存在（域名路由通过多应用配置实现）；URL 生成为 `router.url(name, params, query)`；框架不会自动读取 `APP_URL`，需在 `config/app.ts` 中设置 `url: env('APP_URL')`；`Disk.url()` 在未配置 url 时抛错。
+
+### 发布流程：npm 可信发布与 tag / Release 补齐（2026-10-28）
+
+- 0.1.1 是在本地手动发布的（发布时间早于版本提交与 Release 运行，逐个发布的间隔符合交互式 2FA 发布），CI 运行时已无待发布的包。
+- changesets/action v2 通过 `CHANGESETS_OUTPUT` 读取 Changesets CLI 写出的 NDJSON 事件来创建 tag 与 Release，事件只在 CLI 自己打 tag 时写出；CLI 的 "tag-only" 补打只针对私有包，已发布的公开包不会补 tag。因此本地发布的版本不会有 tag 与 Release。
+- `.github/scripts/sync-releases.mjs` 在 Release 工作流的每次运行末尾执行（幂等）：对每个公开包的当前版本，若已在 npm 上而缺少 tag，则在把 package.json 改成该版本的提交上打 tag 并推送；缺少 GitHub Release 时用 CHANGELOG 中该版本的段落创建。checkout 改为完整历史。`--dry-run` 只打印操作。
+- 可信发布：pnpm 11 原生支持，在 GitHub Actions 中用 OIDC 身份令牌按包换取短期 npm 令牌，并自动判断附带 provenance（`publishConfig.provenance` / `NPM_CONFIG_PROVENANCE` 不再需要；此前 `pnpm publish` 不读取该环境变量，0.1.1 没有 provenance）。工作流去掉了 `registry-url` 与 `NODE_AUTH_TOKEN`，只保留 `id-token: write`。前提：每个包在 npmjs.com 的 Settings → Trusted Publisher 中登记 GitHub Actions：`penna-org` / `haze` / `release.yml`。

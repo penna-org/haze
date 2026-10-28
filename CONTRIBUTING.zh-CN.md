@@ -58,6 +58,6 @@ docs/               文档站（VitePress，英文 + docs/zh 中文）与设计�
 
 ## 发版
 
-使用 Changesets 自动发版：changeset 合入 `main` 后会自动开 "Version Packages" PR，合并即发布到 npm（带 provenance）。所有 `@hazejs/*` 包使用同一个版本号。
+使用 Changesets 自动发版：changeset 合入 `main` 后会自动开 "Version Packages" PR，合并后通过 npm [可信发布](https://docs.npmjs.com/trusted-publishers)（OIDC，不使用 npm 令牌，自动附带 provenance）发布，并创建 git tag 与 GitHub Release。所有 `@hazejs/*` 包使用同一个版本号。请不要在本地手动发布；如果发生了，Release 工作流下次运行时会补齐缺失的 tag 与 GitHub Release。
 
 提交贡献即表示同意以 [MIT 许可证](./LICENSE)授权你的贡献。

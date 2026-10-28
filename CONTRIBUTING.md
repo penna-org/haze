@@ -78,6 +78,6 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## Releases
 
-Releases are automated with Changesets: merging changesets into `main` opens a "Version Packages" pull request, and merging that publishes to npm with provenance. All `@hazejs/*` packages share one version.
+Releases are automated with Changesets: merging changesets into `main` opens a "Version Packages" pull request, and merging that publishes to npm through [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, no npm token; provenance is attached automatically) and creates git tags and GitHub Releases. All `@hazejs/*` packages share one version. Please don't publish from a local machine; if it ever happens, the Release workflow backfills the missing tags and GitHub Releases on its next run.
 
 By contributing you agree that your contributions are licensed under the [MIT License](./LICENSE).
