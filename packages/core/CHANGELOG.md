@@ -1,5 +1,11 @@
 # @hazejs/core
 
+## 0.1.2
+
+### Patch Changes
+
+- [`871c8de`](https://github.com/penna-org/haze/commit/871c8dea99f83cfd80a65ac739baa9010379d85d) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - `app.url` now defaults to the `APP_URL` environment variable, so absolute links such as `Storage.temporaryUrl()` on local disks work without adding `url` to `config/app.ts`. An explicit `url` in `config/app.ts` still takes precedence.
+
 ## 0.1.1
 
 ### Patch Changes

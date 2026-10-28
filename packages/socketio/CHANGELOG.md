@@ -1,5 +1,12 @@
 # @hazejs/socket.io
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [[`871c8de`](https://github.com/penna-org/haze/commit/871c8dea99f83cfd80a65ac739baa9010379d85d)]:
+  - @hazejs/core@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes
