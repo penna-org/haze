@@ -12,7 +12,7 @@ import { normalizePath } from 'vite'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
-import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
+import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, externalPattern, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
 import { manifestFile, readBuildManifest, startPreview, staticDirOf, writeBuildManifest } from './preview'
 
 export interface HazePluginOptions {
@@ -213,7 +213,17 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
                 ...(preset.platform && { platform: preset.platform }),
                 // 被替换为报错空模块的驱动没有具名导出；空模块在求值时即抛错，这些占位不会被使用
                 ...(preset.unsupported?.length && { shimMissingExports: true }),
-                ...(preset.external && { external: preset.external }),
+                // drivers-external：驱动等包直接保留导入（未安装的可选驱动只在实际使用时才报错）
+                ...((preset.external || bundle === 'drivers-external') && {
+                  external: [
+                    ...(preset.external ?? []),
+                    ...(bundle === 'drivers-external'
+                      ? [
+                          externalPattern(externalPackages(settings.externals)),
+                        ]
+                      : []),
+                  ],
+                }),
                 input: {
                   index: VIRTUAL_MODULES.serverEntry,
                   ...(migrateScript && { migrate: VIRTUAL_MODULES.migrateEntry }),

@@ -1418,3 +1418,14 @@ HAZE_TEST_MYSQL_URL='mysql://root:haze@127.0.0.1:3307/haze_test' pnpm vitest run
 - Changesets 3：所有 `@hazejs/*` 与 `create-hazejs` 为 fixed 组，共用一个版本号；首个 changeset 为 minor，首次发布即 0.1.0。
 - 组织策略要求 action 固定到完整提交 SHA：工作流中的 action 均写成 `owner/action@<sha> # vX.Y.Z`（checkout v7、setup-node v7、pnpm/action-setup v6、setup-bun v2、changesets/action v2），Dependabot 按组每月更新 SHA 与注释。
 - changesets/action v2 对应 Changesets 3（v1 对应 Changesets 2），输入改名为 `version-script` / `publish-script` / `pr-title` / `commit-message`；npm 令牌由 setup-node 的 `registry-url` 与 `NODE_AUTH_TOKEN` 提供。仓库与组织都需开启 "Allow GitHub Actions to create and approve pull requests"。
+
+### 发布前检查（2026-10-28）
+
+做法：
+1. 用 `pnpm pack` 打包 7 个包，检查内容：dist、LICENSE、README、bin、stubs、模板（`.env` 保留，`_gitignore` 改名），`workspace:` / `catalog:` 已替换为实际版本。
+2. 在仓库之外的临时目录，用打包出的 `create-hazejs` 创建 vue / react / api 项目，经 pnpm overrides 把 `@hazejs/*` 指向本地 tarball 后安装。
+3. 逐项验证：类型检查、模板测试（各 12 个）、`haze dev`（页面、接口、修改服务后热更新、CSRF 419）、生产构建；vue 产物拷到项目外执行迁移并启动，注册用户后排队任务发出欢迎邮件；api 项目另外构建 cloudflare / vercel / aws-lambda / docker / bun 预设。
+
+monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
+- **pnpm 11 拒绝未声明的安装脚本**：drizzle-kit、tsx 引入的 esbuild 带安装脚本，pnpm 11 未声明时 `pnpm install` 报 `ERR_PNPM_IGNORED_BUILDS`，并且 `pnpm run` 前的依赖检查会再次失败，新项目的 `pnpm dev` / `pnpm test` 都无法运行。pnpm 11 不再读取 package.json 中的 pnpm 字段，因此脚手架生成 `pnpm-workspace.yaml`（`allowBuilds: { esbuild: false }`，esbuild 的二进制来自平台可选依赖）。目标目录已位于某个 pnpm workspace 内时不生成，避免嵌套 workspace。
+- **未安装的数据库驱动导致构建失败**：drizzle-orm 的各驱动模块静态导入 mysql2、pglite 等；真实项目只安装用到的驱动，Vite 会把缺失的可选 peer 依赖替换为没有导出的空模块，构建报 `MISSING_EXPORT`。monorepo 中这些驱动经 devDependencies 都能解析，因此之前没有暴露。drivers-external 预设现在把驱动等外部包直接加入 Rolldown 的 `external`（`externalPattern()`），导入原样保留，未安装的驱动只在真正使用时才报错（ORM 按需动态加载驱动）。

@@ -50,6 +50,15 @@ export function bundleAllExcept(names: string[]): RegExp {
   return new RegExp(`^(?!(?:${names.map(name => name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?:/|$))`)
 }
 
+/**
+ * 匹配给定包（含子路径）的正则，用作 Rolldown 的 external：
+ * 不经 Vite 解析直接保留导入，项目未安装的可选驱动（如 drizzle-orm 的 mysql2 / pglite）
+ * 不会被替换为没有导出的空模块而导致构建失败
+ */
+export function externalPattern(names: string[]): RegExp {
+  return new RegExp(`^(?:${names.map(name => name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?:/|$)`)
+}
+
 /** 依赖处理选项（haze.config.ts 的 externals） */
 export interface ExternalsOptions {
   /**

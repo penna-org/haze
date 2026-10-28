@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const TEMPLATES = {
@@ -21,6 +21,11 @@ export interface ScaffoldOptions {
   version?: string
   /** 目标目录非空时清空 */
   force?: boolean
+  /**
+   * 生成 pnpm-workspace.yaml（声明依赖安装脚本的处理，pnpm 11 未声明时安装会报错）。
+   * 默认只在目标目录不位于已有 pnpm workspace 中时生成，避免嵌套 workspace
+   */
+  pnpmWorkspace?: boolean
 }
 
 export interface ScaffoldResult {
@@ -33,6 +38,15 @@ const templatesDir = fileURLToPath(new URL('../templates', import.meta.url))
 
 /** npm 发布时会丢弃 .gitignore，模板中以 _gitignore 存放 */
 const RENAMES: Record<string, string> = { _gitignore: '.gitignore' }
+
+/**
+ * pnpm 11 要求显式声明是否运行依赖的安装脚本，未声明时 install / run 会报错。
+ * esbuild（drizzle-kit、tsx 引入）的二进制来自平台可选依赖，不需要运行安装脚本
+ */
+const PNPM_WORKSPACE = `# pnpm 11：依赖的安装脚本需要显式允许或忽略（新增需要构建的依赖时在此声明）
+allowBuilds:
+  esbuild: false
+`
 
 export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   const root = resolve(options.dir)
@@ -67,11 +81,23 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     if (target)
       renameSync(file, join(file, '..', target))
   }
+  if (options.pnpmWorkspace ?? !findPnpmWorkspace(dirname(root)))
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), PNPM_WORKSPACE)
 
   return {
     root,
     name,
     files: walk(root).map(file => relative(root, file)).sort(),
+  }
+}
+
+/** 向上查找所在的 pnpm workspace 根目录 */
+function findPnpmWorkspace(from: string): string | undefined {
+  for (let dir = from; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml')))
+      return dir
+    if (dirname(dir) === dir)
+      return undefined
   }
 }
 

@@ -7,7 +7,7 @@ import { VIRTUAL_MODULES } from '../constants'
 import { EDGE_UNSUPPORTED_DRIVERS, writeRuntimePackageJson } from './deps'
 import { PRESET_NAMES } from './types'
 
-export { bundleAllExcept, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, externalPackages, findInstalled, scanExternals, traceDependencies } from './deps'
+export { bundleAllExcept, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, externalPackages, externalPattern, findInstalled, scanExternals, traceDependencies } from './deps'
 export type { ExternalsOptions, TraceResult } from './deps'
 export { PRESET_NAMES } from './types'
 export type { CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName, VercelOptions } from './types'

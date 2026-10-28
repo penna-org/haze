@@ -1,5 +1,6 @@
 import type { createProject as CreateProject } from './utils'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildServer, createDevServer } from '@hazejs/vite'
 import { createBuilder, createServer } from 'vite'
@@ -39,6 +40,26 @@ describe('scaffold', () => {
   it('normalizes package names', () => {
     expect(toPackageName('My App')).toBe('my-app')
     expect(toPackageName('.hidden')).toBe('hidden')
+  })
+
+  it('writes pnpm-workspace.yaml (allowBuilds) only outside an existing pnpm workspace', () => {
+    // 位于本仓库的 workspace 内：不生成，避免嵌套 workspace
+    project = createProject('api')
+    expect(project.files).not.toContain('pnpm-workspace.yaml')
+
+    // 独立项目（系统临时目录）：pnpm 11 需要声明 esbuild 的安装脚本，否则 install / run 报错
+    const standalone = mkdtempSync(join(tmpdir(), 'hazejs-scaffold-'))
+    try {
+      const result = scaffold({
+        dir: join(standalone, 'app'),
+        template: 'api',
+      })
+      expect(result.files).toContain('pnpm-workspace.yaml')
+      expect(readFileSync(join(result.root, 'pnpm-workspace.yaml'), 'utf8')).toContain('esbuild: false')
+    }
+    finally {
+      rmSync(standalone, { recursive: true, force: true })
+    }
   })
 })
 
