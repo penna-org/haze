@@ -891,10 +891,15 @@ export function defaultKey(record: RecordClass): string {
   return key
 }
 
-/** 关联键的比较值：ObjectId 等对象按字符串比较 */
+/**
+ * 关联键的比较值：ObjectId 等对象按字符串比较；
+ * 数字、BigInt 与字符串统一为字符串（雪花 ID 可能一侧是 BigInt / 字符串，另一侧是 number）
+ */
 export function keyOf(value: unknown): unknown {
   if (value && typeof value === 'object' && typeof (value as { toHexString?: unknown }).toHexString === 'function')
     return (value as { toHexString: () => string }).toHexString()
+  if (typeof value === 'bigint' || typeof value === 'number')
+    return String(value)
   return value
 }
 

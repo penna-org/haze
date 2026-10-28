@@ -4,7 +4,7 @@ import { createWriteStream, mkdirSync } from 'node:fs'
 import { readdir, rm } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import process from 'node:process'
-import { globalStore } from './utils'
+import { globalStore, jsonReplacer } from './utils'
 
 /** 交给传输的一条日志（与 json 格式的输出相同） */
 export interface LogEntry {
@@ -99,7 +99,7 @@ export function jsonTransport(config: Omit<JsonChannelConfig, 'driver'> = {}): L
     ? process.stderr
     : process.stdout
   return {
-    log: entry => stream.write(`${JSON.stringify(entry)}\n`),
+    log: entry => stream.write(`${JSON.stringify(entry, jsonReplacer)}\n`),
   }
 }
 
@@ -168,7 +168,7 @@ export function fileTransport(config: Omit<FileChannelConfig, 'driver'> = {}): L
   }
 
   return {
-    log: entry => current().write(`${JSON.stringify(entry)}\n`),
+    log: entry => current().write(`${JSON.stringify(entry, jsonReplacer)}\n`),
     flush,
     async close() {
       const open = openFiles.get(path)
@@ -189,7 +189,7 @@ function encodeBody(entries: LogEntry[], format: HttpLogFormat, labels: Record<s
     }
   }
   if (format === 'ndjson')
-    return { body: `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`, contentType: 'application/x-ndjson' }
+    return { body: `${entries.map(entry => JSON.stringify(entry, jsonReplacer)).join('\n')}\n`, contentType: 'application/x-ndjson' }
   if (format === 'loki') {
     // 按标签分组：每个流的 values 为 [纳秒时间戳字符串, 日志行]
     const streams = new Map<string, { stream: Record<string, string>, values: Array<[string, string]> }>()
@@ -199,7 +199,7 @@ function encodeBody(entries: LogEntry[], format: HttpLogFormat, labels: Record<s
       const item = streams.get(key) ?? { stream, values: [] as Array<[string, string]> }
       item.values.push([
         `${BigInt(Date.parse(entry.time)) * 1_000_000n}`,
-        JSON.stringify(entry),
+        JSON.stringify(entry, jsonReplacer),
       ])
       streams.set(key, item)
     }
@@ -213,7 +213,7 @@ function encodeBody(entries: LogEntry[], format: HttpLogFormat, labels: Record<s
     }
   }
   return {
-    body: JSON.stringify(entries),
+    body: JSON.stringify(entries, jsonReplacer),
     contentType: 'application/json',
   }
 }

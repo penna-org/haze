@@ -3,6 +3,7 @@ import type { DatabaseConfig } from './config'
 import { Logger } from '@hazejs/core'
 import { DatabaseManager } from './connection'
 import { setDatabaseManager } from './context'
+import { configureSnowflake } from './snowflake'
 
 export interface DatabaseProviderOptions {
   /** 默认读取 config/database.ts */
@@ -34,6 +35,8 @@ export function databaseProvider(options: DatabaseProviderOptions = {}): Service
       })
       container.instance(DatabaseManager, manager)
       setDatabaseManager(manager)
+      if (config.snowflake)
+        configureSnowflake(config.snowflake)
     },
   }
 }

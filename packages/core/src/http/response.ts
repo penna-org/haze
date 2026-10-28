@@ -10,6 +10,7 @@ export function isFormattable(value: unknown): boolean {
     || Array.isArray(value)
     || isPlainObject(value)
     || typeof value === 'number'
+    || typeof value === 'bigint'
     || typeof value === 'boolean'
     || (typeof value === 'object' && typeof (value as { toJSON?: unknown }).toJSON === 'function')
 }

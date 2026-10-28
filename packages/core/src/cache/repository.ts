@@ -2,7 +2,7 @@ import type { TelemetryEvents } from '../observability/telemetry'
 import type { CacheStore } from './store'
 import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { tenantCachePrefix } from '../tenancy/context'
-import { parseDuration } from '../utils'
+import { jsonReplacer, parseDuration } from '../utils'
 import { Lock } from './lock'
 
 /** 有效期：秒数或 `'10m'` / `'2h'`；undefined 表示永久 */
@@ -18,7 +18,7 @@ function seconds(ttl: CacheTtl): number | undefined {
 function encode(value: unknown): string {
   return JSON.stringify(value === undefined
     ? null
-    : value)
+    : value, jsonReplacer)
 }
 
 function decode<T>(raw: string | undefined): T | undefined {

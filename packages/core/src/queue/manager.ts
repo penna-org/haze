@@ -9,7 +9,7 @@ import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { getRequestStore } from '../request'
 import { tenantQueueKey } from '../tenancy/context'
 import { tenancyOf } from '../tenancy/manager'
-import { parseDuration } from '../utils'
+import { jsonReplacer, parseDuration } from '../utils'
 import { cloudflareQueue } from './drivers/cloudflare'
 import { memoryQueue } from './drivers/memory'
 import { redisQueue } from './drivers/redis'
@@ -222,7 +222,7 @@ export class QueueManager {
     const message: JobMessage & { tries: number } = {
       id: crypto.randomUUID(),
       job: name,
-      payload: JSON.parse(JSON.stringify(payload ?? null)),
+      payload: JSON.parse(JSON.stringify(payload ?? null, jsonReplacer)),
       queue,
       attempts: 0,
       dispatchedAt: Date.now(),

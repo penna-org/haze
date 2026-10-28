@@ -7,7 +7,7 @@ import { FRAMEWORK_NAME } from './constants'
 import { createTransport } from './logger-transports'
 import { activeTraceIds } from './observability/otel'
 import { recordTelemetry, telemetryActive } from './observability/telemetry'
-import { isPlainObject } from './utils'
+import { isPlainObject, jsonReplacer } from './utils'
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace'
 
@@ -167,7 +167,7 @@ export class Logger {
       }
       else if (shared.format === 'json') {
         json ??= this.#entry('info', msg, fields)
-        shared.write(JSON.stringify(json), 'info')
+        shared.write(JSON.stringify(json, jsonReplacer), 'info')
       }
       else {
         const status = entry.status >= 500
@@ -215,7 +215,7 @@ export class Logger {
       }
       else if (shared.format === 'json') {
         json ??= this.#entry(level, message, {}, args)
-        shared.write(JSON.stringify(json), level)
+        shared.write(JSON.stringify(json, jsonReplacer), level)
       }
       else {
         const suffix = this.#prettyContext()

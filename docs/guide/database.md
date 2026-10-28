@@ -122,6 +122,63 @@ Schema files are read directly by drizzle-kit. Import only from `drizzle-orm` he
 
 `haze make:model Post` creates both `app/model/Post.ts` and a matching `database/schema/posts.ts` for your dialect. See [Models](./models).
 
+### Snowflake IDs
+
+For distributed systems, or tables shared with Java services, use 64-bit [snowflake](https://en.wikipedia.org/wiki/Snowflake_ID) ids instead of auto-increment ids:
+
+```ts
+// database/schema/orders.ts
+import { pgSnowflake } from '@hazejs/orm/columns'
+import { pgTable, text } from 'drizzle-orm/pg-core'
+
+export const orders = pgTable('orders', {
+  id: pgSnowflake('id').primaryKey(),                       // generated on insert
+  userId: pgSnowflake('user_id', { auto: false }).notNull(), // foreign key: no generation
+  title: text('title').notNull(),
+})
+```
+
+| Helper | Stored as |
+|--------|-----------|
+| `pgSnowflake(name)` | `bigint` |
+| `mysqlSnowflake(name)` | `bigint` |
+| `sqliteSnowflake(name)` | `text`: Cloudflare D1 rounds integers above 2^53, while text is exact on every SQLite driver. Snowflake ids are 19 digits for decades, so text order equals numeric order |
+
+`@hazejs/orm/columns` depends only on drizzle, so it is safe to import from schema files.
+
+In application code a snowflake id is a **decimal string** (`'1849302746129387521'`). A 64-bit integer does not fit in a JavaScript `number`, which is exact only up to 2^53, so the id never passes through one. Strings also go straight into JSON responses, the same way Java services serialize `Long` ids to avoid precision loss in the browser.
+
+```ts
+const order = await Order.create({ userId, title: 'Hello' })
+order.id                              // '1849302746129387521'
+await Order.findOrFail(ctx.param('id')) // ids from URLs and request bodies are strings already
+
+import { Snowflake, snowflakeId } from '@hazejs/orm'
+snowflakeId()                         // generate one yourself
+Snowflake.parse(order.id)             // { time, datacenterId, workerId, sequence }
+```
+
+The bit layout (41-bit time, 5-bit datacenter, 5-bit worker, 12-bit sequence) and the default epoch (`1288834974657`) match MyBatis-Plus `IdType.ASSIGN_ID` and Hutool's `Snowflake`, so Node and Java services can write to the same table as long as their worker / datacenter ids differ. Set them per instance:
+
+```ts
+// config/database.ts
+export default defineDatabaseConfig(() => ({
+  default: 'main',
+  connections: { /* ... */ },
+  snowflake: {
+    workerId: Number(env('SNOWFLAKE_WORKER_ID', '0')),
+    datacenterId: Number(env('SNOWFLAKE_DATACENTER_ID', '0')),
+    // epoch: new Date('2024-01-01'), // only if your Java services use a custom epoch
+  },
+}))
+```
+
+Without configuration, the generator reads the `SNOWFLAKE_WORKER_ID` / `SNOWFLAKE_DATACENTER_ID` environment variables, or picks random ids. Random ids can collide across instances, so configure them explicitly when you run more than one.
+
+::: tip Other 64-bit integers
+You can also use drizzle's `bigint('id', { mode: 'bigint' })` columns, whose values are `BigInt`s. 64-bit integers are read without precision loss on every driver except D1: MySQL connections enable `supportBigNumbers`, and SQLite / Turso return integers beyond 2^53 as `BigInt` while ordinary integers stay `number`. Anywhere hazejs writes JSON (responses, `toJSON()`, logs, cache, queues, WebSocket), `BigInt` values are written as strings.
+:::
+
 ## Migrations
 
 After changing a schema, generate a migration and apply it:

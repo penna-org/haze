@@ -1,4 +1,5 @@
 import type { ConfigInput } from '@hazejs/core'
+import type { SnowflakeOptions } from './snowflake'
 
 /**
  * - `sqlite`：libsql 驱动（本地文件 `file:./data/app.db`、`:memory:`、Turso `libsql://…`）
@@ -36,6 +37,8 @@ export interface DatabaseConfig {
   /** 默认连接名 */
   default: string
   connections: Record<string, ConnectionConfig>
+  /** 雪花 ID 生成器（snowflakeId() 与 *Snowflake() 列使用）：多实例部署时为每个实例配置不同的 workerId / datacenterId */
+  snowflake?: SnowflakeOptions
 }
 
 /** `config/database.ts` 的默认导出 */

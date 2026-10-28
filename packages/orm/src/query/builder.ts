@@ -932,12 +932,14 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     return rows
   }
 
-  /** 缓存以 JSON 保存：把日期列还原为 Date */
+  /** 缓存以 JSON 保存：把日期列还原为 Date，BigInt 列还原为 BigInt（写入时转为字符串） */
   protected revive(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
     const reviveRow = (row: Record<string, unknown>, columns: Record<string, Column>): void => {
       for (const [key, column] of Object.entries(columns)) {
         if (column.dataType === 'date' && typeof row[key] === 'string')
           row[key] = new Date(row[key] as string)
+        else if (column.dataType === 'bigint' && typeof row[key] === 'string')
+          row[key] = BigInt(row[key] as string)
       }
     }
     const columns = getTableColumns(this.source)
