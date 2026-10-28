@@ -55,3 +55,32 @@ export const can: MiddlewareHandler = async (ctx, next, ability, modelName, para
   await ctx.authorize(ability as never, instance as never)
   return next()
 }
+
+async function requireUser(ctx: Parameters<MiddlewareHandler>[0]): Promise<void> {
+  if (!(await ctx.auth.check()))
+    throw new UnauthorizedException('未登录或登录已过期')
+}
+
+/** `abilities:posts:read,posts:write`：当前令牌须具备全部能力（放在 auth 之后） */
+export const abilities: MiddlewareHandler = async (ctx, next, ...required) => {
+  if (!required.length)
+    throw new Error('abilities middleware requires at least one ability, e.g. abilities:posts:write')
+  await requireUser(ctx)
+  for (const ability of required) {
+    if (!(await ctx.auth.tokenCan(ability)))
+      throw new ForbiddenException(`令牌缺少能力：${ability}`)
+  }
+  return next()
+}
+
+/** `ability:posts:read,posts:write`：当前令牌具备其中任一能力即可 */
+export const ability: MiddlewareHandler = async (ctx, next, ...candidates) => {
+  if (!candidates.length)
+    throw new Error('ability middleware requires at least one ability, e.g. ability:posts:read')
+  await requireUser(ctx)
+  for (const item of candidates) {
+    if (await ctx.auth.tokenCan(item))
+      return next()
+  }
+  throw new ForbiddenException(`令牌缺少能力：${candidates.join(' / ')}`)
+}

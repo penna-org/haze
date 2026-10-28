@@ -14,6 +14,8 @@ export const DRIVER_PACKAGES = [
   '@aws-sdk/lib-storage',
   '@aws-sdk/s3-request-presigner',
   '@libsql/client',
+  // 通行密钥（WebAuthn）：core 的可选依赖，未安装时替换为空模块
+  '@simplewebauthn/server',
   '@socket.io/bun-engine',
   '@socket.io/redis-adapter',
   '@upstash/redis',

@@ -1,5 +1,5 @@
 import type { HttpContext } from '@hazejs/core'
-import { Hash, Storage, UnauthorizedException, validate } from '@hazejs/core'
+import { Hash, sendEmailVerification, Storage, UnauthorizedException, validate } from '@hazejs/core'
 import UserRegistered from '~/app/event/UserRegistered'
 import { User } from '~/app/model/User'
 import { AvatarSchema, LoginSchema, RegisterSchema } from '~/app/validate/auth'
@@ -14,6 +14,8 @@ export class AuthController {
     const user = await User.create({ ...input, password: await Hash.make(password) })
     // 事件：监听器投递欢迎邮件任务、推送实时消息（app/listener）
     await UserRegistered.emit({ userId: user.id, email: user.email })
+    // 发送邮箱验证链接（app/controller/VerificationController.ts）
+    await sendEmailVerification(user)
     return ctx.created({
       user,
       ...await ctx.auth.jwt().login(user),

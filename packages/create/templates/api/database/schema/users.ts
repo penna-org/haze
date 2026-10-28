@@ -12,6 +12,8 @@ export const users = sqliteTable('users', {
   role: text('role', {
     enum: ['member', 'admin'],
   }).notNull().default('member'),
+  // 邮箱验证时间（/api/auth/email/verify 写入），为空表示未验证；verified 中间件据此拦截
+  emailVerifiedAt: integer('email_verified_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 })

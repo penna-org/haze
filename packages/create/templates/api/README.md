@@ -106,6 +106,15 @@ curl localhost:3000/api/auth/me -H 'authorization: Bearer <token>'
 - 测试：`await t.actingAs(user)` 返回已登录的客户端
 - 密码：`Hash.make(password)` / `Hash.verify(hash, password)`（scrypt）
 
+账号相关接口（控制器在 `app/controller`，表结构在 `database/schema/auth.ts`，迁移 `0003_add_auth_tables`）：
+
+- 个人访问令牌：`POST /api/auth/tokens`（`{ "name": "cli", "abilities": ["users:read"] }`，明文只返回一次）、`GET /api/auth/tokens`、`DELETE /api/auth/tokens/:id`；带上 `Authorization: Bearer <id|secret>` 访问 `auth:api,token` 保护的接口，`'abilities:users:write'` / `'ability:a,b'` 中间件检查能力
+- 邮箱验证：注册后自动发送签名链接（`GET /api/auth/email/verify/:id/:hash`），`POST /api/auth/email/verification-notification` 重新发送；需要已验证邮箱的接口加 `'verified'` 中间件
+- 找回密码：`POST /api/auth/forgot-password` 发送链接（指向前端页面 `/reset-password?token=...&email=...`，`config/auth.ts` 的 `passwords.path`），页面提交到 `POST /api/auth/reset-password`
+- 邮件中的链接默认是站内路径，在 `.env` 中设置 `APP_URL=https://example.com` 后为绝对链接
+- GitHub 登录：在 `.env` 中填写 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` 后访问 `/api/auth/github`（未配置时返回 404，`config/oauth.ts`）
+- 两步验证（TOTP）与通行密钥（WebAuthn）见文档；`npx haze make:auth-tables` 生成全部认证表结构
+
 授权（`app/policy/*.ts` 自动注册，`npx haze make:policy Post` 生成）：
 
 ```ts
@@ -131,6 +140,7 @@ export default definePolicy(User, {
 | `bodyLimit:10mb` | 调整单个路由的请求体上限（默认 `app.bodyLimit`，1mb） | — |
 | `session` | 启动会话：`ctx.session.get / set / flash / regenerate` | `session.ts`（cookie / memory / 自定义存储） |
 | `auth` / `guest` | 认证 | `auth.ts` |
+| `verified` / `abilities:a,b` / `ability:a,b` | 已验证邮箱 / 令牌须具备全部 / 任一能力 | `auth.ts` |
 | `can:<ability>[,Model[,param]]` | 授权 | `app/policy/*.ts` |
 | `csrf` | CSRF 同步令牌（419） | `csrf.ts`（except、cookie、testing） |
 | `cacheResponse:60[,user]` | 缓存 GET 响应 | `cache.ts`（responseStore） |
@@ -262,6 +272,30 @@ Socket.publish('users', { type: 'user.registered' }) // 在接口、任务、监
 - 多实例：设置 `WS_BROADCAST=redis`（`config/websocket.ts`），广播经 Redis 到达所有实例
 - Cloudflare：自动生成 Durable Object（`HazeWebSocket`），所有连接在同一个 DO 中，`Socket.publish` 经 RPC 转发
 - Vercel / Netlify / AWS Lambda：平台不支持 WebSocket（升级请求返回 426）
+
+## 通知与广播
+
+通知放在 `app/notification/*.ts`（`npx haze make:notification InvoicePaid`），一次定义、多个渠道发送：
+
+```ts
+await notify(user, WelcomeNotification({ url: 'https://example.com' })) // 示例：app/notification/WelcomeNotification.ts
+await Notification.route('dingtalk', process.env.DINGTALK_WEBHOOK).notify(Alert({ text: '磁盘已满' })) // 按需发送
+```
+
+- 渠道：`mail`、`database`（`npx haze make:notifications-table` 生成表结构）、`broadcast`、`slack`、`webhook`、`wecom`、`dingtalk`、`feishu`，也可以自定义
+- 设置 `queue: true` 后经队列发送；测试：`const fake = Notification.fake()` 后 `fake.assertSentTo(user, WelcomeNotification)`
+
+广播把服务端事件推送到前端。频道授权在 `app/channel/*.ts`（示例：`app/channel/user.ts`），内置接口位于 `/broadcasting`（WebSocket、SSE、授权）：
+
+```ts
+await broadcast({
+  channel: privateChannel(`User.${id}`),
+  event: 'OrderShipped',
+  data
+}) // 服务端
+const echo = createEcho({ transport: 'ws' }) // 前端：import { createEcho } from '@hazejs/core/echo'
+echo.private(`User.${id}`).listen('OrderShipped', (order) => {}).notification((data) => {})
+```
 
 ## Socket.IO
 

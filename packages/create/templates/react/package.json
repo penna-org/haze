@@ -21,6 +21,7 @@
   "dependencies": {
     "@hazejs/ai": "{{version}}",
     "@hazejs/core": "{{version}}",
+    "@hazejs/oauth": "{{version}}",
     "@hazejs/orm": "{{version}}",
     "@hazejs/socket.io": "{{version}}",
     "@libsql/client": "^0.18.0",

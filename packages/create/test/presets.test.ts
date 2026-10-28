@@ -60,13 +60,13 @@ describe('full-stack deployment presets (vue template)', () => {
     const dist = join(root, 'dist')
     const env = { NODE_ENV: 'production' }
     const first = await run(join(dist, 'server/migrate.mjs'), [], dist, env)
-    expect(first.output).toContain('[main] 3 of 3 migrations applied (database/migrations)')
+    expect(first.output).toContain('[main] 4 of 4 migrations applied (database/migrations)')
     const again = await run(join(dist, 'server/migrate.mjs'), [], dist, env)
     expect([again.code, again.output]).toEqual([
       0,
-      expect.stringContaining('[main] 0 of 3 migrations applied'),
+      expect.stringContaining('[main] 0 of 4 migrations applied'),
     ])
-    expect((await sqliteRows(join(dist, 'data/app.db'), 'select count(*) as n from __drizzle_migrations'))[0].n).toBe(3)
+    expect((await sqliteRows(join(dist, 'data/app.db'), 'select count(*) as n from __drizzle_migrations'))[0].n).toBe(4)
 
     // 产物目录中没有 .env：APP_KEY 由部署环境提供（docker run -e APP_KEY=...）
     const server = await startProduction(join(dist, 'server/index.mjs'), dist, {
@@ -82,7 +82,7 @@ describe('full-stack deployment presets (vue template)', () => {
         body: JSON.stringify({ name: 'Ada', email: 'ada@example.com' }),
       })
       expect(created.status).toBe(201)
-      expect((await (await fetch(`${server.url}/api/users`)).json() as any).data.total).toBe(1)
+      expect((await (await fetch(`${server.url}/api/users`)).json() as any).data.meta.total).toBe(1)
     }
     finally {
       await server.stop()
@@ -126,8 +126,8 @@ describe('full-stack deployment presets (vue template)', () => {
         {
           connection: 'main',
           folder: 'database/migrations',
-          applied: 3,
-          total: 3,
+          applied: 4,
+          total: 4,
         },
       ])
       expect((await migrate({ all: true }))[0]).toMatchObject({ applied: 0 })
@@ -272,7 +272,12 @@ export default defineHazeConfig({
       // 与 wrangler d1 migrations apply 相同：按文件名顺序执行 migrations_dir 中的 SQL
       const db = await mf.getD1Database('DB')
       const files = readdirSync(join(dist, 'migrations')).filter(file => file.endsWith('.sql')).sort()
-      expect(files).toEqual(['0000_create_users.sql', '0001_add_user_password.sql', '0002_add_user_role.sql'])
+      expect(files).toEqual([
+        '0000_create_users.sql',
+        '0001_add_user_password.sql',
+        '0002_add_user_role.sql',
+        '0003_add_auth_tables.sql',
+      ])
       for (const file of files) {
         const statements = readFileSync(join(dist, 'migrations', file), 'utf8').split('--> statement-breakpoint')
         await db.batch(statements.map(statement => db.prepare(statement)))
@@ -289,10 +294,11 @@ export default defineHazeConfig({
       expect((await created.json() as any).data).toMatchObject({ id: 1, name: 'Ada' })
       expect((await create('ada@example.com')).status).toBe(409)
       const list = await (await mf.dispatchFetch('http://localhost/api/users')).json() as any
+      // UserResource：未登录时不输出邮箱
       expect(list.data).toMatchObject({
-        total: 1,
+        meta: { total: 1 },
         data: [
-          { email: 'ada@example.com' },
+          { name: 'Ada' },
         ],
       })
       // 授权：未登录不能删除用户（UserPolicy）
@@ -336,7 +342,7 @@ export default defineHazeConfig({
     })
     // Edge 没有迁移脚本：在 CI / 本地对远程库执行 db:migrate
     const migrate = await run(binOf('@hazejs/cli', 'haze'), ['db:migrate', '--root', root], root, { DATABASE_URL: url })
-    expect(migrate.output, migrate.output).toContain('[main] migrated: 3 of 3 applied (database/migrations)')
+    expect(migrate.output, migrate.output).toContain('[main] migrated: 4 of 4 applied (database/migrations)')
 
     const dist = join(root, 'dist')
     const wrangler = JSON.parse(readFileSync(join(dist, 'wrangler.json'), 'utf8'))
@@ -362,7 +368,7 @@ export default defineHazeConfig({
       expect(created.status).toBe(201)
       const list = await (await mf.dispatchFetch('http://localhost/api/users')).json() as any
       expect(list.data).toMatchObject({
-        total: 1,
+        meta: { total: 1 },
         data: [
           { name: 'Turso' },
         ],
@@ -478,6 +484,6 @@ export default defineHazeConfig({
     expect(build.code, build.output).toBe(0)
     const dist = join(project.root, 'dist')
     const migrated = await run(join(dist, 'migrate.mjs'), [], dist, { NODE_ENV: 'production', DATABASE_URL: `file:${join(dist, 'data/app.db')}` })
-    expect(migrated.output, migrated.output).toContain('[main] 3 of 3 migrations applied (database/migrations)')
+    expect(migrated.output, migrated.output).toContain('[main] 4 of 4 migrations applied (database/migrations)')
   })
 })

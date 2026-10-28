@@ -1,0 +1,55 @@
+{
+  "name": "@hazejs/oauth",
+  "type": "module",
+  "version": "0.1.2",
+  "description": "OAuth / OpenID Connect social login for hazejs: GitHub, Google, Apple, Microsoft, GitLab, Discord, WeChat, QQ, DingTalk, Feishu / Lark, WeCom, Alipay and generic OIDC",
+  "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/oauth#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/oauth"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "oauth",
+    "oauth2",
+    "oidc",
+    "socialite",
+    "social-login",
+    "wechat",
+    "alipay"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "@hazejs/core": "workspace:^"
+  },
+  "dependencies": {
+    "jose": "catalog:"
+  },
+  "devDependencies": {
+    "@hazejs/core": "workspace:*"
+  }
+}

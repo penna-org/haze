@@ -1,12 +1,15 @@
 import type { JWTPayload } from 'jose'
 import type { HttpContext } from '../http/context'
 import type { WebCryptoKey } from '../security/key'
-import type { JwtGuardConfig } from './config'
+import type { JwtGuardConfig, TokenGuardConfig } from './config'
 import type { Credentials, UserProvider } from './provider'
+import type { CreateTokenOptions, NewAccessToken, PersonalAccessToken } from './tokens'
 import { importPKCS8, importSPKI, jwtVerify, SignJWT } from 'jose'
 import { regenerateCsrfToken } from '../middleware/builtin/csrf'
 import { appKey } from '../security/key'
 import { parseDuration } from '../utils'
+import { resolveProvider } from './support'
+import { bearerToken, tokenCan, TokenRepository, tokenStoreOf } from './tokens'
 
 export interface Guard<U = unknown> {
   readonly name: string
@@ -202,5 +205,69 @@ export class SessionGuard<U = unknown> extends BaseGuard<U> {
     return id === undefined
       ? undefined
       : await this.provider.retrieveById(id) ?? undefined
+  }
+}
+
+/**
+ * 个人访问令牌认证（`driver: 'token'`）：`Authorization: Bearer <id|secret>`，
+ * 令牌在服务端可列出、吊销，并带有能力（abilities）。
+ */
+export class TokenGuard<U = unknown> extends BaseGuard<U> {
+  #token: PersonalAccessToken | undefined
+  #repository: TokenRepository<U> | undefined
+
+  constructor(name: string, ctx: HttpContext, provider: UserProvider<U>, readonly config: TokenGuardConfig) {
+    super(name, ctx, provider)
+  }
+
+  /** 令牌仓库：create / list / revoke / revokeAll */
+  tokens(): TokenRepository<U> {
+    if (!this.#repository) {
+      const auth = this.ctx.auth.config
+      this.#repository = new TokenRepository<U>(tokenStoreOf(this.name, this.config), resolveProvider<U>(auth, this.config.provider, this.config.type), this.config)
+    }
+    return this.#repository
+  }
+
+  /** 为用户签发令牌（明文只返回这一次） */
+  createToken(user: U, name: string, options?: CreateTokenOptions): Promise<NewAccessToken> {
+    return this.tokens().create(user, name, options)
+  }
+
+  /** 本次请求使用的令牌 */
+  async currentAccessToken(): Promise<PersonalAccessToken | undefined> {
+    await this.user()
+    return this.#token
+  }
+
+  /** 当前令牌是否具备该能力（未认证时为 false） */
+  async tokenCan(ability: string): Promise<boolean> {
+    const token = await this.currentAccessToken()
+    return token !== undefined && tokenCan(token, ability)
+  }
+
+  /** 直接指定用户与令牌（测试中模拟带特定能力的令牌） */
+  withAccessToken(user: U, token: PersonalAccessToken): this {
+    this.#token = token
+    this.setUser(user)
+    return this
+  }
+
+  /** 退出：吊销本次请求使用的令牌 */
+  async logout(): Promise<void> {
+    const token = await this.currentAccessToken()
+    if (token)
+      await this.tokens().revoke(token.id)
+    this.#token = undefined
+    this.setUser(undefined)
+  }
+
+  protected async resolve(): Promise<U | undefined> {
+    const plain = bearerToken(this.ctx)
+    if (!plain)
+      return undefined
+    const result = await this.tokens().authenticate(plain)
+    this.#token = result?.token
+    return result?.user
   }
 }

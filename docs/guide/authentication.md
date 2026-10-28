@@ -2,10 +2,10 @@
 
 Authentication in hazejs is split into two parts, both configured in `config/auth.ts`:
 
-- **Guards** decide *how* a request is authenticated: a `jwt` guard reads `Authorization: Bearer <token>`, a `session` guard reads the session cookie.
+- **Guards** decide *how* a request is authenticated: a `jwt` guard reads `Authorization: Bearer <token>`, a `session` guard reads the session cookie, and a `token` guard checks revocable [personal access tokens](./api-tokens).
 - **Providers** decide *where users come from*: usually a model, but any object implementing `UserProvider` works.
 
-The api template ships with a JWT guard, a `User` model with a hashed `password` column, and a working register / login / me flow.
+The api template ships with a JWT guard, a `User` model with a hashed `password` column, and a working register / login / me flow, plus API tokens, [email verification](#email-verification), [password reset](#password-reset) and GitHub login. [Two-factor authentication and passkeys](./two-factor) are available too.
 
 ## Configuration
 
@@ -181,6 +181,8 @@ export class SessionController {
 | `auth:api` | Uses a specific guard |
 | `auth:web,api` | Passes if **any** listed guard authenticates; that guard becomes the default for the rest of the request |
 | `guest` / `guest:web` | Rejects already-authenticated users with `403` (useful for login and register routes) |
+| `verified` | Requires a verified email: `401` when not logged in, `403` when unverified (see [Email verification](#email-verification)) |
+| `abilities:a,b` / `ability:a,b` | The [API token](./api-tokens#abilities) must have all / any of the abilities |
 
 ```ts
 // route/api.ts
@@ -201,11 +203,191 @@ r.group({ prefix: '/account', middleware: ['auth:web,api'] }, (r) => {
 | `guard(name?)` | A guard by name; also has `user()`, `check()`, `id()`, `validate(credentials)` and `logout()` |
 | `jwt(name?)` | A JWT guard with `login()`, `attempt()` and `payload()`; throws if the guard is not `jwt` |
 | `session(name?)` | A session guard with `login()`, `attempt()` and `logout()` |
+| `token(name?)` | A token guard with `createToken()`, `tokens()` and `currentAccessToken()` (see [API Tokens](./api-tokens)) |
+| `tokenCan(ability)` | Whether the request may use an ability: checks the token for token guards, `true` for jwt / session users, `false` for guests |
+| `currentAccessToken()` | The personal access token used for this request, if any |
 | `defaultGuard` | Name of the guard in use for this request |
 
 `guard(name).validate(credentials)` checks credentials and returns the user without logging in.
 
 The user type is inferred from the providers in `config/auth.ts` once typegen has run (`haze dev` does it automatically), so in the template `await ctx.auth.user()` is typed as `User | undefined`.
+
+## Email verification
+
+Verification links are [signed URLs](./routing#signed-urls): they carry an expiry and an HMAC signature keyed with `APP_KEY`, so nothing has to be stored. The link points at `<path>/<id>/<hash>`, where `hash` is a SHA-256 digest of the user's email, so a link stops working if the email changes.
+
+```ts
+// config/auth.ts
+export default defineAuthConfig(() => ({
+  // …
+  verification: {
+    route: 'api.auth.verification.verify',
+    expire: '60m',
+  },
+}))
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `provider` | default guard's provider | Where users come from |
+| `route` | | Name of the verify route (parameters `id` and `hash`). Use the **full** name, including group prefixes |
+| `path` | `'/email/verify'` | Used when `route` is not set: the link is `<path>/<id>/<hash>?expires=…&signature=…` |
+| `expire` | `'60m'` | Link lifetime |
+| `email` | `'email'` | Email field |
+| `field` | `'emailVerifiedAt'` | Field that records the verification time |
+| `url` | | `(link, user) => string`: rewrite the link in the email, e.g. to a frontend page that forwards the parameters to the API |
+| `mail` | `VerifyEmailMail` | Replace the built-in mail. It receives `{ appName, name, url, expiresInMinutes }` |
+| `queue` | `false` | Send through the queue |
+
+Set `APP_URL` so the links in emails are absolute; without it they are site-relative paths.
+
+The users table needs a nullable timestamp for `field`. In the templates it is `emailVerifiedAt` (`email_verified_at`) in `database/schema/users.ts`.
+
+### Sending and verifying
+
+```ts
+import { hasVerifiedEmail, sendEmailVerification, verifyEmail } from '@hazejs/core'
+
+export class VerificationController {
+  /** Resend the link (logged in) */
+  async send(ctx: HttpContext) {
+    const user = await ctx.auth.user()
+    if (hasVerifiedEmail(user))
+      return { status: 'verified' }
+    await sendEmailVerification(user)
+    return { status: 'sent' }
+  }
+
+  /** The link from the email */
+  async verify(ctx: HttpContext) {
+    const { verified } = await verifyEmail(ctx)
+    return { status: verified ? 'verified' : 'already-verified' }
+  }
+}
+```
+
+```ts
+// route/api.ts (inside the api. / auth. groups)
+r.post('/email/verification-notification', [VerificationController, 'send']).middleware(['auth', 'throttle:6,60']).name('verification.send')
+r.get('/email/verify/:id/:hash', [VerificationController, 'verify']).middleware('throttle:6,60').name('verification.verify')
+```
+
+- `sendEmailVerification(user)` mails the link and returns `false` (without sending) when the user is already verified. Call it after registration; the templates do so in `AuthController.register`.
+- `verificationUrl(user)` returns `{ url, id, hash, expires, signature }` if you deliver the link some other way.
+- `verifyEmail(ctx)` checks the signature and expiry (`403`), loads the user (`404` when missing), compares the email hash (`403`), and, if someone is logged in, requires it to be the same user (`403`). It then marks the user as verified and returns `{ user, verified }`; `verified` is `false` when the email was already verified. The link works without being logged in, so it can be opened from a mail client.
+- `markEmailAsVerified(user)` sets `field` to now and calls `user.save()` when the object has one (ORM models do). It emits `EmailVerified` with `{ user, id }`.
+- `hasVerifiedEmail(user)` reads `field`.
+
+The `verified` middleware guards routes that require a verified email. It returns `401` when nobody is logged in and `403` when the email is not verified:
+
+```ts
+r.post('/orders', [OrderController, 'store']).middleware(['auth', 'verified'])
+```
+
+## Password reset
+
+```ts
+// config/auth.ts
+import { databasePasswordResetStore } from '@hazejs/orm'
+import { passwordResetTokens } from '~/database/schema/auth'
+
+export default defineAuthConfig(() => ({
+  // …
+  passwords: {
+    store: databasePasswordResetStore(passwordResetTokens),
+    path: '/reset-password',
+    expire: '60m',
+    throttle: '60s',
+  },
+}))
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `provider` | default guard's provider | Where users come from (looked up by email) |
+| `store` | in memory | A `PasswordResetStore`, or the name of a store in `config/cache.ts` (tokens then expire in the cache) |
+| `expire` | `'60m'` | Token lifetime |
+| `throttle` | `'60s'` | Minimum time between two links for the same email (`0` disables) |
+| `email` / `password` | `'email'` / `'password'` | User fields |
+| `path` | `'/reset-password'` | Page in your frontend; the link is `<APP_URL><path>?token=…&email=…` |
+| `url` | | `({ token, email, user }) => string` for full control over the link |
+| `mail` | `ResetPasswordMail` | Replace the built-in mail. It receives `{ appName, name, url, expiresInMinutes }` |
+| `queue` | `false` | Send through the queue |
+
+There is one token per email; a new link replaces the previous one. Only the SHA-256 hash of the token is stored. Besides `databasePasswordResetStore()`, `cachePasswordResetStore(storeName?)` and `memoryPasswordResetStore()` are available.
+
+```ts
+import { PasswordReset, validate, ValidationException } from '@hazejs/core'
+
+export class PasswordResetController {
+  async forgot(ctx: HttpContext) {
+    const { email } = await validate(ForgotPasswordSchema, await ctx.body())
+    const status = await PasswordReset.sendLink(email)
+    // Same answer whether or not the email exists
+    return { status: status === 'throttled' ? 'throttled' : 'sent' }
+  }
+
+  async reset(ctx: HttpContext) {
+    const status = await PasswordReset.reset(await validate(ResetPasswordSchema, await ctx.body()))
+    if (status !== 'reset')
+      throw new ValidationException([{ target: 'body', path: 'token', message: 'This link is invalid or has expired' }])
+    return { status }
+  }
+}
+```
+
+- `PasswordReset.sendLink(email)` returns `'sent'`, `'throttled'` or `'invalid-user'`. Don't reveal `'invalid-user'` to clients, or the endpoint can be used to find out which emails are registered.
+- `PasswordReset.reset({ email, token, password }, callback?)` returns `'reset'`, `'invalid-token'` (wrong, expired or already used) or `'invalid-user'`. By default it stores `Hash.make(password)` in the password field and saves the user. Pass a callback to do more, such as revoking API tokens:
+
+```ts
+await PasswordReset.reset<User>(input, async (user, password) => {
+  user.password = await Hash.make(password)
+  await user.save()
+  await PersonalAccessTokens.revokeAll(user)
+})
+```
+
+The token is deleted after a successful reset. `PasswordResetLinkSent` and `PasswordResetCompleted` are emitted with `{ user, id, email }`. For custom flows there are `PasswordReset.createToken(user)`, `tokenExists(user, token)` and `deleteToken(user)`.
+
+Rate-limit both endpoints (`throttle:6,60` in the templates).
+
+## Ready-made routes
+
+To get started quickly, `authRoutes()` registers the verification, password reset and [API token](./api-tokens) endpoints with built-in validation:
+
+```ts
+// route/api.ts
+import { authRoutes, defineRoutes } from '@hazejs/core'
+
+export default defineRoutes((r) => {
+  r.group({ prefix: '/api/auth', as: 'auth.' }, (r) => {
+    authRoutes(r, { verification: true, passwordReset: true, tokens: true })
+  })
+})
+```
+
+| Option | Routes |
+|--------|--------|
+| `verification` | `POST /email/verification-notification` (`verification.send`, needs login), `GET /email/verify/:id/:hash` (`verification.verify`) |
+| `passwordReset` | `POST /forgot-password` (`password.email`), `POST /reset-password` (`password.update`) |
+| `tokens` | `GET /tokens`, `POST /tokens`, `DELETE /tokens/:id` (`tokens.*`, need login); `{ abilities }` limits what can be requested |
+| `auth` | Middleware for the routes that need login, default `['auth']` |
+| `throttle` | Rate limit for the other routes, default `'throttle:6,60'`; `false` disables it |
+| `minPasswordLength` | Minimum new password length, default `8` |
+
+Route names get the group's `as` prefix, so with the example above set `verification.route` to `'auth.verification.verify'`. Write your own controllers when you need different responses or validation, as the templates do.
+
+## In the templates
+
+The api, vue and react templates include the whole flow:
+
+- `app/controller/TokenController.ts`: `GET/POST /api/auth/tokens`, `DELETE /api/auth/tokens/:id`;
+- `app/controller/VerificationController.ts`: `POST /api/auth/email/verification-notification`, `GET /api/auth/email/verify/:id/:hash`; registering sends the verification mail;
+- `app/controller/PasswordResetController.ts`: `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`;
+- `app/controller/OAuthController.ts`: GitHub login at `/api/auth/github`, disabled until `GITHUB_CLIENT_ID` is set (see [OAuth Social Login](./oauth));
+- `database/schema/auth.ts` (tokens and reset tokens) plus `users.emailVerifiedAt`, created by the migration `0003_add_auth_tables`.
+
+For TOTP and passkeys see [Two-Factor Authentication & Passkeys](./two-factor).
 
 ## Testing
 
@@ -228,4 +410,4 @@ it('returns the current user', async () => {
 })
 ```
 
-Pass a guard name as the second argument to log in through a different guard: `t.actingAs(user, 'web')`. Outside `@hazejs/testing`, `issueTestCredentials(app, user, guard?)` from `@hazejs/core` returns the same credentials as request headers (`authorization` or `cookie`). More in [Testing](./testing).
+Pass a guard name as the second argument to log in through a different guard: `t.actingAs(user, 'web')`; with a token guard it issues a real personal access token (`t.actingAs(user, 'token')`). Outside `@hazejs/testing`, `issueTestCredentials(app, user, guard?)` from `@hazejs/core` returns the same credentials as request headers (`authorization` or `cookie`). More in [Testing](./testing).

@@ -75,8 +75,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3
-    expect(tests.output, tests.output).toContain('15 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4
+    expect(tests.output, tests.output).toContain('19 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -145,7 +145,8 @@ describe('code generation and types', () => {
     const typegen = await haze('typegen')
     expect(typegen.code, typegen.output).toBe(0)
     // api.hello + api.users.{index,store,show,update,destroy} + api.chat + api.auth.{register,login,me,avatar}
-    expect(typegen.output).toContain('11 named route(s)')
+    // + api.auth.tokens.{index,store,destroy} + verification.{send,verify} + password.{email,reset} + github(.callback)
+    expect(typegen.output).toContain('20 named route(s)')
     expect(project.read('.haze/types/haze.d.ts')).toContain('"api.hello": Record<never, never>')
 
     for (const kind of [
@@ -175,7 +176,7 @@ describe('code generation and types', () => {
     expect(model.output, model.output).toContain('database/schema/products.ts')
     const generate = await haze('db:generate', '--name', 'create_products')
     expect(generate.code, generate.output).toBe(0)
-    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0003_create_products.sql')
+    expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0004_create_products.sql')
     const migrate = await haze('db:migrate')
     expect(migrate.output, migrate.output).toContain('[main] migrated')
     writeFileSync(join(project.root, 'database/seeders/02-products.ts'), `
@@ -200,7 +201,7 @@ export default async function seed() {
     // 类型探针：生成的配置键 / 路由名 / 能力名必须能拦截拼写错误
     writeFileSync(join(project.root, 'probe.ts'), `
 import type { HttpContext } from '@hazejs/core'
-import { config, Router } from '@hazejs/core'
+import { config, Router, t } from '@hazejs/core'
 import { Product } from '~/app/model/Product'
 import { User } from '~/app/model/User'
 declare const router: Router
@@ -228,15 +229,21 @@ await ctx.can('updte', user)
 // @ts-expect-error UserPolicy 没有 create
 await ctx.authorize('create', User)
 const email: string | undefined = (await ctx.auth.user())?.email
-export { email, enabled, name, productName }
+// 翻译键来自 lang/en/*.ts（.haze/types/i18n.d.ts），含框架内置的 validation.* / http.*
+const subject: string = t('messages.welcome_mail.subject', { name: 'Ada' })
+ctx.t('messages.users', { count: 2 })
+t('validation.required')
+// @ts-expect-error 未知翻译键
+t('messages.nope')
+export { email, enabled, name, productName, subject }
 `)
     const tsc = await run(binOf('typescript', 'tsc'), ['--noEmit', '-p', 'tsconfig.json'], project.root)
     expect(tsc.output).toBe('')
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3 + 生成的测试 1
-    expect(tests.output, tests.output).toContain('16 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('20 passed')
   })
 })
 
@@ -248,8 +255,8 @@ describe('vue template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3
-    expect(tests.output, tests.output).toContain('15 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4
+    expect(tests.output, tests.output).toContain('19 passed')
     expect(tests.code).toBe(0)
   })
 

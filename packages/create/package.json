@@ -52,6 +52,7 @@
     "@hazejs/ai": "workspace:*",
     "@hazejs/cli": "workspace:*",
     "@hazejs/core": "workspace:*",
+    "@hazejs/oauth": "workspace:*",
     "@hazejs/orm": "workspace:*",
     "@hazejs/socket.io": "workspace:*",
     "@hazejs/testing": "workspace:*",

@@ -1,0 +1,60 @@
+import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+// 认证扩展的表结构：个人访问令牌、找回密码、两步验证、通行密钥（WebAuthn）
+// 此文件只依赖 drizzle-orm，不要使用 ~ 别名（drizzle-kit 需要直接读取）；不需要的表可以删除
+// 生成迁移：haze db:generate && haze db:migrate
+// JS 属性名由 @hazejs/orm 的 database*Store() 读取，请勿修改（列名可以改）
+
+export const personalAccessTokens = sqliteTable('personal_access_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  tokenableType: text('tokenable_type').notNull(),
+  tokenableId: text('tokenable_id').notNull(),
+  name: text('name').notNull(),
+  // 明文令牌的 SHA-256 摘要
+  token: text('token').notNull().unique(),
+  abilities: text('abilities', { mode: 'json' }).$type<string[]>().notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+}, table => [
+  index('personal_access_tokens_tokenable_index').on(table.tokenableType, table.tokenableId),
+])
+
+export const passwordResetTokens = sqliteTable('password_reset_tokens', {
+  email: text('email').primaryKey(),
+  // 重置令牌的 SHA-256 摘要
+  token: text('token').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const twoFactorSecrets = sqliteTable('two_factor_secrets', {
+  userType: text('user_type').notNull(),
+  userId: text('user_id').notNull(),
+  // TOTP 密钥（APP_KEY 加密）
+  secret: text('secret').notNull(),
+  // 恢复码的 SHA-256 摘要
+  recoveryCodes: text('recovery_codes', { mode: 'json' }).$type<string[]>().notNull(),
+  confirmedAt: integer('confirmed_at', { mode: 'timestamp_ms' }),
+  lastUsedStep: integer('last_used_step'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+}, table => [
+  primaryKey({ columns: [table.userType, table.userId] }),
+])
+
+export const webauthnCredentials = sqliteTable('webauthn_credentials', {
+  // 凭据 ID（base64url）
+  id: text('id').primaryKey(),
+  userType: text('user_type').notNull(),
+  userId: text('user_id').notNull(),
+  name: text('name'),
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').notNull().default(0),
+  transports: text('transports', { mode: 'json' }).$type<string[]>().notNull(),
+  deviceType: text('device_type').notNull(),
+  backedUp: integer('backed_up', { mode: 'boolean' }).notNull().default(false),
+  aaguid: text('aaguid'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+}, table => [
+  index('webauthn_credentials_user_index').on(table.userType, table.userId),
+])

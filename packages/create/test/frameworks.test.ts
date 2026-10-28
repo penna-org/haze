@@ -100,7 +100,7 @@ describe('react template', () => {
     expect(typecheck.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3
-    expect(tests.output, tests.output).toContain('15 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4
+    expect(tests.output, tests.output).toContain('19 passed')
   })
 })
