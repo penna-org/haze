@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { camelCase, kebabCase, parseName, plural } from './naming'
+import { camelCase, commandName, kebabCase, parseName, plural } from './naming'
 
 /** 内置 stub 目录：构建产物（dist/）与源码（src/make/）位于不同深度，向上查找 */
 export const STUBS_DIR = ['../stubs', '../../stubs']
@@ -22,6 +22,8 @@ export interface MakeKind {
   ext?: string
   /** 只按目录第一层自动发现（config/*.ts、route/*.ts），不允许子目录 */
   flat?: boolean
+  /** 不区分应用（多应用的 --app 无效） */
+  global?: boolean
   stub: string
   /** 生成后的提示 */
   hint?: (vars: StubVariables) => string
@@ -158,6 +160,25 @@ export const KINDS = {
     flat: true,
     stub: 'route',
   },
+  command: {
+    description: '自定义命令',
+    suffix: '',
+    dir: 'app/command',
+    base: 'src',
+    file: 'class',
+    global: true,
+    stub: 'command',
+    hint: v => `运行：haze ${v.commandName}（生产环境：node dist/worker.mjs command ${v.commandName}）`,
+  },
+  mail: {
+    description: '邮件',
+    suffix: 'Mail',
+    dir: 'app/mail',
+    base: 'src',
+    file: 'class',
+    stub: 'mail',
+    hint: v => `发送：await Mail.to(user.email).send(${v.className}, { name: user.name })；排队发送用 .queue(...)`,
+  },
   seeder: {
     description: '数据填充',
     suffix: 'Seeder',
@@ -179,6 +200,8 @@ export interface StubVariables {
   kebabName: string
   envName: string
   routePath: string
+  /** 自定义命令名：SendReport → send:report，db/Cleanup → db:cleanup */
+  commandName: string
 }
 
 export interface MakeOptions {
@@ -206,6 +229,8 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
   const { dir, name } = parseName(options.name, kind.suffix)
   if (kind.flat && dir)
     throw new Error(`${kind.dir}/ 只自动加载第一层文件，${options.kind} 名称不能包含子目录：${options.name}`)
+  if (kind.global && options.app)
+    throw new Error(`${options.kind} 不区分应用，不支持 --app（统一放在 ${kind.dir}/）`)
   const vars: StubVariables = {
     name,
     className: name + (kind.file === 'class'
@@ -215,6 +240,7 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
     kebabName: kebabCase(name),
     envName: kebabCase(name).replace(/-/g, '_').toUpperCase(),
     routePath: plural(kebabCase(name)),
+    commandName: commandName(dir, name),
   }
 
   const fileName = kind.file === 'class'

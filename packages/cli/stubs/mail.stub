@@ -1,0 +1,19 @@
+import { defineMail, html, mailLayout } from '@hazejs/core'
+
+export interface {{className}}Payload {
+  name: string
+}
+
+/**
+ * 邮件：函数返回主题与 html，纯文本版本自动生成。
+ * 发送 await Mail.to(user.email).send({{className}}, { name: user.name })；排队发送用 .queue(...)
+ */
+export default defineMail((payload: {{className}}Payload) => ({
+  subject: `你好，${payload.name}`,
+  html: mailLayout({
+    body: html`
+      <h1 style="margin:0 0 16px;font-size:22px">你好，${payload.name}</h1>
+      <p>这是一封来自 {{className}} 的邮件。</p>
+    `,
+  }),
+}), { name: '{{className}}' })

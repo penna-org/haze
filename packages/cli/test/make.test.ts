@@ -5,7 +5,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { KINDS, make, makeModel } from '../src/make/generator'
-import { camelCase, kebabCase, parseName, plural } from '../src/make/naming'
+import { camelCase, commandName, kebabCase, parseName, plural } from '../src/make/naming'
 
 const root = fileURLToPath(new URL(`./.tmp/make-${process.pid}`, import.meta.url))
 const srcDir = join(root, 'server')
@@ -19,6 +19,14 @@ describe('naming', () => {
     expect(parseName('Admin/user-profile', 'Controller')).toEqual({ dir: 'admin', name: 'UserProfile' })
     expect(parseName('admin\\billing/Invoice')).toEqual({ dir: 'admin/billing', name: 'Invoice' })
     expect(() => parseName('123abc')).toThrow(/Invalid name/)
+  })
+
+  it('derives console command names from the file path', () => {
+    expect(commandName('', 'SendReport')).toBe('send:report')
+    expect(commandName('', 'SendDailyReportCommand')).toBe('send:daily-report')
+    expect(commandName('', 'Inspire')).toBe('inspire')
+    expect(commandName('db', 'Cleanup')).toBe('db:cleanup')
+    expect(commandName('db/maintenance', 'PruneOld')).toBe('db:maintenance:prune-old')
   })
 
   it('converts cases and pluralizes', () => {
@@ -48,6 +56,8 @@ describe('make', () => {
       config: 'server/config/userProfile.ts',
       route: 'server/route/user-profile.ts',
       seeder: 'server/database/seeders/user-profile.ts',
+      command: 'server/app/command/admin/UserProfile.ts',
+      mail: 'server/app/mail/admin/UserProfileMail.ts',
     }
     for (const kind of Object.keys(KINDS) as KindName[]) {
       // config / route 只按第一层自动发现，不带子目录
@@ -88,6 +98,37 @@ describe('make', () => {
       kind: 'route',
       name: 'admin/users',
     })).rejects.toThrow(/不能包含子目录/)
+  })
+
+  it('generates console commands and mails', async () => {
+    const command = await make({
+      root,
+      srcDir,
+      kind: 'command',
+      name: 'db/PruneOld',
+    })
+    expect(rel(command.file)).toBe('server/app/command/db/PruneOld.ts')
+    expect(readFileSync(command.file, 'utf8')).toContain('haze db:prune-old')
+    expect(command.hint).toContain('haze db:prune-old')
+    await expect(make({
+      root,
+      srcDir,
+      kind: 'command',
+      name: 'Report',
+      app: 'admin',
+    })).rejects.toThrow(/--app/)
+
+    const mail = await make({
+      root,
+      srcDir,
+      kind: 'mail',
+      name: 'Invoice',
+    })
+    expect(rel(mail.file)).toBe('server/app/mail/InvoiceMail.ts')
+    const source = readFileSync(mail.file, 'utf8')
+    expect(source).toContain('export default defineMail((payload: InvoiceMailPayload)')
+    expect(source).toContain(`{ name: 'InvoiceMail' }`)
+    expect(mail.hint).toContain('send(InvoiceMail')
   })
 
   it('generates into an app directory with --app', async () => {

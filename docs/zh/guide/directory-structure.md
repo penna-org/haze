@@ -9,6 +9,7 @@ hazejs 沿用 ThinkPHP / Laravel 风格的目录约定：每类代码都有固�
 ```
 my-app/
 ├─ app/
+│  ├─ command/          自定义命令（自动发现）
 │  ├─ controller/       控制器
 │  ├─ event/            事件（自动发现）
 │  ├─ exception/
@@ -94,6 +95,7 @@ Vite 插件用 `import.meta.glob` 为以下文件生成清单。每个目录**�
 | `app/interceptor/*.ts` | 出站拦截器，按文件名顺序执行 |
 | `app/policy/*.ts` | 授权策略与能力 |
 | `app/job/*.ts` | 队列任务，文件名即任务名 |
+| `app/command/**/*.ts` | 自定义命令，路径即命令名（`db/Cleanup.ts` → `db:cleanup`）；只由 `haze` 与 `worker.mjs command` 加载 |
 | `app/event/*.ts` | 事件，文件名即事件名 |
 | `app/listener/*.ts` | 监听器，按文件名顺序执行 |
 | `schedule/*.ts` | 定时任务 |
@@ -139,6 +141,10 @@ Standard Schema 校验规则（默认 valibot，也可以用 zod、arktype 等�
 ### `app/job`
 
 用 `defineJob()` 定义的队列任务，文件名即任务名。详见[队列](./queues)。
+
+### `app/command`
+
+用 `defineCommand()` 定义的自定义命令，通过 `haze <name>` 或 `node dist/worker.mjs command <name>` 运行。可以使用子目录，子目录会成为命令名的一部分。详见[自定义命令](./console)。
 
 ### `app/event` 与 `app/listener`
 

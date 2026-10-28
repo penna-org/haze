@@ -102,15 +102,32 @@ function packageName(root: string): string {
 const rel = (context: FinalizeContext, path: string): string => normalizePath(relative(context.root, path)) || '.'
 
 /**
- * 队列 worker 与定时任务（worker.mjs）：
+ * 队列 worker、定时任务与自定义命令（worker.mjs）：
  * `node worker.mjs queue [--queue a,b] [--concurrency 5] [--connection redis]`、
- * `node worker.mjs schedule`（常驻）、`node worker.mjs schedule:run`（执行一次到期任务）
+ * `node worker.mjs schedule`（常驻）、`node worker.mjs schedule:run`（执行一次到期任务）、
+ * `node worker.mjs command <name> [args]`（app/command 下的命令，不带名称时列出全部）
  */
 export function workerEntryCode(): string {
   return `import process from 'node:process'
 import { parseArgs } from 'node:util'
-import { QueueManager, Scheduler } from '@hazejs/core'
-import { createApp } from '${VIRTUAL_MODULES.app}'
+import { collectCommands, QueueManager, runConsole, Scheduler } from '@hazejs/core'
+import { createApp, manifest } from '${VIRTUAL_MODULES.app}'
+
+// 自定义命令的参数由命令自己的定义解析，不经过下面的 parseArgs
+if (process.argv[2] === 'command') {
+  const app = await createApp({ mode: 'production' })
+  let code = 1
+  try {
+    code = await runConsole(app, await collectCommands(manifest.discovered.commands), process.argv.slice(3))
+  }
+  catch (error) {
+    app.logger.error(error)
+  }
+  await app.dispose()
+  // 管道输出在 macOS 上是异步的：先等缓冲写完再退出
+  await Promise.all([process.stdout, process.stderr].map(stream => new Promise(resolve => stream.write('', resolve))))
+  process.exit(code)
+}
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -150,7 +167,7 @@ else if (command === 'schedule:run') {
   process.exit(runs.some(run => run.status === 'failed') ? 1 : 0)
 }
 else {
-  app.logger.error(\`Unknown command "\${command}" (queue | schedule | schedule:run)\`)
+  app.logger.error(\`Unknown command "\${command}" (queue | schedule | schedule:run | command)\`)
   await app.dispose()
   process.exit(1)
 }

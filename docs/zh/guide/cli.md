@@ -4,13 +4,13 @@
 
 ```sh
 npx haze <command> [options]
-npx haze --help              # 列出所有命令
+npx haze --help              # 列出所有命令（含自定义命令）
 npx haze make:model --help   # 查看某个命令的选项
 ```
 
 所有命令都支持 `--root <dir>`，用于指定项目根目录（默认当前目录 `.`）。
 
-需要用到应用本身的命令——`route:list`、`typegen`、`db:*`、`queue:*`、`schedule:*`——会在与开发服务器相同的 Vite 模块图中启动应用，但不监听端口。它们直接运行 TypeScript 源码，无需事先构建。
+需要用到应用本身的命令——`route:list`、`typegen`、`repl`、`db:*`、`queue:*`、`schedule:*` 以及自定义命令——会在与开发服务器相同的 Vite 模块图中启动应用，但不监听端口。它们直接运行 TypeScript 源码，无需事先构建。
 
 ## 开发与生产
 
@@ -84,6 +84,14 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 
 输出应用的 [OpenAPI](./openapi) 文档，或用 `-o openapi.json` 写入文件。
 
+### `haze repl`
+
+打开交互式命令行，可以直接使用已启动的应用、`config`、`inject`、各个门面（`Cache`、`Queue`、`Events`、`Storage`、`Mail`，安装了 `@hazejs/orm` 时还有 `Db`）以及 `app/model` 下的所有模型。支持顶层 `await`，历史记录保存在 `.haze/repl_history`。详见[自定义命令](./console#repl)。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--eval`、`-e` | 执行一段代码，打印结果后退出（非交互）；代码抛出异常时退出码为 1 |
+
 ## 项目设置
 
 ### `haze key:generate`
@@ -106,7 +114,7 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 | `--force` | 覆盖 `stubs/` 中已存在的文件 |
 
 ::: v-pre
-stub 名称：`controller`、`controller.resource`、`service`、`repository`、`middleware`、`interceptor`、`provider`、`event`、`listener`、`job`、`policy`、`validate`、`validate.zod`、`test`、`config`、`route`、`seeder`、`model`、`model.mongodb`、`schema.sqlite`、`schema.postgres`、`schema.mysql`。模板中使用 `{{ className }}`、`{{ camelName }}`、`{{ kebabName }}`、`{{ routePath }}` 等占位变量。
+stub 名称：`controller`、`controller.resource`、`service`、`repository`、`middleware`、`interceptor`、`provider`、`event`、`listener`、`job`、`policy`、`validate`、`validate.zod`、`test`、`config`、`route`、`seeder`、`command`、`mail`、`model`、`model.mongodb`、`schema.sqlite`、`schema.postgres`、`schema.mysql`。模板中使用 `{{ className }}`、`{{ camelName }}`、`{{ kebabName }}`、`{{ routePath }}`、`{{ commandName }}` 等占位变量。
 :::
 
 ## 代码生成
@@ -135,6 +143,8 @@ npx haze make:<type> <name> [options]
 | `make:config` | `payment` | `config/payment.ts` |
 | `make:route` | `admin` | `route/admin.ts` |
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
+| `make:command` | `SendReport` | `app/command/SendReport.ts`（用 `haze send:report` 运行） |
+| `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
 
 生成后，大多数命令会打印一行提示：文件需要在哪里注册，或者怎么使用。
 
@@ -152,7 +162,7 @@ npx haze make:<type> <name> [options]
 | --- | --- |
 | `<name>` | 必填，名称，可以带子目录 |
 | `--force` | 文件已存在时覆盖 |
-| `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项 |
+| `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项，`make:command` 不支持 |
 
 ### `make:controller`
 
@@ -257,6 +267,15 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 
 常驻运行，每分钟整点检查并执行到期任务。修改 `schedule/*.ts` 后从下一分钟开始生效。
 
+## 自定义命令
+
+`app/command` 下（含子目录）默认导出 `defineCommand()` 的文件都会成为命令：`app/command/SendReport.ts` 用 `haze send:report` 运行，`app/command/db/Cleanup.ts` 用 `haze db:cleanup` 运行。它们会出现在 `haze --help` 的列表中，和内置命令一样支持 `--help` 与 `--root`，并以 `run()` 返回的退出码结束。详见[自定义命令](./console)。
+
+```sh
+npx haze make:command SendReport
+npx haze send:report ops@example.com --dry-run
+```
+
 ## 生产环境
 
 构建产物不依赖命令行工具和源码。常驻进程型的预设（`node`、`bun`、`deno`、`docker`）会额外输出独立的入口：
@@ -266,6 +285,7 @@ node dist/migrate.mjs [--connection <name>] [--all]            # 对应 haze db:
 node dist/worker.mjs queue [--queue a,b] [--concurrency 5]      # 对应 haze queue:work
 node dist/worker.mjs schedule                                    # 对应 haze schedule:work
 node dist/worker.mjs schedule:run                                # 对应 haze schedule:run
+node dist/worker.mjs command <name> [args]                       # 对应 haze <name>（app/command）
 ```
 
 以上路径适用于使用 `node` 或 `bun` 预设的纯后端项目；全栈项目以及 `deno` / `docker` 预设下，这些文件位于 `dist/server/`。只有项目使用了 `@hazejs/orm` 时才会生成 `migrate.mjs`。Serverless 与 Edge 平台的做法见[部署](./deployment)。

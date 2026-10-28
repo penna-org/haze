@@ -1504,3 +1504,14 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - `haze openapi [-o file]`。
 
 已知限制：多应用按域名绑定的路由需要各自的 baseURL；`r.any()` 路由不出现在文档中；自定义 `ResponseFormatter` 时错误响应的结构按默认信封描述；全栈模式下后端只接收 `/api/*`，需把文档路径配置为 `/api/openapi.json`。
+
+### M21 实施记录（2026-10-28）：自定义命令与 REPL
+
+- `defineCommand({ name?, description, args, run(args, ctx) })`，放在 `app/command/**`；文件名转命令名（`SendReport` → `send:report`，`db/PruneOld` → `db:prune-old`，去掉末尾的 `Command`），`name` 优先；重名报错，与内置命令同名时跳过并警告。
+- 参数定义与 citty 兼容（positional / string / boolean / enum、alias、default、`--no-`），core 内置解析器，生产构建无需 citty；`run` 返回数字作为退出码，抛错退出码为 1。上下文：`app`、`logger`、`prompt / confirm / ask / choice`（consola）。
+- 发现：清单中 `discovered.commands` 为非 eager 的 glob，Web 服务不会执行命令模块；CLI 只在第一个参数不是内置命令（或打印命令列表）时才启动应用加载命令。
+- 生产：`node dist/server/worker.mjs command <name> [...args]`。
+- `haze repl`：启动后的应用、`config`、`inject`、各门面、`Db`（安装了 ORM 时）和 `app/model` 下的模型；顶层 await；串行求值（管道输入不会并发）；热重载后刷新上下文；`--eval` 先按表达式求值，失败再按 async 函数体执行。
+- 生成器：`make:command`（无后缀、可带子目录、不支持 `--app`）、`make:mail`（后缀 `Mail`）。模板新增示例命令 `inspire`。
+
+已知限制：命令不区分应用（没有 `app/<name>/command`）；Serverless / 边缘预设没有命令入口。

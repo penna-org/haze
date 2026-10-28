@@ -1,0 +1,18 @@
+import { defineCommand } from '@hazejs/core'
+
+/**
+ * 自定义命令（app/command 下自动发现，文件名即命令名）：haze {{commandName}} [name] [--dry-run]
+ * 生产环境：node dist/worker.mjs command {{commandName}}
+ */
+export default defineCommand({
+  description: '{{name}}',
+  args: {
+    name: { type: 'positional', required: false, description: '名称' },
+    dryRun: { type: 'boolean', alias: 'd', description: '只打印，不执行' },
+  },
+  async run(args, ctx) {
+    // 需要交互时：await ctx.confirm('继续？')、await ctx.ask('名称')、await ctx.choice('环境', ['dev', 'prod'])
+    ctx.logger.info(`{{commandName}}: ${args.name ?? 'all'}${args.dryRun ? ' (dry run)' : ''}`)
+    // 返回非 0 的数字作为退出码；抛出异常时退出码为 1
+  },
+})

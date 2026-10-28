@@ -9,6 +9,7 @@ The backend source directory is the project root:
 ```
 my-app/
 ├─ app/
+│  ├─ command/          Console commands (auto-discovered)
 │  ├─ controller/       HTTP controllers
 │  ├─ event/            Events (auto-discovered)
 │  ├─ exception/
@@ -94,6 +95,7 @@ The Vite plugin builds a manifest of these files with `import.meta.glob`. Only t
 | `app/interceptor/*.ts` | Outbound interceptors, applied in file-name order |
 | `app/policy/*.ts` | Policies and abilities |
 | `app/job/*.ts` | Queue jobs. The file name is the job name |
+| `app/command/**/*.ts` | Console commands. The path is the command name (`db/Cleanup.ts` → `db:cleanup`); loaded only by `haze` and `worker.mjs command` |
 | `app/event/*.ts` | Events. The file name is the event name |
 | `app/listener/*.ts` | Listeners, run in file-name order |
 | `schedule/*.ts` | Scheduled tasks |
@@ -139,6 +141,10 @@ Authorization policies (`definePolicy(Model, { … })`) and model-free abilities
 ### `app/job`
 
 Queue jobs defined with `defineJob()`. The file name becomes the job name. See [Queues](./queues).
+
+### `app/command`
+
+Console commands defined with `defineCommand()`, run with `haze <name>` or `node dist/worker.mjs command <name>`. Subdirectories are allowed and become part of the name. See [Console Commands](./console).
 
 ### `app/event` and `app/listener`
 

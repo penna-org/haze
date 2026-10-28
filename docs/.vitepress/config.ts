@@ -65,6 +65,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
       ['multi-app', ['Multiple Apps', '多应用']],
       ['testing', ['Testing', '测试']],
       ['deployment', ['Deployment', '部署']],
+      ['console', ['Console Commands', '自定义命令']],
       ['cli', ['CLI Reference', '命令行参考']],
     ],
   },

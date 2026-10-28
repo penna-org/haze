@@ -48,3 +48,19 @@ export function plural(value: string): string {
     return `${value.slice(0, -1)}ies`
   return `${value}s`
 }
+
+/**
+ * 自定义命令名（与 @hazejs/core 的 commandName 规则一致）：顶层文件按第一个单词分组
+ * （SendReport → send:report，Inspire → inspire），子目录作为分组（db/PruneOld → db:prune-old），去掉 Command 后缀
+ */
+export function commandName(dir: string, name: string): string {
+  const leaf = kebabCase(name.endsWith('Command') && name !== 'Command'
+    ? name.slice(0, -'Command'.length)
+    : name)
+  return dir
+    ? [
+        ...dir.split('/').map(kebabCase),
+        leaf,
+      ].join(':')
+    : leaf.replace('-', ':')
+}

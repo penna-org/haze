@@ -450,8 +450,9 @@ function manifestCode(settings: Settings, dev: boolean): string {
     `export const schedules = ${glob('schedule/*.{ts,mts,js,mjs}')}`,
     `export const events = ${glob('app/event/*.{ts,mts,js,mjs}')}`,
     `export const listeners = ${glob('app/listener/*.{ts,mts,js,mjs}')}`,
-    // 扩展包读取的目录（app.discovered(name)）
-    `export const discovered = { sockets: ${glob('app/socket/*.{ts,mts,js,mjs}')} }`,
+    // 扩展包读取的目录（app.discovered(name)）。
+    // commands 按需加载（Web 进程不执行命令代码），含子目录（db/Cleanup.ts → db:cleanup），由命令行与 worker.mjs 读取
+    `export const discovered = { sockets: ${glob('app/socket/*.{ts,mts,js,mjs}')}, commands: import.meta.glob(${JSON.stringify(`${base}/app/command/**/*.{ts,mts,js,mjs}`)}) }`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
     `export const apps = ${glob('app/*/{route,config,provider,exception,response}/*.{ts,mts,js,mjs}')}`,
   ].join('\n')
