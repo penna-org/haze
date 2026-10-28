@@ -39,6 +39,7 @@ catalog:
   '@socket.io/bun-engine': ^0.1.2
   '@socket.io/redis-adapter': ^8.3.0
   '@standard-schema/spec': ^1.0.0
+  '@valibot/to-json-schema': ^1.8.0
   '@types/node': ^24.0.0
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0

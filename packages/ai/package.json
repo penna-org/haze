@@ -1,0 +1,67 @@
+{
+  "name": "@hazejs/ai",
+  "type": "module",
+  "version": "0.1.2",
+  "description": "AI toolkit for hazejs: one API for OpenAI, Anthropic, Gemini, Azure, Bedrock, Cloudflare and OpenAI-compatible providers — text, streaming, tools, structured output, embeddings, agents, images, speech and MCP",
+  "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/ai#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/ai"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "ai",
+    "llm",
+    "openai",
+    "anthropic",
+    "claude",
+    "gemini",
+    "deepseek",
+    "bedrock",
+    "mcp",
+    "agent"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "@hazejs/core": "workspace:^",
+    "@valibot/to-json-schema": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@hazejs/core": {
+      "optional": true
+    },
+    "@valibot/to-json-schema": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@hazejs/core": "workspace:*",
+    "@standard-schema/spec": "catalog:",
+    "@valibot/to-json-schema": "catalog:",
+    "valibot": "catalog:"
+  }
+}

@@ -16,6 +16,9 @@
       ],
       "@hazejs/socket.io": [
         "./packages/socketio/src/index.ts"
+      ],
+      "@hazejs/ai": [
+        "./packages/ai/src/index.ts"
       ]
     }
   },
