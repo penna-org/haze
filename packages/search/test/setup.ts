@@ -28,7 +28,8 @@ export const pgPosts = pgTable('posts', {
   deletedAt: pgTimestamp('deleted_at'),
 })
 
-export const mysqlPosts = mysqlTable('posts', {
+// MySQL 与 ORM 测试共用同一个数据库（CI 中并行运行），使用独立的表名
+export const mysqlPosts = mysqlTable('search_posts', {
   id: int('id').primaryKey().autoincrement(),
   title: varchar('title', { length: 200 }).notNull(),
   body: mysqlText('body').notNull(),
@@ -48,8 +49,8 @@ export const ddl = {
     `create table posts (id serial primary key, title text not null, body text not null default '', status text not null default 'published', views integer not null default 0, tenant_id text, deleted_at timestamp)`,
   ],
   mysql: [
-    'drop table if exists posts',
-    `create table posts (id int auto_increment primary key, title varchar(200) not null, body text not null, status varchar(20) not null default 'published', views int not null default 0, tenant_id varchar(50), deleted_at timestamp null) engine=InnoDB`,
+    'drop table if exists search_posts',
+    `create table search_posts (id int auto_increment primary key, title varchar(200) not null, body text not null, status varchar(20) not null default 'published', views int not null default 0, tenant_id varchar(50), deleted_at timestamp null) engine=InnoDB`,
   ],
 }
 
