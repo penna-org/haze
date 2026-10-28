@@ -1,4 +1,4 @@
-# Models & Queries
+# Models
 
 A model wraps one drizzle table. Its fields and their types come straight from the schema, so there is nothing to declare twice.
 
@@ -43,10 +43,14 @@ Configure a model with static properties:
 | Property | Default | Description |
 |----------|---------|-------------|
 | `connection` | default connection | Connection name from `config/database.ts` |
-| `hidden` | `[]` | Fields left out of `toJSON()` |
+| `hidden` | `[]` | Fields left out of `toJSON()`; `'posts.title'` hides a field of a loaded relation |
+| `visible` | `[]` | When not empty, only these fields are serialized |
 | `append` | `[]` | Virtual fields added to `toJSON()` (each needs a `getXxxAttr` accessor) |
 | `softDelete` | `false` | `true` uses the `deletedAt` column; a string names another column |
 | `timestamps` | `true` | Maintain `createdAt` / `updatedAt` when those columns exist. Pass `{ createdAt: 'addedAt', updatedAt: false }` to rename or disable one, or `false` to disable both |
+| `readonly` | `[]` | Fields written on insert but never updated afterwards |
+| `optimLock` | `false` | [Optimistic locking](#optimistic-locking): `true` uses the `lockVersion` column; a string names another column |
+| `globalScope` | `[]` | [Global scopes](#global-scopes) applied to every query |
 
 Timestamp values follow the column type: `Date`, string or milliseconds.
 
@@ -75,7 +79,7 @@ const page = await User.where('role', 'member').order('id', 'desc').paginate(1, 
 
 ## Building queries
 
-`Model.where()`, `Model.query()` and `Db.table()` all return the same chainable builder. Conditions:
+`Model.where()`, `Model.query()` and `Db.table()` all return the same chainable builder; the [Query Builder](./query-builder) page covers joins, subqueries, grouping, JSON fields, time conditions, caching and more. The basics:
 
 ```ts
 User.where('role', 'admin')                        // =
@@ -108,7 +112,7 @@ Supported operators: `=`, `!=`, `<>`, `>`, `>=`, `<`, `<=`, `like`, `not like`, 
 | `increment(column, step)` / `decrement(column, step)` | Atomic counters |
 | `toSQL()` | The generated SQL and parameters, for debugging |
 
-`Db.table()` is where you would typically also use `field(...columns)` to select specific columns, and `insert()` / `insertGetId()` for raw inserts that bypass model events.
+See the [Query Builder](./query-builder) for the full list. `Db.table()` is where you would typically use `insert()` / `upsert()` for raw inserts that bypass model events.
 
 A typical filter endpoint:
 
@@ -141,7 +145,54 @@ await user.delete()
 await User.destroy([1, 2, 3]) // by primary key, returns how many were deleted
 ```
 
-Other instance helpers: `isDirty(key?)`, `getDirty()`, `getOriginal(key?)`, `refresh()` (reload from the database) and the `exists` getter.
+More ways to write:
+
+```ts
+await user.save({ name: 'Ada' })                        // fill and save
+await User.create(input, ['name', 'email'])             // only these fields are taken from input
+await user.allowField(['name', 'bio']).save(input)      // same, on an instance
+await user.force().save()                               // update even if nothing changed (refreshes updatedAt)
+await post.inc('views').save()                          // atomic views = views + 1 (also dec())
+
+await User.update({ status: 0 }, { role: 'guest' })     // load matching models and save each one
+await User.update({ id: 1, name: 'Ada' })               // by the primary key in the data
+await User.saveAll([{ id: 1, name: 'Ada' }, { name: 'Bob' }]) // update or create, in a transaction
+await User.destroy({ status: 0 })                       // or destroy(q => q.where('age', '<', 18))
+
+const user = await User.findOrEmpty(id)                 // never undefined
+if (user.isEmpty()) { /* ... */ }
+```
+
+Static `update()`, `saveAll()` and `destroy()` go through each model, so events, timestamps and soft deletes apply. Run several writes atomically with `User.transaction(...)`, see [Transactions](./transactions).
+
+Other instance helpers: `isDirty(key?)`, `getDirty()`, `getOriginal(key?)`, `getData()`, `refresh()` (reload from the database) and the `exists` getter.
+
+### Read-only fields
+
+```ts
+export class User extends Model.define(users) {
+  static override readonly = ['email']
+}
+```
+
+Read-only fields are written when the model is created and ignored by later `save()` calls.
+
+### Optimistic locking
+
+With `optimLock`, every update checks that the row has not changed since it was loaded, and increments a version column:
+
+```ts
+export class Article extends Model.define(articles) {
+  static override optimLock = true // needs an integer lockVersion column (default 0)
+}
+
+const a = await Article.findOrFail(1)
+const b = await Article.findOrFail(1)
+a.title = 'One'
+await a.save()      // lockVersion 0 → 1
+b.title = 'Two'
+await b.save()      // throws OptimisticLockException (409)
+```
 
 Bulk `update()` / `delete()` on a query run as a single statement. They skip model events and timestamps, and refuse to run without a condition unless you pass `{ all: true }`.
 
@@ -187,11 +238,22 @@ export class User extends Model.define(users) {
 }
 ```
 
-Use `getRaw(key)` to read a value without its accessor.
+Use `getRaw(key)` to read a value without its accessor. `withAttr('name', (value, data) => ...)` adds an accessor to one instance, or to every result of a query: `User.query().withAttr('name', ...)`.
 
 ## Serialization
 
-`toJSON()` applies accessors, removes `hidden` fields, adds `append` fields and includes loaded relations. Returning a model or a paginated result from a controller serializes it automatically, so the template's `password` column never reaches clients.
+`toJSON()` (alias `toArray()`) applies accessors, removes `hidden` fields, adds `append` fields and includes loaded relations. Returning a model or a paginated result from a controller serializes it automatically, so the template's `password` column never reaches clients.
+
+Override the settings per instance or per query:
+
+```ts
+user.hidden(['email']).toJSON()
+user.visible(['id', 'name', 'posts.title']).toJSON()   // dots reach into loaded relations
+user.append(['initials']).toJSON()
+user.hidden(['phone'], true)                            // true: merge with the model's hidden list
+
+await User.query().visible(['id', 'name']).select()     // applied to every result
+```
 
 ## Query scopes
 
@@ -210,6 +272,47 @@ await Post.scope('published').order('id', 'desc').paginate(1, 20)
 
 Extra arguments are forwarded: `scope('ofAuthor', userId)` calls `scopeOfAuthor(query, userId)`.
 
+## Global scopes
+
+List scope names in `globalScope` to apply them to every query of the model, including relation queries:
+
+```ts
+export class Post extends Model.define(posts) {
+  static override globalScope = ['tenant']
+
+  static scopeTenant(query: ModelQuery<Post>) {
+    query.where('tenantId', currentTenantId())
+  }
+}
+
+await Post.all()                                    // WHERE tenant_id = ?
+await Post.withoutGlobalScope(['tenant']).select()  // skip one
+await Post.withoutGlobalScope().select()            // skip all
+```
+
+Global scopes are combined with your conditions using AND, so an `orWhere()` cannot escape them. They are meant for conditions; ordering or eager loading set in a global scope is ignored.
+
+## Searchers
+
+`withSearch(fields, data)` turns a filter form into conditions. For each field it calls `static searchXxxAttr(query, value, data)` when the model defines one, and otherwise adds an equality condition when the value is not empty:
+
+```ts
+export class User extends Model.define(users) {
+  static searchNameAttr(query: ModelQuery<User>, value: string) {
+    if (value)
+      query.whereLike('name', `${value}%`)
+  }
+
+  static searchCreatedAtAttr(query: ModelQuery<User>, value: string | undefined) {
+    if (value)
+      query.whereDay('createdAt', value)
+  }
+}
+
+// GET /users?name=Ad&status=1&createdAt=2024-05-01
+await User.withSearch(['name', 'status', 'createdAt'], ctx.query()).paginate(1, 20)
+```
+
 ## Model events
 
 Define any of these instance methods (they may be async): `onBeforeWrite`, `onAfterWrite`, `onBeforeInsert`, `onAfterInsert`, `onBeforeUpdate`, `onAfterUpdate`, `onBeforeDelete`, `onAfterDelete`, `onBeforeRestore`, `onAfterRestore`.
@@ -219,12 +322,20 @@ export class Post extends Model.define(posts) {
   onBeforeInsert() {
     this.slug ??= slugify(this.title)
   }
+
+  onBeforeDelete() {
+    // Returning false from a before event cancels the write
+    if (this.locked)
+      return false
+  }
 }
 ```
 
+When a before event returns `false`, `save()` returns without writing and `delete()` returns `false`.
+
 ## Relationships
 
-Declare relations as methods returning `hasMany`, `hasOne` or `belongsTo`:
+Declare relations as methods. This section covers the basics; [Relations](./relations) covers many-to-many, has-many-through, polymorphic relations, eager loading constraints, relation counts and `has()` queries.
 
 ```ts
 // app/model/User.ts
@@ -254,10 +365,15 @@ user.getRelation('posts')                        // already loaded result
 
 The local / owner key defaults to the primary key and can be passed as the third argument.
 
+```ts
+await User.withCount('posts').has('posts', '>=', 3).select()   // see Relations
+```
+
 ## Errors
 
 - `ModelNotFoundException`: thrown by `findOrFail()`, rendered as `404`.
 - `UniqueConstraintException`: duplicate keys on any driver, rendered as `409`.
+- `OptimisticLockException`: a stale model was saved under [optimistic locking](#optimistic-locking), rendered as `409`.
 
 ## MongoDB
 

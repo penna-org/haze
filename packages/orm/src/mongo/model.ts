@@ -195,12 +195,17 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
 
   // ---------------------------------------------------------------- 持久化
 
-  async save(): Promise<this> {
+  /** 保存；可传入要写入的数据。before 事件返回 false 时不写入 */
+  async save(data?: Partial<T>): Promise<this> {
+    if (data)
+      this.fill(data as Record<string, unknown>)
     const meta = this.$meta()
-    await this.runHook('onBeforeWrite')
+    if (!await this.runHook('onBeforeWrite'))
+      return this
 
     if (!this.$exists) {
-      await this.runHook('onBeforeInsert')
+      if (!await this.runHook('onBeforeInsert'))
+        return this
       const now = new Date()
       for (const key of [meta.createdAt, meta.updatedAt]) {
         if (key && this.$attributes[key] == null)
@@ -215,7 +220,8 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
     else {
       const { _id: _ignored, ...dirty } = this.getDirty()
       if (Object.keys(dirty).length) {
-        await this.runHook('onBeforeUpdate')
+        if (!await this.runHook('onBeforeUpdate'))
+          return this
         if (meta.updatedAt && !(meta.updatedAt in dirty))
           dirty[meta.updatedAt] = this.$attributes[meta.updatedAt] = new Date()
         await this.$whereKey().update(dirty)
@@ -232,7 +238,8 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
     if (!this.$exists)
       return false
     const { softDelete } = this.$meta()
-    await this.runHook('onBeforeDelete')
+    if (!await this.runHook('onBeforeDelete'))
+      return false
     if (softDelete) {
       const now = new Date()
       await this.$whereKey().update({ [softDelete]: now })
@@ -250,7 +257,8 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
   async forceDelete(): Promise<boolean> {
     if (!this.$exists)
       return false
-    await this.runHook('onBeforeDelete')
+    if (!await this.runHook('onBeforeDelete'))
+      return false
     await this.$whereKey().delete()
     this.$exists = false
     await this.runHook('onAfterDelete')
@@ -261,7 +269,8 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
     const { softDelete } = this.$meta()
     if (!softDelete)
       return this
-    await this.runHook('onBeforeRestore')
+    if (!await this.runHook('onBeforeRestore'))
+      return this
     await this.$whereKey().update({ [softDelete]: null })
     this.$attributes[softDelete] = null
     this.$original[softDelete] = null

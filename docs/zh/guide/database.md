@@ -63,7 +63,7 @@ export default defineDatabaseConfig(() => ({
 | `postgres` | PostgreSQL（postgres-js） | `postgres` |
 | `pglite` | 嵌入式 PostgreSQL（WASM），适合本地开发和测试；`url` 为数据目录，省略时为内存库 | `@electric-sql/pglite` |
 | `mysql` | MySQL（mysql2） | `mysql2` |
-| `mongodb` | MongoDB，通过 `@hazejs/orm/mongo` 使用（见[模型与查询](./models#mongodb)） | `mongodb` |
+| `mongodb` | MongoDB，通过 `@hazejs/orm/mongo` 使用（见[模型](./models#mongodb)） | `mongodb` |
 
 驱动都是可选的 peer 依赖，只有连接用到时才加载。按需安装：
 
@@ -120,7 +120,7 @@ export const users = sqliteTable('users', {
 表结构文件会被 drizzle-kit 直接读取：只从 `drizzle-orm` 导入，不要使用 `~` 别名。
 :::
 
-`haze make:model Post` 会同时生成 `app/model/Post.ts` 和对应方言的 `database/schema/posts.ts`，详见[模型与查询](./models)。
+`haze make:model Post` 会同时生成 `app/model/Post.ts` 和对应方言的 `database/schema/posts.ts`，详见[模型](./models)。
 
 ## 迁移
 
@@ -217,7 +217,7 @@ export default defineHazeConfig({
 
 ## 执行查询
 
-大多数场景用模型就够了（见[模型与查询](./models)）。需要直接按表操作时，用 `Db` 门面配合任意 drizzle 表：
+大多数场景用模型就够了（见[模型](./models)）。需要直接按表操作时，用 `Db` 门面配合任意 drizzle 表：
 
 ```ts
 import { Db } from '@hazejs/orm'
@@ -236,7 +236,7 @@ const rows = await Db.execute(sql`select count(*) as n from users`)
 const db = await Db.drizzle()
 ```
 
-`Db.table()` 返回的查询构造器与模型使用的是同一个，支持 `where`、`order`、`paginate`、`count`、`insert`、`update`、`delete` 等，完整列表见[模型与查询](./models#构造查询)。
+`Db.table()` 返回的查询构造器与模型使用的是同一个，支持 `where`、`order`、`paginate`、`count`、`insert`、`update`、`delete` 等，连接查询、子查询、分组、JSON 字段、upsert 以及完整的方法列表见[查询构造器](./query-builder)。
 
 ::: tip 防误操作
 - 不带任何条件的 `update()` / `delete()` 会直接报错，确实要改整张表时传 `{ all: true }`。
@@ -246,19 +246,13 @@ const db = await Db.drizzle()
 ## 事务
 
 ```ts
-import { Db } from '@hazejs/orm'
-
 await Db.transaction(async () => {
   const user = await User.create({ name: 'Ada', email: 'ada@example.com' })
   await Db.table(profiles).insert({ userId: user.id })
 })
 ```
 
-回调内通过 `Db` 和 `Model` 发起的查询都会自动加入这个事务，不需要到处传递事务对象（回调参数仍然是 drizzle 的事务实例，需要时可以用）。嵌套调用 `Db.transaction()` 使用保存点；回调抛出异常时全部回滚。
-
-::: warning D1
-Cloudflare D1 不支持交互式事务，在 `d1` 连接上调用 `Db.transaction()` 会报错。原子写入请使用 drizzle 的 batch：`(await Db.drizzle()).batch([...])`。
-:::
+回调内通过 `Db` 和 `Model` 发起的查询都会自动加入这个事务。手动的 `Db.startTrans()` / `Db.commit()` / `Db.rollback()`、嵌套事务（保存点）、隔离级别与行锁见[事务](./transactions)。
 
 ## 多个连接
 

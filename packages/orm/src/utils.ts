@@ -23,11 +23,15 @@ export function primaryKeyOf(table: Table): string | undefined {
 
 /** 按列的数据类型生成“当前时间”：Date / ISO 字符串 / 毫秒数 */
 export function nowFor(column: Column): unknown {
-  const now = new Date()
-  switch (column.dataType) {
-    case 'string': return now.toISOString()
-    case 'number': return now.getTime()
-    default: return now
+  return timeFor(column, new Date())
+}
+
+/** 把时间转换为列的存储形式：Date / ISO 字符串 / 毫秒数（非列表达式保持 Date） */
+export function timeFor(column: unknown, time: Date): unknown {
+  switch ((column as Partial<Column> | undefined)?.dataType) {
+    case 'string': return time.toISOString()
+    case 'number': return time.getTime()
+    default: return time
   }
 }
 

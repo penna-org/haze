@@ -1,16 +1,19 @@
 import type { Table } from 'drizzle-orm'
-import type { WhereCondition } from '../query/conditions'
-import type { ColumnKey, Insert, Operator, Paginated, Row } from '../types'
+import type { TransactionConfig } from '../context'
+import type { WhereCondition, WhereObject } from '../query/conditions'
+import type { AnyDatabase, ColumnKey, Insert, Operator, Paginated, Row } from '../types'
 import type { ModelSettings, TimestampOptions } from './meta'
-import type { RecordClass, RelationName } from './record'
-import { getTableColumns } from 'drizzle-orm'
-import { DatabaseError } from '../errors'
+import type { RelationCondition } from './query'
+import type { EagerLoad, FieldOf, RecordClass, RelationName } from './record'
+import { getTableColumns, sql } from 'drizzle-orm'
+import { atomically, transaction } from '../context'
+import { DatabaseError, OptimisticLockException } from '../errors'
 import { QueryBuilder } from '../query/builder'
-import { nowFor } from '../utils'
+import { isPlainObject, nowFor } from '../utils'
 import { metaOf } from './meta'
 import { ModelQuery } from './query'
 import { ActiveRecord } from './record'
-import { defaultKey } from './relations'
+import { BelongsToMany, defaultKey, HasManyThrough, HasOneThrough } from './relations'
 
 /** 通过品牌属性读取模型的表类型（避免结构比较时展开关联类型导致循环） */
 export type TableOf<M> = M extends { readonly '~table': infer T } ? T : never
@@ -56,7 +59,7 @@ export type DefinedModel<T extends Table> = Omit<typeof Model, 'prototype'> & (n
  * ```
  *
  * 访问器 / 修改器：定义 `getNameAttr(value, data)` / `setNameAttr(value, data)`；
- * 事件：定义 `onBeforeInsert()`、`onAfterUpdate()` 等方法。
+ * 事件：定义 `onBeforeInsert()`、`onAfterUpdate()` 等方法（before 事件返回 false 时取消写入）。
  */
 export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
   /** 仅用于类型推导 */
@@ -68,6 +71,19 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
   static softDelete: boolean | string = false
   /** 自动维护 createdAt / updatedAt（列存在时），可指定列名或设为 false */
   static timestamps: boolean | TimestampOptions = true
+  /** 只读字段：创建后不再更新 */
+  static readonly: readonly string[] = []
+  /** 乐观锁：true 使用 lockVersion 列，或指定列名 */
+  static optimLock: boolean | string = false
+  /** 全局作用域：对应 `static scopeXxx(query)`，所有查询自动应用，`withoutGlobalScope()` 关闭 */
+  static globalScope: readonly string[] = []
+
+  /** 允许批量赋值的字段（allowField() 设置） */
+  protected $allowField: string[] | undefined
+  /** 强制更新（即使没有修改） */
+  protected $force = false
+  /** inc() / dec() 累积、save() 时原子更新的增量 */
+  protected $increments: Record<string, number> = {}
 
   /** 声明模型对应的表：`class User extends Model.define(users) {}` */
   static define<T extends Table>(table: T): DefinedModel<T> {
@@ -111,12 +127,32 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return new ModelQuery(this).order(column, direction)
   }
 
-  static with<M extends ModelLike>(this: ModelClass<M>, ...relations: Array<RelationName<M> | `${RelationName<M>}.${string}`>): ModelQuery<M> {
+  static with<M extends ModelLike>(this: ModelClass<M>, ...relations: Array<EagerLoad<M>>): ModelQuery<M> {
     return new ModelQuery(this).with(...relations)
+  }
+
+  static withCount<M extends ModelLike>(this: ModelClass<M>, relation: RelationName<M> | Array<RelationName<M>>, constraint?: (query: any) => unknown, alias?: string): ModelQuery<M> {
+    return new ModelQuery(this).withCount(relation, constraint, alias)
+  }
+
+  static has<M extends ModelLike>(this: ModelClass<M>, relation: RelationName<M>, operator?: Operator, value?: number): ModelQuery<M> {
+    return new ModelQuery(this).has(relation, operator, value)
+  }
+
+  static hasWhere<M extends ModelLike>(this: ModelClass<M>, relation: RelationName<M>, condition?: RelationCondition): ModelQuery<M> {
+    return new ModelQuery(this).hasWhere(relation, condition)
   }
 
   static scope<M extends ModelLike>(this: ModelClass<M>, name: string, ...args: unknown[]): ModelQuery<M> {
     return new ModelQuery(this).scope(name, ...args)
+  }
+
+  static withSearch<M extends ModelLike>(this: ModelClass<M>, fields: readonly string[], data?: Record<string, unknown>): ModelQuery<M> {
+    return new ModelQuery(this).withSearch(fields, data)
+  }
+
+  static withoutGlobalScope<M extends ModelLike>(this: ModelClass<M>, names?: string[]): ModelQuery<M> {
+    return new ModelQuery(this).withoutGlobalScope(names)
   }
 
   static withTrashed<M extends ModelLike>(this: ModelClass<M>): ModelQuery<M> {
@@ -135,6 +171,11 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return new ModelQuery(this).findOrFail(id)
   }
 
+  /** 查询不到时返回空模型（`isEmpty()` 为 true） */
+  static findOrEmpty<M extends ModelLike>(this: ModelClass<M>, id: unknown): Promise<M> {
+    return new ModelQuery(this).findOrEmpty(id)
+  }
+
   static all<M extends ModelLike>(this: ModelClass<M>): Promise<M[]> {
     return new ModelQuery(this).select()
   }
@@ -147,23 +188,75 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return new ModelQuery(this).count()
   }
 
-  /** 创建并保存（会触发事件与时间戳） */
-  static async create<M extends ModelLike>(this: ModelClass<M>, data: Partial<Insert<TableOf<M> & Table>>): Promise<M> {
+  /** 在模型所用连接的事务中执行 */
+  static transaction<R>(this: ModelSettings, callback: (tx: AnyDatabase) => Promise<R>, config?: TransactionConfig): Promise<R> {
+    return transaction(callback, this.connection, config)
+  }
+
+  /** 创建并保存（会触发事件与时间戳）；allowField 限制可写入的字段 */
+  static async create<M extends ModelLike>(this: ModelClass<M>, data: Partial<Insert<TableOf<M> & Table>>, allowField?: Array<ColumnKey<TableOf<M> & Table>>): Promise<M> {
     const model = new this()
     const record = model as unknown as Model
+    if (allowField)
+      record.allowField(allowField)
     record.fill(data as Record<string, unknown>)
     await record.save()
     return model
   }
 
-  /** 按主键删除（逐个触发事件与软删除），返回删除数量 */
-  static async destroy<M extends ModelLike>(this: ModelClass<M>, ids: unknown | unknown[]): Promise<number> {
-    const list = Array.isArray(ids)
-      ? ids
-      : [ids]
-    const models = list.length
-      ? await new ModelQuery(this).whereIn(defaultKey(this as unknown as RecordClass) as never, list as never).select()
-      : []
+  /**
+   * 逐条更新（触发事件与时间戳），返回更新的数量：
+   * `User.update({ status: 0 }, { role: 'guest' })`，或按数据中的主键 `User.update({ id: 1, name: 'Ada' })`
+   */
+  static async update<M extends ModelLike>(this: ModelClass<M>, data: Partial<Insert<TableOf<M> & Table>>, where?: WhereCondition<TableOf<M> & Table>): Promise<number> {
+    const key = defaultKey(this as unknown as RecordClass)
+    const { [key]: id, ...values } = data as Record<string, unknown>
+    const query = new ModelQuery(this)
+    if (where)
+      query.where(where)
+    else if (id !== undefined)
+      query.where(key as never, id as never)
+    else
+      throw new DatabaseError(`${this.name}.update() needs a condition or a primary key in the data`)
+    const models = await query.select()
+    for (const model of models)
+      await (model as unknown as Model).save(values as never)
+    return models.length
+  }
+
+  /** 批量保存（在事务中）：带主键且存在的更新，其余新增 */
+  static async saveAll<M extends ModelLike>(this: ModelClass<M>, list: Array<Partial<Insert<TableOf<M> & Table>>>): Promise<M[]> {
+    const key = defaultKey(this as unknown as RecordClass)
+    return atomically(async () => {
+      const saved: M[] = []
+      for (const data of list) {
+        const id = (data as Record<string, unknown>)[key]
+        const existing = id === undefined || id === null
+          ? undefined
+          : await new ModelQuery(this).find(id)
+        const model = existing ?? new this()
+        await (model as unknown as Model).save(data as never)
+        saved.push(model)
+      }
+      return saved
+    }, this.connection)
+  }
+
+  /**
+   * 逐个删除（触发事件与软删除），返回删除数量：
+   * `destroy(1)`、`destroy([1, 2])`、`destroy({ status: 0 })`、`destroy(q => q.where('age', '<', 18))`
+   */
+  static destroy<M extends ModelLike>(this: ModelClass<M>, condition: ((query: ModelQuery<M>) => unknown) | WhereObject<TableOf<M> & Table>): Promise<number>
+  static destroy<M extends ModelLike>(this: ModelClass<M>, ids: unknown): Promise<number>
+  static async destroy<M extends ModelLike>(this: ModelClass<M>, ids: unknown): Promise<number> {
+    const query = new ModelQuery(this)
+    if (typeof ids === 'function')
+      ids(query)
+    else if (isPlainObject(ids))
+      query.where(ids as WhereObject<TableOf<M> & Table>)
+    else
+      query.whereIn(defaultKey(this as unknown as RecordClass) as never, ([] as unknown[]).concat(ids) as never)
+    const models = await query.select()
     for (const model of models)
       await (model as unknown as Model).delete()
     return models.length
@@ -171,17 +264,51 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
 
   // ---------------------------------------------------------------- 持久化
 
-  /** 新模型插入，已存在模型更新修改过的字段 */
-  async save(): Promise<this> {
+  /** 限制 fill() / save(data) 可写入的字段 */
+  allowField(fields: ReadonlyArray<keyof Row<T> & string>): this {
+    this.$allowField = [...fields]
+    return this
+  }
+
+  /** 强制更新：即使没有修改也执行 update（会刷新 updatedAt） */
+  force(value = true): this {
+    this.$force = value
+    return this
+  }
+
+  /** 保存时原子自增：`await post.inc('views').save()` */
+  inc(field: keyof Row<T> & string, step = 1): this {
+    this.$increments[field] = (this.$increments[field] ?? 0) + step
+    return this
+  }
+
+  dec(field: keyof Row<T> & string, step = 1): this {
+    return this.inc(field, -step)
+  }
+
+  /**
+   * 新模型插入，已存在模型更新修改过的字段；可传入要写入的数据。
+   * before 事件返回 false 时不写入。
+   */
+  async save(data?: Partial<Insert<T>>): Promise<this> {
+    if (data)
+      this.fill(data as Record<string, unknown>)
     const meta = this.#meta()
-    await this.runHook('onBeforeWrite')
+    if (!await this.runHook('onBeforeWrite'))
+      return this
 
     if (!this.$exists) {
-      await this.runHook('onBeforeInsert')
+      if (!await this.runHook('onBeforeInsert'))
+        return this
       for (const key of [meta.createdAt, meta.updatedAt]) {
         if (key && this.$attributes[key] == null)
           this.$attributes[key] = nowFor(meta.columns[key])
       }
+      if (meta.lockVersion && this.$attributes[meta.lockVersion] == null)
+        this.$attributes[meta.lockVersion] = 0
+      for (const [key, step] of Object.entries(this.$increments))
+        this.$attributes[key] = Number(this.$attributes[key] ?? 0) + step
+      this.$increments = {}
       const [row] = await this.#builder().insert(pickColumns(this.$attributes, meta.columns) as never)
       if (row) {
         this.$attributes = {
@@ -194,12 +321,37 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
       await this.runHook('onAfterInsert')
     }
     else {
+      const readonly = (this.constructor as typeof Model).readonly
       const dirty = pickColumns(this.getDirty(), meta.columns)
-      if (Object.keys(dirty).length) {
-        await this.runHook('onBeforeUpdate')
+      for (const key of readonly)
+        delete dirty[key]
+      const increments = Object.entries(this.$increments)
+      if (Object.keys(dirty).length || increments.length || this.$force) {
+        if (!await this.runHook('onBeforeUpdate'))
+          return this
         if (meta.updatedAt && !(meta.updatedAt in dirty))
           dirty[meta.updatedAt] = this.$attributes[meta.updatedAt] = nowFor(meta.columns[meta.updatedAt])
-        await this.#whereKey().update(dirty)
+        const values: Record<string, unknown> = { ...dirty }
+        for (const [key, step] of increments)
+          values[key] = sql`${meta.columns[key]} + ${step}`
+        let query = this.#whereKey()
+        const lock = meta.lockVersion
+        if (lock) {
+          const version = Number(this.$original[lock] ?? 0)
+          query = query.where(lock as never, this.$original[lock] as never)
+          values[lock] = this.$attributes[lock] = version + 1
+        }
+        if (Object.keys(values).length && await query.update(values) === 0 && lock)
+          throw new OptimisticLockException(this.constructor.name)
+        for (const [key, step] of increments)
+          this.$attributes[key] = Number(this.$original[key] ?? 0) + step
+        this.$increments = {}
+        this.$force = false
+        // 只读字段的修改不会写入，恢复原值
+        for (const key of readonly) {
+          if (key in this.$original)
+            this.$attributes[key] = this.$original[key]
+        }
         this.syncOriginal()
         await this.runHook('onAfterUpdate')
       }
@@ -209,12 +361,13 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return this
   }
 
-  /** 删除：启用软删除时只标记删除时间 */
+  /** 删除：启用软删除时只标记删除时间；before 事件返回 false 时取消 */
   async delete(): Promise<boolean> {
     if (!this.$exists)
       return false
     const meta = this.#meta()
-    await this.runHook('onBeforeDelete')
+    if (!await this.runHook('onBeforeDelete'))
+      return false
     if (meta.softDelete) {
       const value = nowFor(meta.columns[meta.softDelete])
       await this.#whereKey().update({ [meta.softDelete]: value })
@@ -233,7 +386,8 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
   async forceDelete(): Promise<boolean> {
     if (!this.$exists)
       return false
-    await this.runHook('onBeforeDelete')
+    if (!await this.runHook('onBeforeDelete'))
+      return false
     await this.#whereKey().delete()
     this.$exists = false
     await this.runHook('onAfterDelete')
@@ -245,7 +399,8 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     const { softDelete } = this.#meta()
     if (!softDelete)
       return this
-    await this.runHook('onBeforeRestore')
+    if (!await this.runHook('onBeforeRestore'))
+      return this
     await this.#whereKey().update({ [softDelete]: null })
     this.$attributes[softDelete] = null
     this.$original[softDelete] = null
@@ -270,10 +425,35 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return this
   }
 
+  // ---------------------------------------------------------------- SQL 专有关联
+
+  /**
+   * 多对多：`this.belongsToMany(Role, userRoles, 'roleId', 'userId')`
+   *
+   * userRoles 为中间表（drizzle 表），roleId / userId 为中间表中指向关联模型 / 当前模型的列
+   */
+  protected belongsToMany<R, P extends Table>(related: new () => R, pivot: P, foreignKey: ColumnKey<P>, localKey: ColumnKey<P>): BelongsToMany<R & ActiveRecord> {
+    return new BelongsToMany(this, related as unknown as RecordClass<R & ActiveRecord>, pivot, foreignKey, localKey, defaultKey(this.constructor as RecordClass), defaultKey(related as unknown as RecordClass))
+  }
+
+  /**
+   * 远程一对多：`this.hasManyThrough(Post, User, 'countryId', 'userId')`
+   *
+   * User 为中间模型，countryId 为中间模型上指向当前模型的列，userId 为关联模型上指向中间模型的列
+   */
+  protected hasManyThrough<R, Th>(related: new () => R, through: new () => Th, firstKey: FieldOf<Th>, secondKey: FieldOf<R>, localKey?: keyof Row<T> & string, throughKey?: FieldOf<Th>): HasManyThrough<R & ActiveRecord> {
+    return new HasManyThrough(this, related as unknown as RecordClass<R & ActiveRecord>, through as unknown as RecordClass, firstKey, secondKey, localKey ?? defaultKey(this.constructor as RecordClass), throughKey ?? defaultKey(through as unknown as RecordClass))
+  }
+
+  /** 远程一对一 */
+  protected hasOneThrough<R, Th>(related: new () => R, through: new () => Th, firstKey: FieldOf<Th>, secondKey: FieldOf<R>, localKey?: keyof Row<T> & string, throughKey?: FieldOf<Th>): HasOneThrough<R & ActiveRecord> {
+    return new HasOneThrough(this, related as unknown as RecordClass<R & ActiveRecord>, through as unknown as RecordClass, firstKey, secondKey, localKey ?? defaultKey(this.constructor as RecordClass), throughKey ?? defaultKey(through as unknown as RecordClass))
+  }
+
   // ---------------------------------------------------------------- 内部
 
   protected override acceptsAttribute(key: string): boolean {
-    return key in this.#meta().columns
+    return key in this.#meta().columns && (!this.$allowField || this.$allowField.includes(key))
   }
 
   #meta(): ReturnType<typeof metaOf> {

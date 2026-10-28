@@ -1,6 +1,6 @@
-import type { BelongsTo, HasMany, HasOne, Relation } from './relations'
+import type { BelongsTo, HasMany, HasOne, MorphMany, MorphOne, MorphTo, Relation } from './relations'
 import { pascalCase } from '../utils'
-import { BelongsTo as BelongsToRelation, defaultKey, HasMany as HasManyRelation, HasOne as HasOneRelation, loadRelations } from './relations'
+import { BelongsTo as BelongsToRelation, defaultKey, HasMany as HasManyRelation, HasOne as HasOneRelation, loadRelations, morphKeys, MorphMany as MorphManyRelation, MorphOne as MorphOneRelation, MorphTo as MorphToRelation } from './relations'
 
 /** 记录的字段名（SQL 模型为表的列，Mongo 模型为文档字段） */
 export type FieldOf<R> = R extends { readonly '~row': infer Row } ? keyof Row & string : string
@@ -14,11 +14,22 @@ export type RelationName<M> = {
 
 export type RelationResult<F> = F extends () => Relation<any, infer Result> ? Result : never
 
+/** 预加载项：关联名（可用点号嵌套），或 `{ 关联名: query => 约束 }` */
+export type EagerLoad<M> = RelationName<M> | `${RelationName<M>}.${string}` | { [K in RelationName<M> | `${RelationName<M>}.${string}`]?: (query: any) => unknown }
+
 /** 关联所需的类信息（构造器 + 查询入口） */
 export type RecordClass<R extends ActiveRecord = ActiveRecord> = (new () => R) & { readonly name: string }
 
 export type Hook = 'onBeforeWrite' | 'onAfterWrite' | 'onBeforeInsert' | 'onAfterInsert' | 'onBeforeUpdate' | 'onAfterUpdate'
   | 'onBeforeDelete' | 'onAfterDelete' | 'onBeforeRestore' | 'onAfterRestore'
+
+type AttrTransform = (value: any, data: Record<string, any>) => unknown
+
+/** 序列化选项：`posts.title` 这类带点号的字段作用于关联 */
+interface SerializeOptions {
+  hidden?: readonly string[]
+  visible?: readonly string[]
+}
 
 /**
  * SQL 模型（Model）与 MongoDB 模型（MongoModel）共用的基类：
@@ -29,8 +40,10 @@ export type Hook = 'onBeforeWrite' | 'onAfterWrite' | 'onBeforeInsert' | 'onAfte
 export abstract class ActiveRecord<TRow extends object = any> {
   /** 仅用于类型推导 */
   declare readonly '~row': TRow
-  /** 序列化时隐藏的字段 */
+  /** 序列化时隐藏的字段（`posts.title` 隐藏关联的字段） */
   static hidden: readonly string[] = []
+  /** 序列化时只输出的字段（为空表示全部） */
+  static visible: readonly string[] = []
   /** 序列化时追加的虚拟字段（需定义 getXxxAttr） */
   static append: readonly string[] = []
 
@@ -38,6 +51,14 @@ export abstract class ActiveRecord<TRow extends object = any> {
   protected $original: Record<string, unknown> = {}
   protected $relations: Record<string, unknown> = {}
   protected $exists = false
+  /** 实例级的序列化设置（hidden() / visible() / append()） */
+  protected $hidden: string[] | undefined
+  protected $visible: string[] | undefined
+  protected $append: string[] | undefined
+  /** withAttr() 定义的动态访问器 */
+  protected $withAttr: Record<string, AttrTransform> = {}
+  /** 关联绑定到当前记录的字段：关联名 → { 输出字段: 关联字段 } */
+  protected $bindings: Record<string, Record<string, string>> = {}
 
   /** 主键字段名（子类实现） */
   static primaryKeyName(): string | undefined {
@@ -57,16 +78,24 @@ export abstract class ActiveRecord<TRow extends object = any> {
     return this.$exists
   }
 
+  /** 是否为空记录（findOrEmpty() 未找到时） */
+  isEmpty(): boolean {
+    return !this.$exists && Object.keys(this.$attributes).length === 0
+  }
+
   /** 主键值 */
   getKey(): unknown {
     const key = (this.constructor as typeof ActiveRecord).primaryKeyName()
     return key ? this.$attributes[key] : undefined
   }
 
-  /** 读取属性（经过 getXxxAttr 访问器） */
+  /** 读取属性（经过 withAttr() / getXxxAttr 访问器） */
   getAttr(key: string): unknown {
-    const accessor = (this as unknown as Record<string, unknown>)[`get${pascalCase(key)}Attr`]
     const value = this.$attributes[key]
+    const dynamic = this.$withAttr[key]
+    if (dynamic)
+      return dynamic.call(this, value, this.$attributes)
+    const accessor = (this as unknown as Record<string, unknown>)[`get${pascalCase(key)}Attr`]
     return typeof accessor === 'function'
       ? accessor.call(this, value, this.$attributes)
       : value
@@ -84,6 +113,18 @@ export abstract class ActiveRecord<TRow extends object = any> {
   /** 原始属性（不经过访问器） */
   getRaw(key: string): unknown {
     return this.$attributes[key]
+  }
+
+  /** 全部原始属性 */
+  getData(): Record<string, unknown> {
+    return { ...this.$attributes }
+  }
+
+  /** 写入属性但不视为修改（关联统计等查询附带的数据） */
+  syncAttr(key: string, value: unknown): this {
+    this.$attributes[key] = value
+    this.$original[key] = value
+    return this
   }
 
   /** 批量赋值（SQL 模型忽略表中不存在的列） */
@@ -118,11 +159,21 @@ export abstract class ActiveRecord<TRow extends object = any> {
       : { ...this.$original }
   }
 
+  /** 动态访问器：`user.withAttr('name', value => value.toUpperCase())` */
+  withAttr(name: string, transform: AttrTransform): this
+  withAttr(transforms: Record<string, AttrTransform>): this
+  withAttr(name: string | Record<string, AttrTransform>, transform?: AttrTransform): this {
+    Object.assign(this.$withAttr, typeof name === 'string'
+      ? { [name]: transform! }
+      : name)
+    return this
+  }
+
   // ---------------------------------------------------------------- 关联
 
-  /** 加载关联（可嵌套）：`await user.load('posts.comments')` */
-  async load(...relations: Array<RelationName<this> | `${RelationName<this>}.${string}`>): Promise<this> {
-    await loadRelations([this], relations)
+  /** 加载关联（可嵌套、可带约束）：`await user.load('posts.comments', { profile: q => q.field('id', 'bio') })` */
+  async load(...relations: Array<EagerLoad<this>>): Promise<this> {
+    await loadRelations([this], relations as never)
     return this
   }
 
@@ -133,6 +184,17 @@ export abstract class ActiveRecord<TRow extends object = any> {
 
   setRelation(name: string, value: unknown): this {
     this.$relations[name] = value
+    return this
+  }
+
+  /** 关联是否已加载 */
+  hasRelation(name: string): boolean {
+    return name in this.$relations
+  }
+
+  /** 把一对一关联的字段绑定到当前记录输出（关联的 bind() 设置） */
+  bindRelation(name: string, fields: Record<string, string>): this {
+    this.$bindings[name] = fields
     return this
   }
 
@@ -151,25 +213,112 @@ export abstract class ActiveRecord<TRow extends object = any> {
     return new BelongsToRelation(this, related as unknown as RecordClass<R & ActiveRecord>, foreignKey, ownerKey ?? defaultKey(related as unknown as RecordClass))
   }
 
+  /**
+   * 多态一对多：`this.morphMany(Comment, 'commentable')` 使用 Comment 的 commentableType / commentableId 字段，
+   * 也可传入 `['type', 'targetId']`；type 默认为当前模型类名
+   */
+  protected morphMany<R>(related: new () => R, morph: string | [FieldOf<R>, FieldOf<R>], type?: string): MorphMany<R & ActiveRecord> {
+    const [typeField, idField] = morphKeys(morph)
+    return new MorphManyRelation(this, related as unknown as RecordClass<R & ActiveRecord>, typeField, idField, type ?? this.constructor.name, defaultKey(this.constructor as RecordClass))
+  }
+
+  /** 多态一对一 */
+  protected morphOne<R>(related: new () => R, morph: string | [FieldOf<R>, FieldOf<R>], type?: string): MorphOne<R & ActiveRecord> {
+    const [typeField, idField] = morphKeys(morph)
+    return new MorphOneRelation(this, related as unknown as RecordClass<R & ActiveRecord>, typeField, idField, type ?? this.constructor.name, defaultKey(this.constructor as RecordClass))
+  }
+
+  /**
+   * 多态所属：`this.morphTo('commentable', { User, Post })`，
+   * 键为 type 字段中保存的值，值为对应的模型类
+   */
+  protected morphTo<M extends Record<string, new () => any>>(morph: string | [keyof TRow & string, keyof TRow & string], models: M): MorphTo<InstanceType<M[keyof M]> & ActiveRecord> {
+    const [typeField, idField] = morphKeys(morph)
+    return new MorphToRelation(this, models as unknown as Record<string, RecordClass>, typeField, idField) as unknown as MorphTo<InstanceType<M[keyof M]> & ActiveRecord>
+  }
+
   // ---------------------------------------------------------------- 序列化
 
-  /** 序列化：应用访问器、隐藏字段、追加字段与已加载的关联 */
+  /** 序列化时隐藏的字段（merge 为 true 时与模型上的 hidden 合并） */
+  hidden(fields: readonly string[], merge = false): this {
+    this.$hidden = merge
+      ? [
+          ...(this.$hidden ?? (this.constructor as typeof ActiveRecord).hidden),
+          ...fields,
+        ]
+      : [...fields]
+    return this
+  }
+
+  /** 序列化时只输出的字段 */
+  visible(fields: readonly string[], merge = false): this {
+    this.$visible = merge
+      ? [
+          ...(this.$visible ?? (this.constructor as typeof ActiveRecord).visible),
+          ...fields,
+        ]
+      : [...fields]
+    return this
+  }
+
+  /** 序列化时追加的虚拟字段 */
+  append(fields: readonly string[], merge = false): this {
+    this.$append = merge
+      ? [
+          ...(this.$append ?? (this.constructor as typeof ActiveRecord).append),
+          ...fields,
+        ]
+      : [...fields]
+    return this
+  }
+
+  /** 序列化：应用访问器、隐藏 / 只输出字段、追加字段与已加载的关联 */
   toJSON(): Record<string, unknown> {
+    return this.serialize({})
+  }
+
+  /** toJSON() 的别名（ThinkPHP 写法） */
+  toArray(): Record<string, unknown> {
+    return this.toJSON()
+  }
+
+  protected serialize(options: SerializeOptions): Record<string, unknown> {
     const record = this.constructor as typeof ActiveRecord
-    const hidden = new Set(record.hidden)
+    const [hidden, nestedHidden] = splitNested(options.hidden ?? this.$hidden ?? record.hidden)
+    const visibleList = options.visible ?? this.$visible ?? record.visible
+    const [visible, nestedVisible] = splitNested(visibleList)
+    const shown = (key: string): boolean => !hidden.has(key) && (!visibleList.length || visible.has(key) || nestedVisible.has(key))
+
     const result: Record<string, unknown> = {}
     for (const key of Object.keys(this.$attributes)) {
-      if (!hidden.has(key))
+      if (shown(key))
         result[key] = this.getAttr(key)
     }
-    for (const key of record.append)
-      result[key] = this.getAttr(key)
+    for (const key of this.$append ?? record.append) {
+      if (shown(key))
+        result[key] = this.getAttr(key)
+    }
     for (const [key, value] of Object.entries(this.$relations)) {
-      if (!hidden.has(key)) {
-        result[key] = Array.isArray(value)
-          ? value.map(serialize)
-          : serialize(value)
+      const bindings = this.$bindings[key]
+      if (bindings) {
+        for (const [target, field] of Object.entries(bindings)) {
+          if (shown(target)) {
+            result[target] = value instanceof ActiveRecord
+              ? value.getAttr(field)
+              : (value as Record<string, unknown> | null)?.[field] ?? null
+          }
+        }
+        continue
       }
+      if (!shown(key))
+        continue
+      const child: SerializeOptions = {
+        hidden: nestedHidden.get(key),
+        visible: nestedVisible.get(key),
+      }
+      result[key] = Array.isArray(value)
+        ? value.map(item => serializeValue(item, child))
+        : serializeValue(value, child)
     }
     return result
   }
@@ -181,10 +330,12 @@ export abstract class ActiveRecord<TRow extends object = any> {
     return true
   }
 
-  protected async runHook(name: Hook): Promise<void> {
+  /** 执行事件方法；before 事件返回 false 时取消操作（返回 false） */
+  protected async runHook(name: Hook): Promise<boolean> {
     const hook = (this as unknown as Record<string, unknown>)[name]
-    if (typeof hook === 'function')
-      await hook.call(this)
+    if (typeof hook !== 'function')
+      return true
+    return (await hook.call(this)) !== false
   }
 
   /** 写入成功后同步原始值 */
@@ -193,10 +344,32 @@ export abstract class ActiveRecord<TRow extends object = any> {
   }
 }
 
-function serialize(value: unknown): unknown {
-  return value instanceof ActiveRecord
-    ? value.toJSON()
-    : value
+/** `['email', 'posts.title']` → 本层字段集合 + 关联名 → 子字段 */
+function splitNested(fields: readonly string[]): [Set<string>, Map<string, string[]>] {
+  const own = new Set<string>()
+  const nested = new Map<string, string[]>()
+  for (const field of fields) {
+    const dot = field.indexOf('.')
+    if (dot === -1) {
+      own.add(field)
+    }
+    else {
+      const head = field.slice(0, dot)
+      nested.set(head, [
+        ...(nested.get(head) ?? []),
+        field.slice(dot + 1),
+      ])
+    }
+  }
+  return [own, nested]
+}
+
+function serializeValue(value: unknown, options: SerializeOptions): unknown {
+  if (!(value instanceof ActiveRecord))
+    return value
+  return options.hidden || options.visible
+    ? (value as unknown as { serialize: (options: SerializeOptions) => unknown }).serialize(options)
+    : value.toJSON()
 }
 
 function sameValue(a: unknown, b: unknown): boolean {

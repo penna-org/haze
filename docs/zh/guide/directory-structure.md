@@ -120,7 +120,7 @@ Vite 插件用 `import.meta.glob` 为以下文件生成清单。每个目录**�
 
 ### `app/model`
 
-基于 `database/schema` 中 drizzle 表结构的 ORM 模型，例如 `class User extends Model.define(users)`。详见[模型与查询](./models)。
+基于 `database/schema` 中 drizzle 表结构的 ORM 模型，例如 `class User extends Model.define(users)`。详见[模型](./models)。
 
 ### `app/validate`
 
