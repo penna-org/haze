@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/orm",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Models, query builder and migrations for hazejs on top of drizzle (MySQL, PostgreSQL, SQLite, Turso, D1, MongoDB)",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/orm#readme",

@@ -1,5 +1,13 @@
 # @hazejs/vite
 
+## 0.1.1
+
+### Patch Changes
+
+- First release published to npm (0.1.0 was versioned but never reached the registry).
+- Updated dependencies []:
+  - @hazejs/core@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
