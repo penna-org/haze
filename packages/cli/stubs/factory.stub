@@ -1,0 +1,16 @@
+import { defineFactory } from '@hazejs/orm'
+import { {{name}} } from '~/{{modulePath}}app/model/{{dirPath}}{{name}}'
+
+/**
+ * {{name}} 的模型工厂：在数据填充（haze db:seed）与测试中生成数据。
+ *
+ *   import {{className}} from '~/{{modulePath}}database/factories/{{dirPath}}{{className}}'
+ *   await {{className}}.create()
+ *   await {{className}}.count(3).create({ ... })
+ *
+ * faker 来自 @faker-js/faker（pnpm add -D @faker-js/faker），语言在 config/database.ts 的 factories.locale 设置。
+ */
+export default defineFactory({{name}}, ({ faker, sequence }) => ({
+  // name: faker.person.fullName(),
+  // email: sequence(n => `user${n}@example.com`),
+}))

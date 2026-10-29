@@ -2,6 +2,7 @@ import { refreshDatabase } from '@hazejs/orm'
 import { useTestApp } from '@hazejs/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { User } from '~/app/model/User'
+import UserFactory from '~/database/factories/UserFactory'
 
 const t = useTestApp()
 // .env.test 中 DATABASE_URL=:memory:，每个用例都是执行过迁移的全新数据库
@@ -35,9 +36,12 @@ describe('users', () => {
   })
 
   it('only lets users change themselves, unless they are admins', async () => {
-    const ada = await User.create({ name: 'Ada', email: 'ada@example.com' })
-    const bob = await User.create({ name: 'Bob', email: 'bob@example.com' })
-    const admin = await User.create({ name: 'Admin', email: 'admin@example.com', role: 'admin' })
+    // 模型工厂（database/factories/UserFactory.ts）生成测试数据
+    const [ada, bob] = await UserFactory.createMany([
+      { name: 'Ada' },
+      { name: 'Bob' },
+    ])
+    const admin = await UserFactory.state('admin').create()
 
     expect((await t.patch(`/api/users/${ada.id}`, { name: 'x' })).status).toBe(401)
     const forbidden = await (await t.actingAs(bob)).patch(`/api/users/${ada.id}`, { name: 'x' })

@@ -14,4 +14,8 @@ export default defineDatabaseConfig(() => ({
       logging: env('DB_LOGGING', false),
     },
   },
+  // 模型工厂（database/factories）中 faker 的语言，例如 zh_CN、ja
+  factories: {
+    locale: 'en',
+  },
 }))

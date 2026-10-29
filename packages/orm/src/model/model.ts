@@ -170,6 +170,11 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return new ModelQuery(this).onlyTrashed()
   }
 
+  /** 读写分离：查询的读取使用写库：`await User.onWriter().find(id)` */
+  static onWriter<M extends ModelLike>(this: ModelClass<M>): ModelQuery<M> {
+    return new ModelQuery(this).useWriter()
+  }
+
   static find<M extends ModelLike>(this: ModelClass<M>, id: unknown): Promise<M | undefined> {
     return new ModelQuery(this).find(id)
   }
@@ -426,9 +431,9 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
       : false
   }
 
-  /** 从数据库重新读取 */
+  /** 从数据库重新读取（读写分离时读取写库，通常紧跟在写入之后） */
   async refresh(): Promise<this> {
-    const row = await this.#whereKey().find()
+    const row = await this.#whereKey().useWriter().find()
     if (!row)
       throw new DatabaseError(`${this.constructor.name} ${String(this.getKey())} no longer exists`)
     this.$attributes = { ...row as Record<string, unknown> }

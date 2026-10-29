@@ -12,6 +12,8 @@ export interface TelemetryEvents {
     params?: unknown[]
     connection?: string
     dialect?: string
+    /** 读写分离：查询在只读副本上执行 */
+    replica?: boolean
     startTime: number
     duration: number
     error?: string

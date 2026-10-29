@@ -160,6 +160,26 @@ beforeEach(() => refreshDatabase({ migrations: 'database/migrations' }))
 
 Options are `migrations` (relative to the working directory, default `database/migrations`; full-stack projects use `server/database/migrations`) and `connection`. On MongoDB connections it drops the database instead. See [Database](./database).
 
+### Model factories
+
+[Factories](./factories) in `database/factories` create test data with realistic values, so a test only spells out what it cares about:
+
+```ts
+import UserFactory from '~/database/factories/UserFactory'
+
+it('only lets users change themselves, unless they are admins', async () => {
+  const [ada, bob] = await UserFactory.createMany([{ name: 'Ada' }, { name: 'Bob' }])
+  const admin = await UserFactory.state('admin').create()
+  // ...
+})
+```
+
+`UserFactory.raw()` returns plain attributes, handy as a request body: `await t.post('/api/users', await UserFactory.raw())`. Fake values come from `@faker-js/faker`, a dev dependency of the templates.
+
+::: tip Read/write splitting in tests
+`refreshDatabase()` migrates only the writer. Keep `read` / `write` out of the test connection (`.env.test` usually points `DATABASE_URL` at `:memory:`), or point the replicas at the same database.
+:::
+
 ## Fakes
 
 Fakes record what your code does instead of doing it. They belong to the current application, and since `useTestApp()` creates a new one per test, they never leak between tests. Create them inside a test, or in a `beforeEach` registered after `useTestApp()`.

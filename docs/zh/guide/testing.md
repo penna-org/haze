@@ -160,6 +160,26 @@ beforeEach(() => refreshDatabase({ migrations: 'database/migrations' }))
 
 选项有 `migrations`（相对工作目录，默认 `database/migrations`，全栈项目为 `server/database/migrations`）与 `connection`。MongoDB 连接没有迁移，会直接清空数据库。更多内容见[数据库](./database)。
 
+### 模型工厂
+
+`database/factories` 中的[模型工厂](./factories)生成带有逼真数据的测试数据，用例中只需写出关心的字段：
+
+```ts
+import UserFactory from '~/database/factories/UserFactory'
+
+it('only lets users change themselves, unless they are admins', async () => {
+  const [ada, bob] = await UserFactory.createMany([{ name: 'Ada' }, { name: 'Bob' }])
+  const admin = await UserFactory.state('admin').create()
+  // ...
+})
+```
+
+`UserFactory.raw()` 只返回属性对象，适合作为请求体：`await t.post('/api/users', await UserFactory.raw())`。假数据来自 `@faker-js/faker`（模板中已作为开发依赖安装）。
+
+::: tip 测试中的读写分离
+`refreshDatabase()` 只对写库执行迁移。测试连接不要配置 `read` / `write`（`.env.test` 通常把 `DATABASE_URL` 设为 `:memory:`），或者让副本指向同一个数据库。
+:::
+
 ## Fake
 
 fake 只记录代码做了什么，而不真正执行。fake 属于当前应用，而 `useTestApp()` 每个用例都会创建新应用，因此不会泄漏到其它用例。请在用例内创建 fake，或者放在 `useTestApp()` 之后注册的 `beforeEach` 中。

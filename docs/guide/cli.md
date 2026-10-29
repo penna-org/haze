@@ -161,6 +161,7 @@ Paths are relative to `srcDir` (except tests). Examples show the file generated 
 | `make:config` | `payment` | `config/payment.ts` |
 | `make:route` | `admin` | `route/admin.ts` |
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
+| `make:factory` | `User` | `database/factories/UserFactory.ts` (imports `app/model/User`); see [Factories](./factories) |
 | `make:command` | `SendReport` | `app/command/SendReport.ts` (runs as `haze send:report`) |
 | `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
 | `make:notification` | `InvoicePaid` | `app/notification/InvoicePaidNotification.ts` |
@@ -187,7 +188,7 @@ All `make:*` commands that take a name accept:
 | --- | --- |
 | `<name>` | Required. Name, optionally with subdirectories |
 | `--force` | Overwrite the file if it exists |
-| `--app`, `-a` | [Multiple apps](./multi-app): generate into `app/<app>/…` (for example `app/admin/controller`). Ignored by `make:test`; not supported by `make:command`. Per app, only `route`, `config`, `provider`, `exception` and `response` are discovered, so keep jobs, events, listeners, policies, notifications and channels in the shared `app/` folders |
+| `--app`, `-a` | [Multiple apps](./multi-app): generate into `app/<app>/…` (for example `app/admin/controller`). Ignored by `make:test`; not supported by `make:command` and `make:factory`. Per app, only `route`, `config`, `provider`, `exception` and `response` are discovered, so keep jobs, events, listeners, policies, notifications and channels in the shared `app/` folders |
 | `--module`, `-m` | [Local module](./modules): generate into `modules/<module>/…` with the same layout as the app (`make:test` writes `modules/<module>/tests/`). The module must exist (`haze make:module <name>`); cannot be combined with `--app` |
 
 ### `make:controller`
@@ -258,7 +259,7 @@ Run pending migrations. This is the same implementation as the production `migra
 
 ### `haze db:seed`
 
-Run the files in `database/seeders` in file-name order, after the seeders of enabled local modules (`modules/<name>/database/seeders`). Each file must default-export a function; it receives the application.
+Run the files in `database/seeders` in file-name order, after the seeders of enabled local modules (`modules/<name>/database/seeders`). Each file must default-export a function; it receives the application. Seeders can use [model factories](./factories) (`await UserFactory.count(10).create()`).
 
 | Option | Description |
 | --- | --- |

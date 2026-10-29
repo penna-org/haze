@@ -14,6 +14,30 @@ export type Driver = 'sqlite' | 'turso' | 'd1' | 'postgres' | 'pglite' | 'mysql'
 
 export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
 
+/** 连接池选项（postgres / mysql / mongodb；sqlite、turso、pglite、d1 没有连接池，忽略） */
+export interface PoolOptions {
+  /** 最大连接数，默认 10 */
+  max?: number
+  /** 空闲连接的回收时间：秒数，或 `'30s'` / `'5m'` / `'500ms'` */
+  idleTimeout?: number | string
+  /** 建立连接的超时：秒数，或 `'5s'` / `'500ms'` */
+  connectTimeout?: number | string
+}
+
+/**
+ * 读写分离中某一端的配置：未写的字段继承连接本身的配置（driver 不能修改）。
+ *
+ * ```ts
+ * main: {
+ *   driver: 'postgres',
+ *   write: { url: env('DB_WRITE_URL') },
+ *   read: [{ url: env('DB_READ_URL_1') }, { url: env('DB_READ_URL_2') }],
+ *   sticky: true,
+ * }
+ * ```
+ */
+export type ConnectionEndpoint = Partial<Pick<ConnectionConfig, 'url' | 'authToken' | 'pool' | 'logging'>>
+
 export interface ConnectionConfig {
   driver: Driver
   url?: string
@@ -21,8 +45,8 @@ export interface ConnectionConfig {
   authToken?: string
   /** D1：Workers 绑定名（默认 `DB`），或直接传入 D1Database 对象 */
   binding?: string | object
-  /** 连接池大小（postgres / mysql / mongodb） */
-  pool?: number
+  /** 连接池：最大连接数，或 `{ max, idleTimeout, connectTimeout }`（postgres / mysql / mongodb） */
+  pool?: number | PoolOptions
   /** MongoDB 数据库名（默认取 url 中的路径） */
   database?: string
   /** 以 debug 级别输出 SQL */
@@ -31,6 +55,18 @@ export interface ConnectionConfig {
   schema?: string
   /** 迁移目录（相对 srcDir），默认连接为 `database/migrations`，其它连接为 `database/migrations/<name>` */
   migrations?: string
+  /** 读写分离：写库（主库），省略时为连接本身的配置 */
+  write?: ConnectionEndpoint
+  /** 读写分离：只读副本（一个或多个，每次读取随机选择）；配置后 select 类查询走副本，写入、事务、加锁读走写库 */
+  read?: ConnectionEndpoint | ConnectionEndpoint[]
+  /** 读写分离：当前请求（或 Db.withinScope() 作用域）写入过之后，后续读取也走写库，避免读到复制延迟前的旧数据 */
+  sticky?: boolean
+}
+
+/** 模型工厂（database/factories）的设置 */
+export interface FactoryConfig {
+  /** faker 的语言，例如 `zh_CN`、`en_US`、`ja`，默认 `en` */
+  locale?: string
 }
 
 export interface DatabaseConfig {
@@ -39,6 +75,8 @@ export interface DatabaseConfig {
   connections: Record<string, ConnectionConfig>
   /** 雪花 ID 生成器（snowflakeId() 与 *Snowflake() 列使用）：多实例部署时为每个实例配置不同的 workerId / datacenterId */
   snowflake?: SnowflakeOptions
+  /** 模型工厂：faker 的语言等 */
+  factories?: FactoryConfig
 }
 
 /** `config/database.ts` 的默认导出 */

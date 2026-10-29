@@ -179,10 +179,13 @@ describe('code generation and types', () => {
     expect(project.files.concat(readdirSync(join(project.root, 'database/migrations')))).toContain('0004_create_products.sql')
     const migrate = await haze('db:migrate')
     expect(migrate.output, migrate.output).toContain('[main] migrated')
+    // 模型工厂：make:factory 生成，在数据填充中使用
+    const factory = await haze('make:factory', 'Product')
+    expect(factory.output, factory.output).toContain('database/factories/ProductFactory.ts')
     writeFileSync(join(project.root, 'database/seeders/02-products.ts'), `
-import { Product } from '~/app/model/Product'
+import ProductFactory from '~/database/factories/ProductFactory'
 export default async function seed() {
-  await Product.create({ name: 'Keyboard' })
+  await ProductFactory.create({ name: 'Keyboard' })
 }
 `)
     const seed = await haze('db:seed')

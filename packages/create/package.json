@@ -49,6 +49,7 @@
     "consola": "catalog:"
   },
   "devDependencies": {
+    "@faker-js/faker": "catalog:",
     "@hazejs/ai": "workspace:*",
     "@hazejs/cli": "workspace:*",
     "@hazejs/core": "workspace:*",

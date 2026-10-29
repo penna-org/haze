@@ -3,12 +3,18 @@ import type { Connection, DatabaseManager } from './connection'
 import type { AnyDatabase } from './types'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { DatabaseError } from './errors'
+import { forcedWriter, hasWritten } from './routing'
 
 let manager: DatabaseManager | undefined
 
 /** 由 databaseProvider() 在应用启动时设置；脚本 / 测试中可直接调用 */
 export function setDatabaseManager(value: DatabaseManager | undefined): void {
   manager = value
+}
+
+/** 当前的 DatabaseManager（未配置时为 undefined，不抛错） */
+export function currentDatabaseManager(): DatabaseManager | undefined {
+  return manager
 }
 
 export function useDatabaseManager(): DatabaseManager {
@@ -61,22 +67,47 @@ export interface Session {
   name: string
   driver: Driver
   dialect: Dialect
-  /** 当前可用的 drizzle 实例（处于事务中时为事务对象） */
+  /** 当前可用的 drizzle 实例（处于事务中时为事务对象，读写分离的读取为某个副本） */
   db: AnyDatabase
+  /** 读写分离：本次使用的是只读副本 */
+  replica: boolean
 }
 
-export async function resolveSession(connection?: string): Promise<Session> {
+export interface SessionOptions {
+  /**
+   * 只读查询：配置了读写分离时可以使用副本。以下情况仍使用写库：处于事务中、`writer: true`、
+   * Db.useWriter() 中、sticky 连接在当前请求 / 作用域内写入过。默认 false（写库）
+   */
+  read?: boolean
+  /** 强制使用写库（useWriter()、lock()） */
+  writer?: boolean
+}
+
+/**
+ * 取得连接当前可用的 drizzle 实例。默认返回写库（原生 SQL、Db.drizzle() 可能写入）；
+ * `{ read: true }` 时按读写分离规则选择副本或写库。
+ */
+export async function resolveSession(connection?: string, options: SessionOptions = {}): Promise<Session> {
   const resolved: Connection = await useDatabaseManager().connection(connection)
   if (resolved.dialect === 'mongodb')
     throw new DatabaseError(`Connection "${resolved.name}" is MongoDB; use Mongo / MongoModel from @hazejs/orm/mongo`)
   const state = active(transactions.getStore()?.get(resolved.name))
-  return {
+  const session = {
     name: resolved.name,
     driver: resolved.driver,
     dialect: resolved.dialect,
-    db: state
-      ? await state.db
-      : resolved.db,
+  }
+  if (state)
+    return { ...session, db: await state.db, replica: false }
+  const replicas = resolved.replicas
+  if (!options.read || options.writer || !replicas.length || forcedWriter() || (resolved.sticky && hasWritten(resolved.name)))
+    return { ...session, db: resolved.db, replica: false }
+  return {
+    ...session,
+    db: replicas.length === 1
+      ? replicas[0]
+      : replicas[Math.floor(Math.random() * replicas.length)],
+    replica: true,
   }
 }
 
