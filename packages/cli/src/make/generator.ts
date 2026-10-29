@@ -218,6 +218,16 @@ export const KINDS = {
     stub: 'seeder',
     hint: () => '运行：haze db:seed',
   },
+  factory: {
+    description: '模型工厂',
+    suffix: 'Factory',
+    dir: 'database/factories',
+    base: 'src',
+    file: 'class',
+    global: true,
+    stub: 'factory',
+    hint: v => `使用：await ${v.className}.count(3).create()（在数据填充与测试中；faker 需要 pnpm add -D @faker-js/faker）`,
+  },
 } satisfies Record<string, MakeKind>
 
 export type KindName = keyof typeof KINDS
@@ -231,6 +241,10 @@ export interface StubVariables {
   routePath: string
   /** 自定义命令名：SendReport → send:report，db/Cleanup → db:cleanup */
   commandName: string
+  /** 模块目录前缀（`modules/blog/`，不在模块中时为空），工厂导入模型时使用 */
+  modulePath?: string
+  /** 名称中的子目录（`admin/`，没有时为空） */
+  dirPath?: string
 }
 
 export interface MakeOptions {
@@ -275,6 +289,12 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
     envName: kebabCase(name).replace(/-/g, '_').toUpperCase(),
     routePath: plural(kebabCase(name)),
     commandName: commandName(dir, name),
+    modulePath: moduleDir
+      ? `${moduleDir}/`
+      : '',
+    dirPath: dir
+      ? `${dir}/`
+      : '',
   }
 
   const fileName = kind.file === 'class'

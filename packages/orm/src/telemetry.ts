@@ -38,6 +38,13 @@ export function queryLogger(log?: (query: string, params: unknown[]) => void): {
   }
 }
 
+/** 查询所属的连接；replica 为读写分离中的只读副本 */
+interface QueryInfo {
+  connection: string
+  dialect: string
+  replica?: boolean
+}
+
 const PREPARED_METHODS = [
   'execute',
   'all',
@@ -48,7 +55,7 @@ const PREPARED_METHODS = [
 
 type AnyObject = Record<PropertyKey, any>
 
-function instrumentPrepared(prepared: AnyObject, info: { connection: string, dialect: string }): AnyObject {
+function instrumentPrepared(prepared: AnyObject, info: QueryInfo): AnyObject {
   for (const method of PREPARED_METHODS) {
     const original = prepared[method]
     if (typeof original !== 'function')
@@ -76,6 +83,7 @@ function instrumentPrepared(prepared: AnyObject, info: { connection: string, dia
         params: captured.params ?? prepared.query?.params ?? prepared.params,
         connection: info.connection,
         dialect: info.dialect,
+        ...(info.replica && { replica: true }),
         startTime,
         duration: performance.now() - started,
         ...(error !== undefined && {
@@ -100,7 +108,7 @@ function instrumentPrepared(prepared: AnyObject, info: { connection: string, dia
   return prepared
 }
 
-function instrumentSession(session: AnyObject | undefined, info: { connection: string, dialect: string }): void {
+function instrumentSession(session: AnyObject | undefined, info: QueryInfo): void {
   if (!session || session[kInstrumented] || typeof session.prepareQuery !== 'function')
     return
   session[kInstrumented] = true
@@ -114,7 +122,7 @@ function instrumentSession(session: AnyObject | undefined, info: { connection: s
  * 给 drizzle 实例加上查询遥测：包装 session 的 prepareQuery（关系查询与查询构造器都经过它），
  * 事务回调拿到的 tx 使用新的 session，同样包装。
  */
-export function instrumentDatabase<T>(db: T, info: { connection: string, dialect: string }): T {
+export function instrumentDatabase<T>(db: T, info: QueryInfo): T {
   const target = db as AnyObject
   if (!target || target[kInstrumented])
     return db

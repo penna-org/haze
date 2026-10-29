@@ -56,6 +56,7 @@ describe('make', () => {
       config: 'server/config/userProfile.ts',
       route: 'server/route/user-profile.ts',
       seeder: 'server/database/seeders/user-profile.ts',
+      factory: 'server/database/factories/admin/UserProfileFactory.ts',
       command: 'server/app/command/admin/UserProfile.ts',
       mail: 'server/app/mail/admin/UserProfileMail.ts',
       notification: 'server/app/notification/UserProfileNotification.ts',
@@ -101,6 +102,27 @@ describe('make', () => {
       kind: 'route',
       name: 'admin/users',
     })).rejects.toThrow(/不能包含子目录/)
+  })
+
+  it('generates model factories that import the model', async () => {
+    const result = await make({
+      root,
+      srcDir,
+      kind: 'factory',
+      name: 'admin/UserFactory',
+    })
+    expect(rel(result.file)).toBe('server/database/factories/admin/UserFactory.ts')
+    const source = readFileSync(result.file, 'utf8')
+    expect(source).toContain(`import { User } from '~/app/model/admin/User'`)
+    expect(source).toContain('export default defineFactory(User, ({ faker, sequence }) => ({')
+    expect(result.hint).toContain('UserFactory.count(3).create()')
+    await expect(make({
+      root,
+      srcDir,
+      kind: 'factory',
+      name: 'User',
+      app: 'admin',
+    })).rejects.toThrow(/--app/)
   })
 
   it('generates console commands and mails', async () => {
@@ -237,6 +259,13 @@ describe('make', () => {
         name: 'posts',
         module: 'blog',
       }),
+      make({
+        root,
+        srcDir,
+        kind: 'factory',
+        name: 'Post',
+        module: 'blog',
+      }),
     ])
     expect(results.map(result => rel(result.file))).toEqual([
       'server/modules/blog/app/controller/PostController.ts',
@@ -246,7 +275,10 @@ describe('make', () => {
       'server/modules/blog/config/feed.ts',
       'server/modules/blog/database/seeders/posts.ts',
       'server/modules/blog/tests/posts.test.ts',
+      'server/modules/blog/database/factories/PostFactory.ts',
     ])
+    // 模块中的工厂导入模块的模型
+    expect(readFileSync(results[7].file, 'utf8')).toContain(`import { Post } from '~/modules/blog/app/model/Post'`)
     // 提示中的目录指向模块
     expect(results[0].hint).toContain('modules/blog/route/*.ts')
     expect(results[1].hint).toContain('modules/blog/config/middleware.ts')

@@ -1,5 +1,5 @@
 import type { Logger } from '@hazejs/core'
-import type { ConnectionConfig, DatabaseConfig, Dialect, Driver } from './config'
+import type { ConnectionConfig, DatabaseConfig, Dialect, Driver, PoolOptions } from './config'
 import type { AnyDatabase } from './types'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
@@ -7,14 +7,19 @@ import process from 'node:process'
 import { currentTenancy, definePersistent, usePlatformBinding } from '@hazejs/core'
 import { dialectOf } from './config'
 import { DatabaseError } from './errors'
+import { trackWrites } from './routing'
 import { instrumentDatabase, queryLogger } from './telemetry'
 
 export interface Connection {
   name: string
   driver: Driver
   dialect: Dialect
-  /** SQL 为 drizzle 实例，MongoDB 为 mongodb 的 Db */
+  /** SQL 为 drizzle 实例，MongoDB 为 mongodb 的 Db；配置了读写分离时为写库 */
   db: AnyDatabase
+  /** 读写分离：只读副本的 drizzle 实例（未配置 read 时为空） */
+  replicas: AnyDatabase[]
+  /** 读写分离：写入后的读取是否走写库 */
+  sticky: boolean
   /** 底层客户端（MongoDB 事务需要） */
   client?: unknown
   close: () => Promise<void>
@@ -143,11 +148,50 @@ export class DatabaseManager {
 }
 
 async function openConnection(name: string, config: ConnectionConfig, options: DatabaseManagerOptions): Promise<Connection> {
-  const connection = await createConnection(name, config, options)
-  // 查询遥测（开发面板 / OpenTelemetry），没有监听者时为空操作
-  if (connection.dialect !== 'mongodb')
-    instrumentDatabase(connection.db, { connection: name, dialect: connection.dialect })
-  return connection
+  if (!config.read && !config.write) {
+    const connection = await createConnection(name, config, options)
+    // 查询遥测（开发面板 / OpenTelemetry），没有监听者时为空操作
+    if (connection.dialect !== 'mongodb')
+      instrumentDatabase(connection.db, { connection: name, dialect: connection.dialect })
+    return connection
+  }
+
+  // 读写分离：写库与各个副本是独立的客户端，未写的字段继承连接本身的配置
+  if (config.driver === 'mongodb' || config.driver === 'd1')
+    throw new DatabaseError(`Connection "${name}": read / write splitting is not supported for ${config.driver} (MongoDB: use readPreference in the url; D1: use the Sessions API through Db.drizzle())`)
+  const { read, write, sticky, ...base } = config
+  const readers = ([] as NonNullable<ConnectionConfig['write']>[]).concat(read ?? [])
+  const writer = await createConnection(name, {
+    ...base,
+    ...write,
+  }, options)
+  const replicas: Connection[] = []
+  try {
+    for (const endpoint of readers) {
+      replicas.push(await createConnection(name, {
+        ...base,
+        ...endpoint,
+      }, options))
+    }
+  }
+  catch (error) {
+    await Promise.all([writer, ...replicas].map(connection => connection.close().catch(() => undefined)))
+    throw error
+  }
+  instrumentDatabase(writer.db, { connection: name, dialect: writer.dialect })
+  for (const replica of replicas)
+    instrumentDatabase(replica.db, { connection: name, dialect: replica.dialect, replica: true })
+  // sticky：写库上执行过写语句后，同一请求 / 作用域内的读取改走写库
+  if (sticky && replicas.length)
+    trackWrites(writer.db, name)
+  return {
+    ...writer,
+    replicas: replicas.map(replica => replica.db),
+    sticky: sticky === true,
+    close: async () => {
+      await Promise.all([writer, ...replicas].map(connection => connection.close()))
+    },
+  }
 }
 
 async function createConnection(name: string, config: ConnectionConfig, options: DatabaseManagerOptions): Promise<Connection> {
@@ -159,7 +203,10 @@ async function createConnection(name: string, config: ConnectionConfig, options:
     name,
     driver: config.driver,
     dialect: dialectOf(config.driver),
+    replicas: [],
+    sticky: false,
   }
+  const pool = poolOptions(config.pool)
 
   switch (config.driver) {
     case 'sqlite': {
@@ -205,7 +252,10 @@ async function createConnection(name: string, config: ConnectionConfig, options:
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for postgres`)
       const client = postgres(config.url, {
-        max: config.pool ?? 10,
+        max: pool.max ?? 10,
+        // postgres.js 的超时单位为秒
+        ...(pool.idleTimeout !== undefined && { idle_timeout: pool.idleTimeout / 1000 }),
+        ...(pool.connectTimeout !== undefined && { connect_timeout: pool.connectTimeout / 1000 }),
         onnotice: () => {},
       })
       return {
@@ -230,7 +280,13 @@ async function createConnection(name: string, config: ConnectionConfig, options:
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for mysql`)
       // 超出 2^53 的 BIGINT（雪花 ID 等）以字符串返回，而不是丢失精度的 number
-      const client = mysql.createPool({ uri: config.url, connectionLimit: config.pool ?? 10, supportBigNumbers: true })
+      const client = mysql.createPool({
+        uri: config.url,
+        connectionLimit: pool.max ?? 10,
+        ...(pool.idleTimeout !== undefined && { idleTimeout: pool.idleTimeout }),
+        ...(pool.connectTimeout !== undefined && { connectTimeout: pool.connectTimeout }),
+        supportBigNumbers: true,
+      })
       return {
         ...base,
         db: drizzle(client, { logger, mode: 'default' }),
@@ -241,7 +297,11 @@ async function createConnection(name: string, config: ConnectionConfig, options:
       const { MongoClient } = await importDriver('mongodb', () => import('mongodb'))
       if (!config.url)
         throw new DatabaseError(`Connection "${name}": url is required for mongodb`)
-      const client = new MongoClient(config.url, { maxPoolSize: config.pool ?? 10 })
+      const client = new MongoClient(config.url, {
+        maxPoolSize: pool.max ?? 10,
+        ...(pool.idleTimeout !== undefined && { maxIdleTimeMS: pool.idleTimeout }),
+        ...(pool.connectTimeout !== undefined && { connectTimeoutMS: pool.connectTimeout }),
+      })
       await client.connect()
       return {
         ...base,
@@ -253,6 +313,38 @@ async function createConnection(name: string, config: ConnectionConfig, options:
     default:
       throw new DatabaseError(`Connection "${name}": unknown driver "${(config as ConnectionConfig).driver}"`)
   }
+}
+
+/** 连接池选项归一化：超时统一为毫秒 */
+function poolOptions(pool: ConnectionConfig['pool']): { max?: number, idleTimeout?: number, connectTimeout?: number } {
+  if (pool === undefined || typeof pool === 'number')
+    return { max: pool }
+  const { max, idleTimeout, connectTimeout } = pool satisfies PoolOptions
+  return {
+    max,
+    idleTimeout: idleTimeout === undefined
+      ? undefined
+      : durationMs(idleTimeout),
+    connectTimeout: connectTimeout === undefined
+      ? undefined
+      : durationMs(connectTimeout),
+  }
+}
+
+/** `30` / `'30s'` / `'5m'` / `'500ms'` → 毫秒（数字按秒） */
+function durationMs(value: number | string): number {
+  if (typeof value === 'number')
+    return value * 1000
+  const match = /^\s*(\d+(?:\.\d+)?)\s*(?:(ms|[smh])\s*)?$/i.exec(value)
+  if (!match)
+    throw new DatabaseError(`Invalid duration "${value}" in the pool options (expected e.g. 30, '30s', '5m', '500ms')`)
+  const unit = {
+    ms: 1,
+    s: 1000,
+    m: 60_000,
+    h: 3_600_000,
+  }[(match[2] ?? 's').toLowerCase() as 's']
+  return Number(match[1]) * unit
 }
 
 /** 安全范围内的 BigInt 转回 number，超出范围的保留 BigInt（不丢失精度） */

@@ -28,6 +28,7 @@
     "valibot": "^1.1.0"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.6.0",
     "@hazejs/cli": "{{version}}",
     "@hazejs/testing": "{{version}}",
     "@hazejs/vite": "{{version}}",

@@ -13,6 +13,8 @@ export const DRIVER_PACKAGES = [
   '@aws-sdk/client-sesv2',
   '@aws-sdk/lib-storage',
   '@aws-sdk/s3-request-presigner',
+  // 模型工厂的 faker：ORM 的可选依赖（只在数据填充 / 测试中使用），未安装时替换为空模块
+  '@faker-js/faker',
   '@libsql/client',
   // 通行密钥（WebAuthn）：core 的可选依赖，未安装时替换为空模块
   '@simplewebauthn/server',

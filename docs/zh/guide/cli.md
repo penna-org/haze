@@ -161,6 +161,7 @@ npx haze make:<type> <name> [options]
 | `make:config` | `payment` | `config/payment.ts` |
 | `make:route` | `admin` | `route/admin.ts` |
 | `make:seeder` | `Users` | `database/seeders/users.ts` |
+| `make:factory` | `User` | `database/factories/UserFactory.ts`（导入 `app/model/User`），见[模型工厂](./factories) |
 | `make:command` | `SendReport` | `app/command/SendReport.ts`（用 `haze send:report` 运行） |
 | `make:mail` | `Welcome` | `app/mail/WelcomeMail.ts` |
 | `make:notification` | `InvoicePaid` | `app/notification/InvoicePaidNotification.ts` |
@@ -187,7 +188,7 @@ npx haze make:<type> <name> [options]
 | --- | --- |
 | `<name>` | 必填，名称，可以带子目录 |
 | `--force` | 文件已存在时覆盖 |
-| `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项，`make:command` 不支持。各应用目录下只会自动发现 `route`、`config`、`provider`、`exception` 和 `response`，因此任务、事件、监听器、策略、通知和频道请放在共用的 `app/` 目录中 |
+| `--app`、`-a` | [多应用](./multi-app)：生成到 `app/<app>/…` 下（例如 `app/admin/controller`）；`make:test` 忽略此选项，`make:command` 与 `make:factory` 不支持。各应用目录下只会自动发现 `route`、`config`、`provider`、`exception` 和 `response`，因此任务、事件、监听器、策略、通知和频道请放在共用的 `app/` 目录中 |
 | `--module`、`-m` | [本地模块](./modules)：生成到 `modules/<module>/…` 下，目录结构与应用相同（`make:test` 写入 `modules/<module>/tests/`）。模块需已存在（`haze make:module <name>`），不能与 `--app` 同时使用 |
 
 ### `make:controller`
@@ -258,7 +259,7 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 
 ### `haze db:seed`
 
-按文件名顺序执行 `database/seeders` 下的文件，在此之前先执行已启用本地模块的 `modules/<name>/database/seeders`。每个文件必须默认导出一个函数，参数为应用实例。
+按文件名顺序执行 `database/seeders` 下的文件，在此之前先执行已启用本地模块的 `modules/<name>/database/seeders`。每个文件必须默认导出一个函数，参数为应用实例。数据填充中可以使用[模型工厂](./factories)（`await UserFactory.count(10).create()`）。
 
 | 选项 | 说明 |
 | --- | --- |

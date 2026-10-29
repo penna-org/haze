@@ -505,6 +505,9 @@ function spanFromTelemetry<K extends TelemetryKind>(kind: K, data: TelemetryEven
         ...(query.connection && {
           'db.namespace': query.connection,
         }),
+        ...(query.replica && {
+          'db.replica': true,
+        }),
       }
       error = query.error
       timing = query

@@ -47,11 +47,12 @@ export default defineDatabaseConfig(() => ({
 | `url` | Connection URL. For `sqlite`, relative `file:` paths resolve against the project root and the directory is created for you |
 | `authToken` | libSQL / Turso auth token |
 | `binding` | D1 only: the Workers binding name (default `DB`), or a `D1Database` object |
-| `pool` | Pool size for `postgres` / `mysql` / `mongodb` (default `10`) |
+| `pool` | Pool size for `postgres` / `mysql` / `mongodb` (default `10`), or `{ max, idleTimeout, connectTimeout }` |
 | `database` | MongoDB only: database name (defaults to the path in `url`) |
 | `logging` | Log every SQL statement at debug level |
 | `schema` | Drizzle schema directory, relative to the source dir (default `database/schema`) |
 | `migrations` | Migrations directory (default `database/migrations`, or `database/migrations/<name>` for non-default connections) |
+| `read` / `write` / `sticky` | Send reads to replicas; see [Read/write splitting](#read-write-splitting) |
 
 ### Drivers
 
@@ -219,6 +220,8 @@ export default async function seed(): Promise<void> {
 
 Run a single file with `haze db:seed --file 01-users`. `haze make:seeder` creates a new seeder.
 
+For bulk demo data, use [model factories](./factories): `await UserFactory.count(50).create()`.
+
 ## Production migrations
 
 Migration files are bundled into the build output, so production needs neither the source code nor drizzle-kit:
@@ -339,6 +342,83 @@ export class Event extends Model.define(events) {
 ```
 
 Non-default connections keep their migrations in `database/migrations/<name>` unless you set `migrations`. Use `haze db:generate --connection analytics` and `haze db:migrate --connection analytics` (or `--all`).
+
+## Read/write splitting
+
+Send reads to replicas and everything else to the primary by adding `write` and `read` to a connection. Fields you leave out are inherited from the connection itself, so a replica entry often only needs a `url`:
+
+```ts
+// config/database.ts
+export default defineDatabaseConfig(() => ({
+  default: 'main',
+  connections: {
+    main: {
+      driver: 'postgres', // also mysql, sqlite, turso and pglite
+      url: env('DATABASE_URL'),
+      write: { url: env('DB_WRITE_URL') },
+      read: [
+        { url: env('DB_READ_URL_1') },
+        { url: env('DB_READ_URL_2') },
+      ],
+      sticky: true,
+      pool: { max: 10, idleTimeout: '30s', connectTimeout: '5s' },
+    },
+  },
+}))
+```
+
+| Option | Description |
+|--------|-------------|
+| `write` | The primary: `url`, `authToken`, `pool`, `logging`. Defaults to the connection's own settings |
+| `read` | One replica or a list of them. Each read picks one at random |
+| `sticky` | After a write in the current request, later reads in that request use the primary, so you read your own writes despite replication lag |
+| `pool` | A number (max connections) or `{ max, idleTimeout, connectTimeout }`. Timeouts take seconds or `'500ms'` / `'30s'` / `'5m'`. Applies to `postgres`, `mysql` and `mongodb` |
+
+Each side is a separate client with its own pool. A connection without `read` and `write` works as before.
+
+### Which side runs a query
+
+| Goes to the primary | Goes to a replica |
+|---------------------|-------------------|
+| `insert`, `update`, `delete`, `upsert`, `increment`, model `save()` / `delete()`, pivot writes | `select`, `find`, `count`, `paginate`, `value`, `column`, `exists`, `chunk`, `cursor`, eager loading |
+| Everything inside `Db.transaction()`, `Db.startTrans()` and `Model.transaction()` | |
+| Reads with `lock()`, `useWriter()`, `Model.onWriter()`, or inside `Db.useWriter(fn)` | |
+| `Db.execute()` and `Db.drizzle()` (raw SQL may write) | `Db.drizzle({ read: true })` |
+| `model.refresh()`, which usually follows a write | |
+| Reads after a write in the same request, when `sticky` is on | |
+
+```ts
+await User.onWriter().find(id)                       // read the primary
+await Db.table(users).useWriter().where('id', id).find()
+const report = await Db.useWriter(() => buildReport()) // every read in the callback
+```
+
+### Sticky scopes outside requests
+
+Inside an HTTP request, the request is the sticky scope. Queue jobs, commands and scripts have no request, so wrap the unit of work in `Db.withinScope()` to get the same behavior:
+
+```ts
+await Db.withinScope(async () => {
+  await order.save()
+  await Order.find(order.id) // primary, because this scope wrote to the connection
+})
+```
+
+Writes are detected on the primary connection itself, so raw `Db.execute()` statements and writes through `Db.drizzle()` count too. Only `select`-style statements leave the scope on the replicas.
+
+### Works with
+
+- **Tenancy**: a per-tenant connection (`main@acme`) can return its own `read` / `write` from `database.config` in `config/tenancy.ts`; stickiness is tracked per tenant connection.
+- **Modules**: a module's `connection` option is just a connection name, so it gets the splitting of that connection.
+- **Query cache**: `cache()` keys do not depend on the side; a cached result is shared.
+- **Snowflake IDs**: every client uses the same lossless integer handling.
+- **Observability**: queries on a replica carry `replica: true` in the dev dashboard and `db.replica: true` on OpenTelemetry spans.
+- **Migrations**, `refreshDatabase()` and `haze db:seed` run on the primary.
+
+::: warning Not covered
+- **Cloudflare D1** read replication goes through D1's Sessions API, which hazejs does not wrap; `read` / `write` on a `d1` connection throw. If you need it, call `withSession()` on the binding yourself (`usePlatformBinding('DB')` from `@hazejs/core`).
+- **MongoDB** handles replicas in the driver: set `readPreference` in the connection `url` (for example `?readPreference=secondaryPreferred`). `read` / `write` on a `mongodb` connection throw.
+:::
 
 ## Testing
 

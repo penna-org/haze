@@ -47,11 +47,12 @@ export default defineDatabaseConfig(() => ({
 | `url` | 连接地址。`sqlite` 的 `file:` 相对路径按项目根目录解析，目录不存在时自动创建 |
 | `authToken` | libSQL / Turso 的认证令牌 |
 | `binding` | 仅 D1：Workers 绑定名（默认 `DB`），也可以直接传入 `D1Database` 对象 |
-| `pool` | `postgres` / `mysql` / `mongodb` 的连接池大小（默认 `10`） |
+| `pool` | `postgres` / `mysql` / `mongodb` 的连接池大小（默认 `10`），或 `{ max, idleTimeout, connectTimeout }` |
 | `database` | 仅 MongoDB：数据库名（默认取 `url` 中的路径） |
 | `logging` | 以 debug 级别输出每条 SQL |
 | `schema` | drizzle 表结构目录，相对源码目录（默认 `database/schema`） |
 | `migrations` | 迁移目录（默认连接为 `database/migrations`，其他连接为 `database/migrations/<name>`） |
+| `read` / `write` / `sticky` | 读取走只读副本，见[读写分离](#读写分离) |
 
 ### 驱动
 
@@ -219,6 +220,8 @@ export default async function seed(): Promise<void> {
 
 只执行某一个文件：`haze db:seed --file 01-users`。新建数据填充：`haze make:seeder`。
 
+批量的演示数据用[模型工厂](./factories)生成：`await UserFactory.count(50).create()`。
+
 ## 生产环境迁移
 
 迁移文件会打包进构建产物，生产环境既不需要源码，也不需要 drizzle-kit：
@@ -339,6 +342,83 @@ export class Event extends Model.define(events) {
 ```
 
 非默认连接的迁移默认放在 `database/migrations/<name>`（可用 `migrations` 修改）。生成和执行时指定连接：`haze db:generate --connection analytics`、`haze db:migrate --connection analytics`（或 `--all`）。
+
+## 读写分离
+
+在连接上加 `write` 与 `read`，读取走只读副本，其余走主库。未写的字段继承连接本身的配置，因此副本通常只需写 `url`：
+
+```ts
+// config/database.ts
+export default defineDatabaseConfig(() => ({
+  default: 'main',
+  connections: {
+    main: {
+      driver: 'postgres', // mysql、sqlite、turso、pglite 同样支持
+      url: env('DATABASE_URL'),
+      write: { url: env('DB_WRITE_URL') },
+      read: [
+        { url: env('DB_READ_URL_1') },
+        { url: env('DB_READ_URL_2') },
+      ],
+      sticky: true,
+      pool: { max: 10, idleTimeout: '30s', connectTimeout: '5s' },
+    },
+  },
+}))
+```
+
+| 选项 | 说明 |
+|------|------|
+| `write` | 主库：`url`、`authToken`、`pool`、`logging`，默认为连接本身的配置 |
+| `read` | 一个副本或副本列表，每次读取随机选择一个 |
+| `sticky` | 当前请求中写入过之后，该请求后续的读取走主库，避免因复制延迟读不到刚写入的数据 |
+| `pool` | 数字（最大连接数）或 `{ max, idleTimeout, connectTimeout }`；超时为秒数或 `'500ms'` / `'30s'` / `'5m'`；作用于 `postgres`、`mysql`、`mongodb` |
+
+每一端都是独立的客户端与连接池。没有 `read` / `write` 的连接行为不变。
+
+### 查询走哪一端
+
+| 走主库 | 走副本 |
+|--------|--------|
+| `insert`、`update`、`delete`、`upsert`、`increment`、模型的 `save()` / `delete()`、中间表写入 | `select`、`find`、`count`、`paginate`、`value`、`column`、`exists`、`chunk`、`cursor`、预加载 |
+| `Db.transaction()`、`Db.startTrans()`、`Model.transaction()` 中的全部查询 | |
+| 带 `lock()`、`useWriter()`、`Model.onWriter()` 的读取，或 `Db.useWriter(fn)` 回调中的读取 | |
+| `Db.execute()` 与 `Db.drizzle()`（原生 SQL 可能写入） | `Db.drizzle({ read: true })` |
+| `model.refresh()`（通常紧跟在写入之后） | |
+| 开启 `sticky` 后，同一请求中写入之后的读取 | |
+
+```ts
+await User.onWriter().find(id)                       // 读主库
+await Db.table(users).useWriter().where('id', id).find()
+const report = await Db.useWriter(() => buildReport()) // 回调内的所有读取
+```
+
+### 请求之外的 sticky 作用域
+
+HTTP 请求中，sticky 以请求为作用域。队列任务、命令和脚本没有请求，用 `Db.withinScope()` 包住一段工作即可得到相同的行为：
+
+```ts
+await Db.withinScope(async () => {
+  await order.save()
+  await Order.find(order.id) // 本作用域写入过该连接，读主库
+})
+```
+
+写入在主库连接上识别，因此 `Db.execute()` 的原生语句和通过 `Db.drizzle()` 的写入同样计入；只有 `select` 一类的只读语句不会让作用域切到主库。
+
+### 与其它功能
+
+- **多租户**：每租户独立连接（`main@acme`）可以在 `config/tenancy.ts` 的 `database.config` 中返回自己的 `read` / `write`；sticky 按租户连接分别记录。
+- **模块**：模块的 `connection` 选项只是连接名，使用该连接的读写分离。
+- **查询缓存**：`cache()` 的键与走哪一端无关，缓存结果共用。
+- **雪花 ID**：每个客户端都使用同样的无损整数处理。
+- **可观测性**：副本上的查询在开发面板中标注 `replica`，OpenTelemetry span 带有 `db.replica: true`。
+- **迁移**、`refreshDatabase()` 与 `haze db:seed` 在主库上执行。
+
+::: warning 不在范围内
+- **Cloudflare D1** 的读复制通过 D1 的 Sessions API 实现，hazejs 没有封装；`d1` 连接配置 `read` / `write` 会报错。需要时请自行调用绑定的 `withSession()`（`@hazejs/core` 的 `usePlatformBinding('DB')`）。
+- **MongoDB** 的副本由驱动处理：在连接 `url` 中设置 `readPreference`（例如 `?readPreference=secondaryPreferred`）。`mongodb` 连接配置 `read` / `write` 会报错。
+:::
 
 ## 测试
 

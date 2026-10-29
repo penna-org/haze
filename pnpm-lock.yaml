@@ -30,6 +30,9 @@ catalogs:
     '@electric-sql/pglite':
       specifier: ^0.5.12
       version: 0.5.12
+    '@faker-js/faker':
+      specifier: ^10.6.0
+      version: 10.6.0
     '@grpc/grpc-js':
       specifier: ^1.14.6
       version: 1.14.6
@@ -351,6 +354,9 @@ importers:
         specifier: 'catalog:'
         version: 3.4.2
     devDependencies:
+      '@faker-js/faker':
+        specifier: 'catalog:'
+        version: 10.6.0
       '@hazejs/ai':
         specifier: workspace:*
         version: link:../ai
@@ -491,6 +497,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.12
+      '@faker-js/faker':
+        specifier: 'catalog:'
+        version: 10.6.0
       '@hazejs/core':
         specifier: workspace:*
         version: link:../core
@@ -1512,6 +1521,10 @@ packages:
   '@eslint/plugin-kit@0.7.3':
     resolution: {integrity: sha512-IkO+/KEUvwbVpiURZg+P7zF74z5Jxe0UgJxVni+RtoHQ6IZieXaO02kmadomap/q+l6bc/jdPGGqTjhuZnuz1Q==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
+
+  '@faker-js/faker@10.6.0':
+    resolution: {integrity: sha512-3RQHgEtvL1Frl/d1cSreo7qhJ3Gk1OdNUai/CtZ8G+wYeRQnJih3s9xJ9/kgYekPQRdwgh0HXRPqMlzWGwivIQ==}
+    engines: {node: ^20.19.0 || ^22.13.0 || ^23.5.0 || >=24.0.0, npm: '>=10'}
 
   '@grpc/grpc-js@1.14.6':
     resolution: {integrity: sha512-SgC/B3/VZ8lTyOZ4Cwk6f1skWhmkNAaVfiX90qd5u1rRXGKk1//8FTUEN9GvOUq7rfWIqAYkA3CoyumYVpOS6g==}
@@ -5640,6 +5653,8 @@ snapshots:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
+
+  '@faker-js/faker@10.6.0': {}
 
   '@grpc/grpc-js@1.14.6':
     dependencies:

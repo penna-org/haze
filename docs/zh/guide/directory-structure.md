@@ -30,6 +30,7 @@ my-app/
 │  └─ validate/         请求校验
 ├─ config/              配置，一个文件对应一个配置键（自动发现）
 ├─ database/
+│  ├─ factories/        测试与数据填充使用的模型工厂（UserFactory.ts）
 │  ├─ migrations/       drizzle-kit 生成的 SQL 迁移
 │  ├─ schema/           drizzle 表结构（users.ts、auth.ts）
 │  └─ seeders/          haze db:seed 执行的数据填充
@@ -220,6 +221,7 @@ Socket.IO 命名空间（`defineNamespace()`），注册 `@hazejs/socket.io` 的
 - `schema/`：drizzle 表结构。drizzle-kit 会直接读取这些文件，因此只应依赖 `drizzle-orm`（不要在这里使用 `~` 别名）。
 - `migrations/`：`haze db:generate` 生成的 SQL 文件与 `meta/_journal.json`。非默认连接使用 `migrations/<连接名>/`。迁移文件会打包进生产产物。
 - `seeders/`：默认导出一个函数的文件，`haze db:seed` 按文件名顺序执行。
+- `factories/`：[模型工厂](./factories)（`defineFactory()`），由测试与数据填充导入，不会自动加载。
 
 详见[数据库](./database)。
 

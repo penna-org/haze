@@ -1,10 +1,11 @@
 import type { SQL, Table } from 'drizzle-orm'
-import type { TransactionConfig } from './context'
+import type { SessionOptions, TransactionConfig } from './context'
 import type { QueryOptions } from './query/builder'
 import type { AnyDatabase } from './types'
 import { sql } from 'drizzle-orm'
 import { commit, inTransaction, resolveSession, rollback, startTrans, transaction } from './context'
 import { QueryBuilder } from './query/builder'
+import { useWriter, withinScope } from './routing'
 
 /** 执行原生 SQL，统一返回行数组 */
 async function execute<R = Record<string, unknown>>(query: SQL, connection?: string): Promise<R[]> {
@@ -28,7 +29,7 @@ export interface ScopedDb {
   inTransaction: () => boolean
   execute: <R = Record<string, unknown>>(query: SQL) => Promise<R[]>
   query: <R = Record<string, unknown>>(query: SQL) => Promise<R[]>
-  drizzle: () => Promise<AnyDatabase>
+  drizzle: (options?: Pick<SessionOptions, 'read'>) => Promise<AnyDatabase>
 }
 
 function scoped(connection?: string): ScopedDb {
@@ -47,8 +48,11 @@ function scoped(connection?: string): ScopedDb {
     execute: <R = Record<string, unknown>>(query: SQL): Promise<R[]> => execute<R>(query, connection),
     /** execute() 的别名 */
     query: <R = Record<string, unknown>>(query: SQL): Promise<R[]> => execute<R>(query, connection),
-    /** 底层 drizzle 实例（处于事务中时为事务对象），用于 join 等复杂查询 */
-    drizzle: async (): Promise<AnyDatabase> => (await resolveSession(connection)).db,
+    /**
+     * 底层 drizzle 实例（处于事务中时为事务对象），用于 join 等复杂查询；
+     * 配置了读写分离时默认为写库，`drizzle({ read: true })` 按读写分离规则选择副本
+     */
+    drizzle: async (options?: Pick<SessionOptions, 'read'>): Promise<AnyDatabase> => (await resolveSession(connection, options)).db,
   }
 }
 
@@ -56,6 +60,13 @@ function scoped(connection?: string): ScopedDb {
 export const Db = {
   ...scoped(),
   connection: (name: string) => scoped(name),
+  /** 读写分离：回调内的读取都使用写库 */
+  useWriter,
+  /**
+   * 读写分离：新的 sticky 作用域，回调内写入过的连接之后的读取使用写库。
+   * 请求中自动以请求为作用域；队列任务、命令等请求之外的代码用它划定范围
+   */
+  withinScope,
   /** 原样拼入 SQL 的片段（不转义）：`Db.raw('count(*)')`，带参数时请用 drizzle 的 sql`` 模板 */
   raw: (value: string): SQL => sql.raw(value),
 }

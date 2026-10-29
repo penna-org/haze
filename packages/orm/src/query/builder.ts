@@ -114,6 +114,8 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   protected lockMode: 'update' | 'share' | undefined
   protected unions: Array<{ all: boolean, query: SubqueryLike }> = []
   protected cacheOptions: CacheOptions | undefined
+  /** 读写分离：读取也使用写库 */
+  protected forceWriter = false
   /** inc() / dec() / exp() / data() 累积、由 update() 写入的数据 */
   protected pending: Record<string, unknown> = {}
   /** withAttr() 定义的结果字段转换 */
@@ -128,6 +130,12 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   /** 切换连接 */
   connection(name: string): this {
     this.connectionName = name
+    return this
+  }
+
+  /** 读写分离：本查询的读取使用写库（例如刚写入后需要立即读到的数据） */
+  useWriter(value = true): this {
+    this.forceWriter = value
     return this
   }
 
@@ -722,7 +730,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * ```
    */
   async selectInsert(target: Table): Promise<number> {
-    const ctx = await this.context()
+    const ctx = await this.context(true)
     const selection = this.selection(ctx)
     if (!selection)
       throw new DatabaseError('selectInsert() needs field() to pick the columns to insert')
@@ -742,7 +750,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   async save(values: Insert<T> | Partial<Insert<T>>): Promise<number> {
     const key = primaryKeyOf(this.table)
     const data = values as Record<string, unknown>
-    if (key && data[key] !== undefined && data[key] !== null && await this.clone().where(key as never, data[key] as never).exists())
+    if (key && data[key] !== undefined && data[key] !== null && await this.clone().useWriter().where(key as never, data[key] as never).exists())
       return this.clone().update(data)
     return (await this.insert(values as Insert<T>)).length
   }
@@ -790,7 +798,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     }
     if (!Object.keys(data).length)
       throw new DatabaseError('update() called without data')
-    const ctx = await query.context()
+    const ctx = await query.context(true)
     const where = query.writableWhere('update', options, ctx)
     return affectedRows(await query.write(() => ctx.db.update(query.table).set(data).where(where)))
   }
@@ -801,7 +809,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    */
   async delete(target: WriteOptions | unknown = {}): Promise<number> {
     const [query, options] = this.deleteTarget(target)
-    const ctx = await query.context()
+    const ctx = await query.context(true)
     const where = query.writableWhere('delete', options, ctx)
     return affectedRows(await query.write(() => ctx.db.delete(query.table).where(where)))
   }
@@ -984,12 +992,20 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     return getTableName(this.table)
   }
 
-  protected session(): Promise<Session> {
-    return resolveSession(this.connectionName)
+  /**
+   * 当前连接的会话：写入使用写库；读取（read）在配置了读写分离时可使用副本，
+   * useWriter() 与 lock() 的读取仍走写库
+   */
+  protected session(read = false): Promise<Session> {
+    return resolveSession(this.connectionName, {
+      read,
+      writer: this.forceWriter || this.lockMode !== undefined,
+    })
   }
 
-  protected async context(): Promise<BuildContext & { name: string }> {
-    const session = await this.session()
+  /** 构造查询的上下文，write 为 true 时使用写库 */
+  protected async context(write = false): Promise<BuildContext & { name: string }> {
+    const session = await this.session(!write)
     return { db: session.db, dialect: session.dialect, name: session.name }
   }
 

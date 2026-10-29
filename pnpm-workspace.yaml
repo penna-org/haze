@@ -36,6 +36,7 @@ catalog:
   '@changesets/changelog-github': ^1.0.1
   '@changesets/cli': ^3.0.3
   '@electric-sql/pglite': ^0.5.12
+  '@faker-js/faker': ^10.6.0
   '@grpc/grpc-js': ^1.14.6
   '@grpc/proto-loader': ^0.8.1
   '@libsql/client': ^0.18.0
