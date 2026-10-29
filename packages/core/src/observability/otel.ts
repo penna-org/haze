@@ -194,11 +194,11 @@ export function withTraceContext<T>(carrier: Headers | Record<string, string | u
 
 /**
  * 带追踪的 fetch：创建 CLIENT span，并在请求头中注入 traceparent，下游服务可以接续链路。
- * 未启用 OpenTelemetry 时等同于 fetch。
+ * 未启用 OpenTelemetry 时等同于 fetch。`fetchImpl` 为实际发送请求的函数（默认全局 fetch）。
  */
-export async function tracedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+export async function tracedFetch(input: string | URL | Request, init?: RequestInit, fetchImpl: (input: Request | string | URL, init?: RequestInit) => Promise<Response> = globalThis.fetch): Promise<Response> {
   if (!state)
-    return fetch(input, init)
+    return fetchImpl(input, init)
   const { api, tracer } = state
   const request = new Request(input, init)
   const url = new URL(request.url)
@@ -218,7 +218,7 @@ export async function tracedFetch(input: string | URL | Request, init?: RequestI
   for (const [key, value] of Object.entries(injectContext(api, context, {})))
     headers.set(key, value)
   try {
-    const response = await api.context.with(context, () => fetch(new Request(request, { headers })))
+    const response = await api.context.with(context, () => fetchImpl(new Request(request, { headers })))
     span.setAttribute('http.response.status_code', response.status)
     if (response.status >= 400) {
       span.setAttribute('error.type', String(response.status))

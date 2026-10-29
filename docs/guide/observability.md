@@ -4,7 +4,7 @@ hazejs ships four observability building blocks:
 
 - **Health checks**: `/health`, `/health/ready` and `/health/live` endpoints for load balancers and orchestrators.
 - **OpenTelemetry**: traces and metrics for HTTP requests, queries, queued jobs, mail and AI calls, with W3C trace context propagation. It needs the optional `@opentelemetry/api` package.
-- **Dev dashboard**: a page at `/__haze` that records requests, queries, jobs, mail, events, cache operations, logs, exceptions and AI calls while you develop.
+- **Dev dashboard**: a page at `/__haze` that records requests, queries, jobs, mail, events, cache operations, logs, exceptions, AI calls and outgoing HTTP requests while you develop.
 - **Queue dashboard**: lists failed jobs and lets you retry or delete them. It is a tab of the dev dashboard and can also be mounted in production behind your own middleware.
 
 Log channels (files, HTTP shipping to Loki / Datadog / Better Stack, …) are covered in [Errors & Logging](./errors#channels).
@@ -148,7 +148,7 @@ When `otel.enabled` is false (the default), or when the package is missing, ever
 | `mail.send` | CLIENT | `haze.mail.mailer`, `haze.mail.driver`, `haze.mail.recipients` |
 | `chat <model>` / `embeddings <model>` (`@hazejs/ai`) | CLIENT | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons` |
 | `cache.get`, `cache.set`, … (opt-in) | CLIENT | `haze.cache.store`, `haze.cache.key`, `haze.cache.hit` |
-| `GET` (`tracedFetch`) | CLIENT | `http.request.method`, `url.full`, `server.address`, `http.response.status_code` |
+| `GET` (`tracedFetch`, [`Http`](./http-client)) | CLIENT | `http.request.method`, `url.full`, `server.address`, `http.response.status_code` |
 
 Responses with a 5xx status mark the span as an error, and the exception the handler rendered is recorded as a span event. Turn individual span types off with `traces: { db: false, ai: false, … }`. Health check and dashboard paths are ignored by default.
 
@@ -171,7 +171,7 @@ await tracer.startActiveSpan('charge', async (span) => {
 ### Trace context propagation
 
 - **Incoming**: a `traceparent` / `tracestate` header continues the caller's trace.
-- **Outgoing HTTP**: `tracedFetch()` works like `fetch`, creates a CLIENT span and sends `traceparent` downstream. Without OpenTelemetry it is plain `fetch`.
+- **Outgoing HTTP**: every request made with the [`Http` client](./http-client) gets a CLIENT span and sends `traceparent` downstream. `tracedFetch()` does the same for plain `fetch` calls. Without OpenTelemetry both are plain `fetch`.
 - **Queues**: `dispatch()` writes the trace context into the job message (`message.context`), and the worker continues the same trace, even in another process or on Redis.
 - **Custom transports**: `injectTraceContext(carrier)` writes the current context into a plain object; `withTraceContext(carrier, fn)` runs `fn` inside a context read from one.
 
@@ -211,7 +211,7 @@ In development, open `http://localhost:3000/__haze` (in full-stack projects, the
 - **Queries** from `@hazejs/orm`, with bindings and duration.
 - **Jobs** dispatched and processed (status, attempt, duration, error).
 - **Mail** sent, with a sandboxed preview of the rendered HTML.
-- **Events**, **cache** hits / misses / writes, **logs**, **exceptions** (5xx), and **AI calls** (model, tokens, latency).
+- **Events**, **cache** hits / misses / writes, **logs**, **exceptions** (5xx), **AI calls** (model, tokens, latency), and **outgoing HTTP requests** made with [`Http`](./http-client) (method, URL, status, duration, sizes; credentials masked).
 
 Everything is linked to the request that caused it, including jobs that run later and the mail they send. Click a request to see its queries, jobs, mail and logs together. New entries stream in live over Server-Sent Events. When debug mode renders the error page, it links to the request in the dashboard.
 

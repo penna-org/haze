@@ -1,6 +1,6 @@
 # 测试
 
-`@hazejs/testing` 让应用直接在 [Vitest](https://vitest.dev) 中运行，不监听端口。每个用例都会得到一个全新的应用（与 `haze dev` 使用同一套 `config/`、`route/`、`app/`），一个用来发请求的客户端，以及队列、事件、邮件、存储、通知、广播、全文搜索和 AI 的 fake。
+`@hazejs/testing` 让应用直接在 [Vitest](https://vitest.dev) 中运行，不监听端口。每个用例都会得到一个全新的应用（与 `haze dev` 使用同一套 `config/`、`route/`、`app/`），一个用来发请求的客户端，以及队列、事件、邮件、存储、通知、广播、出站 HTTP 请求、全文搜索和 AI 的 fake。
 
 ## 配置
 
@@ -212,8 +212,9 @@ describe('registration', () => {
 | `Storage.fake(disk?)` | `assertExists`、`assertMissing`、`assertCount`、`assertDirectoryEmpty`（均为异步）；上传示例见[文件存储](./storage#测试) |
 | `Notification.fake()` | `assertSentTo(notifiable, notification, predicate?)`、`assertNotSentTo`、`assertSentOnDemand`、`assertSentTimes`、`assertNothingSentTo`、`assertNothingSent`、`assertCount`；`sentTo(notifiable, notification)` 返回发送记录，记录的 `message(channel)` 可以渲染出各渠道的内容 |
 | `Broadcast.fake()` | `assertBroadcast(event, predicate?)`、`assertBroadcastOn(channel, event?, predicate?)`、`assertNotBroadcast`、`assertBroadcastTimes`、`assertNothingBroadcast`；`broadcasts` |
+| `Http.fake(stubs?)` | `Http.assertSent(predicate)`、`assertNotSent`、`assertSentCount(n)`、`assertNothingSent`、`assertSentInOrder`、`assertSequencesAreEmpty`、`recorded()`；`Http.preventStrayRequests()` 让没有假响应的请求直接报错。只拦截经 `Http` 发出的请求，详见 [HTTP 客户端](./http-client#测试) |
 
-任务既可以按定义匹配，也可以按名称匹配，例如 `queue.assertDispatched('mail:send')`。每个门面都有对应的 `restore()`（`Queue.restore()`、`Events.restore()`、`Mail.restore()`、`Storage.restore()`、`Notification.restore()`、`Broadcast.restore()`）。各功能页面有更详细的说明：[队列](./queues)、[事件](./events)、[邮件](./mail#测试)、[文件存储](./storage#测试)、[通知](./notifications#测试)、[广播](./broadcasting#测试)。
+任务既可以按定义匹配，也可以按名称匹配，例如 `queue.assertDispatched('mail:send')`。每个门面都有对应的 `restore()`（`Queue.restore()`、`Events.restore()`、`Mail.restore()`、`Storage.restore()`、`Notification.restore()`、`Broadcast.restore()`、`Http.restore()`）。各功能页面有更详细的说明：[队列](./queues)、[事件](./events)、[邮件](./mail#测试)、[文件存储](./storage#测试)、[通知](./notifications#测试)、[广播](./broadcasting#测试)、[HTTP 客户端](./http-client#测试)。
 
 ### 其它扩展包
 

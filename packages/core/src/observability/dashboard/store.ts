@@ -4,7 +4,7 @@ import { getRequestStore } from '../../request'
 import { currentTelemetryScope } from '../scope'
 import { onTelemetry } from '../telemetry'
 
-export type DashboardEntryType = 'request' | 'query' | 'job' | 'mail' | 'event' | 'cache' | 'log' | 'exception' | 'ai'
+export type DashboardEntryType = 'request' | 'query' | 'job' | 'mail' | 'event' | 'cache' | 'log' | 'exception' | 'ai' | 'http'
 
 export const DASHBOARD_ENTRY_TYPES: readonly DashboardEntryType[] = [
   'request',
@@ -16,6 +16,7 @@ export const DASHBOARD_ENTRY_TYPES: readonly DashboardEntryType[] = [
   'log',
   'exception',
   'ai',
+  'http',
 ]
 
 export interface DashboardEntry {
@@ -51,6 +52,7 @@ const TELEMETRY_TYPES: Partial<Record<TelemetryKind, DashboardEntryType>> = {
   'log': 'log',
   'exception': 'exception',
   'ai': 'ai',
+  'http': 'http',
 }
 
 /** 单个记录内容的上限：超出的字符串截断，避免大载荷撑满内存 */
@@ -85,7 +87,7 @@ export class DashboardStore {
   #sequence = 0
   #unsubscribe: (() => void) | undefined
 
-  /** 订阅遥测总线（查询、任务、邮件、事件、缓存、日志、异常、AI） */
+  /** 订阅遥测总线（查询、任务、邮件、事件、缓存、日志、异常、AI、出站 HTTP） */
   listen(): this {
     this.#unsubscribe ??= onTelemetry((kind, data) => this.#record(kind, data))
     return this

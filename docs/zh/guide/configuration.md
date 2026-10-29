@@ -43,6 +43,7 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | `config/csrf.ts` | `defineCsrfConfig` | `@hazejs/core` |
 | `config/filesystem.ts` | `defineFilesystemConfig` | `@hazejs/core` |
 | `config/health.ts` | `defineHealthConfig` | `@hazejs/core` |
+| `config/http.ts` | `defineHttpConfig` | `@hazejs/core` |
 | `config/i18n.ts` | `defineI18nConfig` | `@hazejs/core` |
 | `config/mail.ts` | `defineMailConfig` | `@hazejs/core` |
 | `config/middleware.ts` | `defineMiddlewareConfig` | `@hazejs/core` |
@@ -65,7 +66,7 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | `config/search.ts` | `defineSearchConfig` | `@hazejs/search` |
 | `config/socketio.ts` | `defineSocketIOConfig` | `@hazejs/socket.io` |
 
-各文件的具体选项见对应模块的文档页，例如[广播](./broadcasting)、[Redis](./redis)、[可观测性](./observability)（`health` 与 `observability`）、[多语言](./localization)、[通知](./notifications)、[OpenAPI 文档](./openapi)、[多租户](./tenancy)、[AI](./ai)、[GraphQL](./graphql)、[微服务](./microservices)、[第三方登录](./oauth)和[全文搜索](./search)。其中大部分文件是可选的：不建文件时 OpenAPI 文档与健康检查照常可用；建了 `config/i18n.ts` 后，校验错误与框架消息也会按请求的语言翻译。
+各文件的具体选项见对应模块的文档页，例如[广播](./broadcasting)、[Redis](./redis)、[可观测性](./observability)（`health` 与 `observability`）、[HTTP 客户端](./http-client)（`http`）、[多语言](./localization)、[通知](./notifications)、[OpenAPI 文档](./openapi)、[多租户](./tenancy)、[AI](./ai)、[GraphQL](./graphql)、[微服务](./microservices)、[第三方登录](./oauth)和[全文搜索](./search)。其中大部分文件是可选的：不建文件时 OpenAPI 文档与健康检查照常可用；建了 `config/i18n.ts` 后，校验错误与框架消息也会按请求的语言翻译。
 
 ### 对象形式与函数形式
 

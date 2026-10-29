@@ -43,6 +43,7 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | `config/csrf.ts` | `defineCsrfConfig` | `@hazejs/core` |
 | `config/filesystem.ts` | `defineFilesystemConfig` | `@hazejs/core` |
 | `config/health.ts` | `defineHealthConfig` | `@hazejs/core` |
+| `config/http.ts` | `defineHttpConfig` | `@hazejs/core` |
 | `config/i18n.ts` | `defineI18nConfig` | `@hazejs/core` |
 | `config/mail.ts` | `defineMailConfig` | `@hazejs/core` |
 | `config/middleware.ts` | `defineMiddlewareConfig` | `@hazejs/core` |
@@ -65,7 +66,7 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | `config/search.ts` | `defineSearchConfig` | `@hazejs/search` |
 | `config/socketio.ts` | `defineSocketIOConfig` | `@hazejs/socket.io` |
 
-The options of each file are documented on the page of its module: [Broadcasting](./broadcasting), [Redis](./redis), [Observability](./observability) (`health`, `observability`), [Localization](./localization), [Notifications](./notifications), [OpenAPI](./openapi), [Multi-tenancy](./tenancy), [AI](./ai), [GraphQL](./graphql), [Microservices](./microservices), [OAuth Social Login](./oauth), [Search](./search) and so on. Most of these files are optional: OpenAPI docs and health checks work without them, and `config/i18n.ts` turns on translated validation and framework messages.
+The options of each file are documented on the page of its module: [Broadcasting](./broadcasting), [Redis](./redis), [Observability](./observability) (`health`, `observability`), [HTTP Client](./http-client) (`http`), [Localization](./localization), [Notifications](./notifications), [OpenAPI](./openapi), [Multi-tenancy](./tenancy), [AI](./ai), [GraphQL](./graphql), [Microservices](./microservices), [OAuth Social Login](./oauth), [Search](./search) and so on. Most of these files are optional: OpenAPI docs and health checks work without them, and `config/i18n.ts` turns on translated validation and framework messages.
 
 ### Object form vs function form
 

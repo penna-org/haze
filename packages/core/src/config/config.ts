@@ -2,6 +2,7 @@ import type { SubAppConfig } from '../apps'
 import type { AuthConfig } from '../auth/config'
 import type { BroadcastingConfig } from '../broadcast/config'
 import type { CacheConfig } from '../cache/config'
+import type { HttpConfig } from '../http-client/manager'
 import type { CookieOptions } from '../http/cookie'
 import type { I18nConfig } from '../i18n/config'
 import type { LoggerConfig } from '../logger'
@@ -85,6 +86,8 @@ export interface CoreConfig {
   notification?: NotificationConfig
   health?: HealthConfig
   observability?: ObservabilityConfig
+  /** 出站 HTTP 客户端（config/http.ts） */
+  http?: HttpConfig
   tenancy?: TenancyConfig
   /** 模块（config/modules.ts） */
   modules?: ModulesConfig
