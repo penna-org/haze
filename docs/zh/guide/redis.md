@@ -122,6 +122,29 @@ await blocking.quit()
 
 在类中注入管理器：`inject(RedisManager).connection('cache')`。在应用之外（独立脚本）使用时，门面退回到读取 `REDIS_URL` 的隐式 `default` 连接。
 
+## 缓存数据结构还是 Redis 门面
+
+使用哈希、列表、集合与有序集合有两种方式：
+
+```ts
+// 通过缓存：自动加前缀、序列化、带类型
+await Cache.store('redis').hash('user:1').set({ name: 'Ada', joined: new Date() }, '1h')
+
+// 原始命令：发送什么就是什么
+await Redis.hset('user:1', { name: 'Ada' })
+```
+
+| | `Cache.store('redis')` 的数据结构 | `Redis` 门面 |
+| --- | --- | --- |
+| 键 | 缓存 `prefix` + 租户前缀（+ 连接的 `keyPrefix`） | 只有连接的 `keyPrefix` |
+| 值 | 与缓存值一样序列化（对象、`Date`、`BigInt` 原样读回），分数保持数字 | 传入的字符串与数字 |
+| TTL | 按句柄设置，每次写入后应用；`expire()` / `ttl()` | 自己执行 `EXPIRE` |
+| `Cache.clear()` | 随存储中的其它键一起清除 | 不受影响 |
+| 测试 | `memory` 存储即可运行，不需要 Redis | 需要 Redis（或 mock 的 ioredis） |
+| 覆盖范围 | 每种结构的常用命令 | 全部 Redis 命令、pipeline、事务、pub/sub、Stream、Lua |
+
+属于缓存的业务数据用缓存的数据结构：排行榜、按字段计数、最近记录列表、在线用户集合等，凡是应当与缓存共用前缀、按租户隔离、随缓存一起清除的数据都适合。需要完全掌控键与编码（与其它服务或语言共享的数据）、缓存没有封装的命令（Stream、`SCAN`、`ZUNIONSTORE`、Lua）、pipeline 或 pub/sub 时，用 `Redis` 门面。两者使用同一个共享连接：存储配置为 `connection: 'default'` 时，`await Cache.store('redis').handler()` 与 `await Redis.client('default')` 是同一个客户端。详见 [缓存](./cache#redis-数据结构)。
+
 ## 各功能使用的连接
 
 | 功能 | 配置 | 连接 |

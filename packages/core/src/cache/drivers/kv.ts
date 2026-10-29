@@ -1,5 +1,6 @@
 import type { CacheStore } from '../store'
 import { usePlatformBinding } from '../../platform'
+import { appendElement } from '../store'
 
 export interface KvStoreConfig {
   driver: 'kv'
@@ -7,7 +8,8 @@ export interface KvStoreConfig {
   binding?: string | object
 }
 
-interface KVNamespaceLike {
+/** Cloudflare KVNamespace 中用到的部分（需要完整类型时断言为 `KVNamespace`） */
+export interface KvNamespaceLike {
   get: (key: string) => Promise<string | null>
   getWithMetadata: <M>(key: string) => Promise<{ value: string | null, metadata: M | null }>
   put: (key: string, value: string, options?: { expirationTtl?: number, metadata?: unknown }) => Promise<void>
@@ -20,16 +22,18 @@ const MIN_TTL = 60
 
 /**
  * Cloudflare KV：最终一致（跨区域约 60 秒），同一键每秒最多写一次。
- * add / increment / deleteIf 为“读后写”，不保证原子性；适合缓存与 Session，不适合精确限流与锁。
+ * add / increment / deleteIf / push / touch 为“读后写”，不保证原子性；适合缓存与 Session，不适合精确限流与锁。
+ * 有效期同时记在元数据的 expiresAt 中（KV 没有读取 TTL 的接口），ttl() 由它计算；
+ * KV 也不能只改有效期，touch() 会连同值重新写入一次。
  */
-export function kvStore(name: string, config: KvStoreConfig): CacheStore {
-  const kv = (): KVNamespaceLike => {
+export function kvStore(name: string, config: KvStoreConfig): CacheStore & { handler: () => KvNamespaceLike } {
+  const kv = (): KvNamespaceLike => {
     const binding = typeof config.binding === 'object'
       ? config.binding
       : usePlatformBinding<object>(config.binding ?? 'CACHE')
     if (!binding)
       throw new Error(`Cache store "${name}": KV binding "${config.binding ?? 'CACHE'}" not found. KV is only available on Cloudflare Workers`)
-    return binding as KVNamespaceLike
+    return binding as KvNamespaceLike
   }
   const options = (ttl: number | undefined, expiresAt?: number): { expirationTtl?: number, metadata?: unknown } => ttl === undefined
     ? {}
@@ -38,15 +42,22 @@ export function kvStore(name: string, config: KvStoreConfig): CacheStore {
         metadata: { expiresAt: expiresAt ?? Date.now() + ttl * 1000 },
       }
 
+  /** 读取值与过期时间（小于 60 秒的有效期由元数据判断） */
+  const read = async (key: string): Promise<{ value: string, expiresAt: number | undefined } | undefined> => {
+    const { value, metadata } = await kv().getWithMetadata<{ expiresAt?: number }>(key)
+    if (value === null || (metadata?.expiresAt && metadata.expiresAt <= Date.now()))
+      return undefined
+    return { value, expiresAt: metadata?.expiresAt || undefined }
+  }
+  const rest = (expiresAt: number | undefined): number | undefined => expiresAt === undefined
+    ? undefined
+    : Math.max(0, (expiresAt - Date.now()) / 1000)
+
   return {
     driver: 'kv',
     atomic: false,
     async get(key) {
-      const { value, metadata } = await kv().getWithMetadata<{ expiresAt?: number }>(key)
-      // 小于 60 秒的有效期由元数据判断
-      if (value === null || (metadata?.expiresAt && metadata.expiresAt <= Date.now()))
-        return undefined
-      return value
+      return (await read(key))?.value
     },
     async set(key, value, ttl) {
       await kv().put(key, value, options(ttl))
@@ -98,5 +109,31 @@ export function kvStore(name: string, config: KvStoreConfig): CacheStore {
         cursor = page.list_complete ? undefined : page.cursor
       } while (cursor)
     },
+    async ttl(key) {
+      const entry = await read(key)
+      if (!entry)
+        return null
+      const seconds = rest(entry.expiresAt)
+      return seconds === undefined
+        ? undefined
+        : Math.ceil(seconds)
+    },
+    async touch(key, ttl) {
+      const entry = await read(key)
+      if (!entry)
+        return false
+      await kv().put(key, entry.value, options(ttl))
+      return true
+    },
+    async push(key, element, ttl) {
+      const entry = await read(key)
+      const value = appendElement(key, entry?.value, element)
+      // 未指定 ttl 时保留原来的过期时间
+      const expiresAt = ttl === undefined
+        ? entry?.expiresAt
+        : Date.now() + ttl * 1000
+      await kv().put(key, value, options(rest(expiresAt), expiresAt))
+    },
+    handler: kv,
   }
 }

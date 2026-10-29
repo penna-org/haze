@@ -1,5 +1,9 @@
-import type { Config } from '../config/config'
+import type { Config, GeneratedConfig } from '../config/config'
 import type { CacheConfig, CacheStoreConfig } from './config'
+import type { KvNamespaceLike } from './drivers/kv'
+import type { MemoryCacheEntry } from './drivers/memory'
+import type { UpstashClientLike } from './drivers/upstash'
+import type { CacheTtl } from './repository'
 import type { CacheStore } from './store'
 import { RedisManager } from '../redis/manager'
 import { getRequestStore } from '../request'
@@ -9,6 +13,8 @@ import { memoryStore } from './drivers/memory'
 import { redisStore } from './drivers/redis'
 import { upstashStore } from './drivers/upstash'
 import { CacheRepository } from './repository'
+import { resolveSerializer } from './serializer'
+import { isRedisCache, RedisCacheRepository } from './structures'
 
 function createStore(name: string, config: CacheStoreConfig, redis: () => RedisManager): CacheStore {
   switch (config.driver) {
@@ -25,6 +31,44 @@ function createStore(name: string, config: CacheStoreConfig, redis: () => RedisM
     default:
       throw new Error(`Cache store "${name}": unknown driver "${(config as { driver: string }).driver}"`)
   }
+}
+
+/** memory 驱动的存储：与 redis 相同的数据结构接口（进程内模拟，供测试使用），handler() 为内存 Map */
+export type MemoryCacheRepository = RedisCacheRepository<Map<string, MemoryCacheEntry>>
+
+/** 生成过配置类型（config/cache.ts）时的存储声明，否则为 never */
+type GeneratedCacheStores = GeneratedConfig extends { cache: { stores: infer S } } ? S : never
+
+/** 已声明的存储名：生成过配置类型时为存储名的联合，否则为 string */
+export type CacheStoreName = [GeneratedCacheStores] extends [never] ? string : keyof GeneratedCacheStores & string
+
+/** 按存储的驱动得到仓库类型 */
+export type CacheRepositoryForConfig<C> = C extends { driver: 'redis' }
+  ? RedisCacheRepository
+  : C extends { driver: 'memory' }
+    ? MemoryCacheRepository
+    : C extends { driver: 'upstash' }
+      ? CacheRepository<UpstashClientLike>
+      : C extends { driver: 'kv' }
+        ? CacheRepository<KvNamespaceLike>
+        : CacheRepository
+
+/**
+ * `Cache.store(name)` 的返回类型：config/cache.ts 中驱动为 redis 的存储为 RedisCacheRepository，
+ * memory 为 MemoryCacheRepository，其它为 CacheRepository（未生成配置类型时都是 CacheRepository）。
+ * Stores 默认取生成的配置类型，也可以显式传入。
+ */
+export type CacheRepositoryFor<Name extends string, Stores = GeneratedCacheStores> = [Stores] extends [never]
+  ? CacheRepository
+  : Name extends keyof Stores
+    ? CacheRepositoryForConfig<Stores[Name]>
+    : CacheRepository
+
+/** 存储访问器的重载：不传名字为默认存储，传入已知的名字得到对应驱动的仓库类型 */
+export interface CacheStoreAccessor {
+  (): CacheRepository
+  <N extends CacheStoreName>(name: N): CacheRepositoryFor<N>
+  (name?: CacheStoreName): CacheRepository
 }
 
 /** 缓存存储管理（应用内单例，`inject(CacheManager)`；config/cache.ts 缺省时为内存缓存） */
@@ -54,17 +98,37 @@ export class CacheManager {
     return this.config.default
   }
 
-  /** 取存储（默认 default） */
-  store(name: string = this.config.default): CacheRepository {
-    let repository = this.#repositories.get(name)
+  /**
+   * 取存储（默认 default）；有数据结构命令的驱动（redis、memory）返回 RedisCacheRepository。
+   * 管理器也接受任意字符串（框架内部按配置值取存储），门面 `Cache.store()` 只接受已声明的存储名
+   */
+  store(): CacheRepository
+  store<N extends CacheStoreName>(name: N): CacheRepositoryFor<N>
+  store(name?: string): CacheRepository
+  store(name?: string): any {
+    const config = this.config
+    const storeName = name ?? config.default
+    let repository = this.#repositories.get(storeName)
     if (!repository) {
-      const config = this.config.stores[name]
-      if (!config)
-        throw new Error(`Cache store "${name}" is not defined in config/cache.ts`)
-      repository = new CacheRepository(name, createStore(name, config, () => this.#redis ?? new RedisManager(this.appConfig)), this.config.prefix ?? '')
-      this.#repositories.set(name, repository)
+      const storeConfig = config.stores[storeName]
+      if (!storeConfig)
+        throw new Error(`Cache store "${storeName}" is not defined in config/cache.ts`)
+      const store = createStore(storeName, storeConfig, () => this.#redis ?? new RedisManager(this.appConfig))
+      const serializer = resolveSerializer(storeConfig.serializer ?? config.serializer)
+      repository = store.commands
+        ? new RedisCacheRepository(storeName, store, config.prefix ?? '', serializer)
+        : new CacheRepository(storeName, store, config.prefix ?? '', serializer)
+      this.#repositories.set(storeName, repository)
     }
     return repository
+  }
+
+  /** 带 Redis 数据结构的存储（redis；测试中的 memory 存储同样可用），其它驱动抛错 */
+  redis(name?: string): RedisCacheRepository {
+    const repository = this.store(name)
+    if (!isRedisCache(repository))
+      throw new Error(`Cache store "${repository.name}" (driver "${repository.store.driver}") is not a Redis store`)
+    return repository as RedisCacheRepository
   }
 }
 
@@ -83,39 +147,82 @@ export function useCacheManager(): CacheManager {
   return manager
 }
 
-type Facade = Pick<CacheRepository, 'get' | 'many' | 'has' | 'set' | 'setMany' | 'add' | 'forget' | 'pull' | 'remember' | 'rememberForever' | 'increment' | 'decrement' | 'flush' | 'lock' | 'restoreLock'> & {
-  store: (name?: string) => CacheRepository
-}
-
 const methods = [
   'get',
   'many',
+  'getMultiple',
   'has',
   'set',
   'setMany',
+  'setMultiple',
   'add',
   'forget',
+  'delete',
+  'deleteMany',
+  'deleteMultiple',
   'pull',
   'remember',
   'rememberForever',
   'increment',
   'decrement',
+  'inc',
+  'dec',
+  'push',
+  'ttl',
+  'touch',
+  'expire',
+  'handler',
   'flush',
+  'clear',
+  'tag',
   'lock',
   'restoreLock',
 ] as const
+
+export type CacheFacade = Pick<CacheRepository, typeof methods[number]> & {
+  /** 切换存储：`Cache.store('redis')`（redis 存储的类型为 RedisCacheRepository） */
+  store: CacheStoreAccessor
+  /** 带 Redis 数据结构的存储（默认为默认存储），不是 redis（或测试用的 memory）时抛错 */
+  redis: (name?: CacheStoreName) => RedisCacheRepository
+}
 
 /**
  * 缓存门面：默认存储的快捷入口，`Cache.store('redis')` 切换存储。
  *
  * ```ts
  * const stats = await Cache.remember('stats', '10m', () => computeStats())
+ * await Cache.tag('user').set('user:1', user)
+ * await Cache.redis().zset('scores').add('ada', 42)
  * ```
  */
-export const Cache: Facade = {
-  store: (name?: string) => useCacheManager().store(name),
+export const Cache: CacheFacade = {
+  store: ((name?: string) => useCacheManager().store(name)) as CacheStoreAccessor,
+  redis: (name?: CacheStoreName) => useCacheManager().redis(name),
   ...Object.fromEntries(methods.map(method => [
     method,
     (...args: unknown[]) => (useCacheManager().store() as any)[method](...args),
   ])),
-} as Facade
+} as CacheFacade
+
+/**
+ * ThinkPHP 风格的助手函数（默认存储）：
+ * - `cache()`：默认存储的仓库；
+ * - `cache(key)`：读取；
+ * - `cache(key, value, ttl?)`：写入；
+ * - `cache(key, null)`：删除。
+ */
+export function cache(): CacheRepository
+export function cache<T = unknown>(key: string): Promise<T | undefined>
+export function cache(key: string, value: null): Promise<boolean>
+export function cache(key: string, value: unknown, ttl?: CacheTtl): Promise<void>
+export function cache(...args: [key?: string, value?: unknown, ttl?: CacheTtl]): CacheRepository | Promise<unknown> {
+  const repository = useCacheManager().store()
+  if (!args.length)
+    return repository
+  const [key, value, ttl] = args as [string, unknown, CacheTtl]
+  if (args.length === 1)
+    return repository.get(key)
+  if (value === null)
+    return repository.forget(key)
+  return repository.set(key, value, ttl)
+}

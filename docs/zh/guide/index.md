@@ -70,7 +70,7 @@ export class PostController {
 | 校验 | Standard Schema（valibot、zod、arktype……），路由级 `.validate({ body, query, params })`，带类型的 `ctx.validated`，见[请求与校验](./requests) |
 | 数据库 | 基于 drizzle 的 `@hazejs/orm`：[模型](./models)、查询构造器、软删除、迁移与数据填充，支持 SQLite、PostgreSQL、MySQL、Turso、D1，另有 MongoDB 适配，见[数据库](./database)；`@hazejs/search` 提供[全文搜索](./search)，可使用数据库本身、Meilisearch、Typesense 或 Elasticsearch / OpenSearch |
 | 安全 | [认证](./authentication)（JWT、Session 与 [API 令牌](./api-tokens) Guard，邮箱验证、找回密码）、[两步验证与通行密钥](./two-factor)、`@hazejs/oauth` 提供的[第三方登录](./oauth)、[授权](./authorization)（Gate 与 Policy）、[CSRF、Session、CORS、安全响应头、限流与加密](./security) |
-| 基础设施 | 支持原子锁的[缓存](./cache)、支持重试与延迟的[队列](./queues)、[定时任务](./scheduling)、支持排队监听器的[事件](./events)、[自定义命令](./console)与 REPL |
+| 基础设施 | 支持标签、Redis 数据结构与原子锁的[缓存](./cache)、支持重试与延迟的[队列](./queues)、[定时任务](./scheduling)、支持排队监听器的[事件](./events)、[自定义命令](./console)与 REPL |
 | 消息触达 | 经邮件、数据库、广播、Slack、Webhook、企业微信、钉钉、飞书发送的[通知](./notifications)；SMTP、Resend、Postmark、Mailgun、SES [邮件](./mail) |
 | 实时通信 | 基于 crossws 的 [WebSocket](./websocket)、`@hazejs/socket.io` 提供的 [Socket.IO](./socket-io)，以及支持私有频道、在线频道和 `@hazejs/core/echo` 客户端的[广播](./broadcasting) |
 | 文件 | 本地磁盘、S3、R2 [文件存储](./storage) |

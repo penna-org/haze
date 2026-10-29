@@ -122,6 +122,29 @@ await blocking.quit()
 
 In a class, inject the manager: `inject(RedisManager).connection('cache')`. Outside an application (a standalone script), the facade falls back to the implicit `default` connection from `REDIS_URL`.
 
+## Cache structures or the Redis facade
+
+There are two ways to work with hashes, lists, sets and sorted sets:
+
+```ts
+// Through the cache: prefixed, serialized, typed
+await Cache.store('redis').hash('user:1').set({ name: 'Ada', joined: new Date() }, '1h')
+
+// Raw commands: exactly what you send
+await Redis.hset('user:1', { name: 'Ada' })
+```
+
+| | `Cache.store('redis')` structures | `Redis` facade |
+| --- | --- | --- |
+| Keys | Cache `prefix` + tenant prefix (+ connection `keyPrefix`) | Only the connection's `keyPrefix` |
+| Values | Serialized like cache values (objects, `Date`, `BigInt` round-trip); scores stay numbers | Strings and numbers as you pass them |
+| TTL | Per handle, applied after each write; `expire()` / `ttl()` | `EXPIRE` yourself |
+| `Cache.clear()` | Removes them with the rest of the store | Not affected |
+| Tests | Work on a `memory` store, no Redis needed | Need Redis (or a mocked ioredis) |
+| Coverage | The common commands of each type | Every Redis command, pipelines, transactions, pub/sub, streams, Lua |
+
+Use the cache structures for application data that belongs to the cache: leaderboards, counters per field, recent-item lists, online sets, anything that should share the cache prefix, isolate per tenant and be cleared with the cache. Use the `Redis` facade when you need full control over keys and encoding (data shared with other services or languages), commands the cache does not wrap (streams, `SCAN`, `ZUNIONSTORE`, Lua), pipelines or pub/sub. Both run on the same shared connection: for a store with `connection: 'default'`, `await Cache.store('redis').handler()` is the same client as `await Redis.client('default')`. See [Cache](./cache#redis-data-structures).
+
 ## Which feature uses which connection
 
 | Feature | Config | Connections |

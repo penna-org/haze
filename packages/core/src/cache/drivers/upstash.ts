@@ -1,5 +1,5 @@
 import type { CacheStore } from '../store'
-import { DELETE_IF_SCRIPT, INCREMENT_SCRIPT, remaining } from './redis'
+import { DELETE_IF_SCRIPT, expireSeconds, INCREMENT_SCRIPT, PUSH_SCRIPT, pushError, remaining, TOUCH_SCRIPT, ttlResult } from './redis'
 
 export interface UpstashStoreConfig {
   driver: 'upstash'
@@ -9,20 +9,23 @@ export interface UpstashStoreConfig {
   token: string
 }
 
-interface UpstashLike {
+/** @upstash/redis 客户端的结构（core 不依赖它的类型；需要完整类型时断言为 `import('@upstash/redis').Redis`） */
+export interface UpstashClientLike {
   get: (key: string) => Promise<string | null>
   set: (key: string, value: string, options?: { ex?: number, nx?: boolean }) => Promise<string | null>
   del: (...keys: string[]) => Promise<number>
   eval: (script: string, keys: string[], args: (string | number)[]) => Promise<unknown>
   scan: (cursor: string | number, options: { match: string, count: number }) => Promise<[string | number, string[]]>
+  ttl: (key: string) => Promise<number>
+  [command: string]: any
 }
 
 /** Upstash（Redis over HTTP）：无长连接，可运行于 Edge / Serverless */
-export function upstashStore(config: UpstashStoreConfig): CacheStore {
-  let client: Promise<UpstashLike> | undefined
-  const redis = (): Promise<UpstashLike> => {
+export function upstashStore(config: UpstashStoreConfig): CacheStore & { handler: () => Promise<UpstashClientLike> } {
+  let client: Promise<UpstashClientLike> | undefined
+  const redis = (): Promise<UpstashClientLike> => {
     client ??= import('@upstash/redis').then(
-      ({ Redis }) => new Redis({ url: config.url, token: config.token, automaticDeserialization: false }) as unknown as UpstashLike,
+      ({ Redis }) => new Redis({ url: config.url, token: config.token, automaticDeserialization: false }) as unknown as UpstashClientLike,
       (error) => {
         client = undefined
         throw new Error('Cache driver "upstash" requires @upstash/redis. Install it with: pnpm add @upstash/redis', { cause: error })
@@ -41,14 +44,14 @@ export function upstashStore(config: UpstashStoreConfig): CacheStore {
       await (await redis()).set(key, value, ttl === undefined
         ? undefined
         : {
-            ex: Math.max(1, Math.ceil(ttl)),
+            ex: expireSeconds(ttl),
           })
     },
     async add(key, value, ttl) {
       return (await (await redis()).set(key, value, {
         nx: true,
         ...(ttl !== undefined && {
-          ex: Math.max(1, Math.ceil(ttl)),
+          ex: expireSeconds(ttl),
         }),
       })) === 'OK'
     },
@@ -60,7 +63,7 @@ export function upstashStore(config: UpstashStoreConfig): CacheStore {
         by,
         ttl === undefined
           ? 0
-          : Math.max(1, Math.ceil(ttl)),
+          : expireSeconds(ttl),
       ]) as [number, number]
       return {
         value: Number(value),
@@ -80,5 +83,29 @@ export function upstashStore(config: UpstashStoreConfig): CacheStore {
           await client.del(...keys)
       } while (String(cursor) !== '0')
     },
+    async ttl(key) {
+      return ttlResult(Number(await (await redis()).ttl(key)))
+    },
+    async touch(key, ttl) {
+      return Number(await (await redis()).eval(TOUCH_SCRIPT, [key], [
+        ttl === undefined
+          ? -1
+          : expireSeconds(ttl),
+      ])) > 0
+    },
+    async push(key, element, ttl) {
+      try {
+        await (await redis()).eval(PUSH_SCRIPT, [key], [
+          element,
+          ttl === undefined
+            ? 0
+            : expireSeconds(ttl),
+        ])
+      }
+      catch (error) {
+        throw pushError(key, error)
+      }
+    },
+    handler: redis,
   }
 }

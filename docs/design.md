@@ -1718,3 +1718,64 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - 全部测试（未设置 HAZE_TEST_REDIS_URL）：79 个文件（1 个整体跳过），901 个通过、51 个跳过（之前为 77 个文件、886 个通过、37 个跳过；新增的真实 Redis 用例计入跳过）。本地 `redis:7` 下设置 `HAZE_TEST_REDIS_URL` 全量运行：79 个文件，949 个通过、25 个跳过（其余跳过为 Upstash / NATS / MySQL 等未提供的服务），其中 vue 模板的 `account.test.ts` 偶发失败一次、单独重跑通过：它把签名的第一个字符替换为 `x` 来“篡改”，签名本身以 `x` 开头时（约 1/64）篡改无效，与本次改动无关。
 
 已知限制：`disposePersistent()` 是进程级的，同一进程中一个应用关闭（非 hmr）会断开所有应用的 Redis 连接（与原来的缓存连接池、广播总线一致）；热更新改了连接设置时旧连接保留到进程关闭；缓存 `clear()` 在 Cluster 上只扫描一个节点（原有限制）；连接级的 `keyPrefix` 不作用于 pub/sub 频道与 BullMQ，需要分别设置频道前缀与队列 prefix；共享连接上执行 SUBSCRIBE / 阻塞命令不会被阻止，只在文档中说明；`default` 用 env() 读取时类型为 string，需断言为连接名。
+
+### M30 实施记录（2026-10-28）：缓存接口增强
+
+背景：M14 的缓存接口沿用 Laravel 的命名（`forget` / `flush` / `increment`），没有标签、没有读取与修改 TTL 的方法，也拿不到底层客户端；值以纯 JSON 存储，`Date` 读回为字符串，BigInt（M29 前后的雪花 ID）读回为字符串；M29 的 `Redis` 门面只有原始命令，哈希、有序集合等结构要自己处理前缀与编码。
+
+确认的决策：
+- 以 ThinkPHP 的写法为主（文档优先展示），与原有名称、PSR-16 名称并存：`delete` = `forget`、`clear` = `flush`、`inc` / `dec` = `increment` / `decrement`、`getMultiple` / `setMultiple` = `many` / `setMany`，新增 `deleteMany` / `deleteMultiple`；
+- 新增 `push`、`ttl`、`touch`（别名 `expire`）、`handler()`、标签缓存、redis 存储上带类型的数据结构、`cache()` 助手函数；
+- 默认序列化改为“JSON + 类型还原”，仍是合法的 JSON，并兼容旧的纯 JSON 值；
+- 遥测、多租户前缀覆盖新操作。
+
+**驱动接口**（`packages/core/src/cache/store.ts`）
+- `CacheStore` 增加可选能力：`ttl(key)`（永久为 undefined，不存在为 null）、`touch(key, ttl)`、`push(key, element, ttl)`、`handler()`、`commands`（数据结构命令）、`tags`（标签的键索引）。缺少时上层退回通用实现（`touch` 重写一次值、`push` 读后写）或抛出“不支持”（`ttl`、`handler`），自定义驱动不需要改动。
+- memory：`ttl` / `touch` 直接改 `expiresAt`；`push` 在同一个同步段内读与写，并发安全；`delete` 不再对已过期的项返回 true。
+- redis / upstash：`ttl` 为 TTL 命令（-2 → null，-1 → undefined）；`touch` 为一个 Lua 脚本（秒数时 EXPIRE，永久时 EXISTS + PERSIST），两个驱动共用脚本。
+- kv：KV 没有读取 TTL 的接口，但原有的 set / increment 已把 `expiresAt` 写在元数据中，`ttl()` 由它计算（没有设置 TTL 写入的值视为永久）；KV 也不能只改有效期，`touch()` 连同值重新 put 一次（受“同一键每秒一次写入”的限制，非原子）；`push` 读后写并保留原 `expiresAt`。
+
+**push 的原子性**
+- 选择 Lua 脚本而不是列表结构：值仍是一个 JSON 数组字符串，`get` / `has` / `ttl` / 标签 / `many` / 其它驱动的行为都不变；列表结构需要 `get` 先判断 TYPE、`set` 要覆盖列表、标签与 KV 无法对应，改动面大得多。
+- 脚本不解析原值（cjson 会改变大整数与浮点的精度、把空数组编码为 `{}`、打乱键顺序），只检查首尾字符是 `[` 与 `]`，用 `SETRANGE` 把 `,<元素>]` 写到末尾（`[]` 时写在第 1 位）；不存在时 `SET [<元素>]`。O(1)、不搬运整个值，`SETRANGE` 本身保留有效期；传了 ttl 时再 EXPIRE。原值不是数组时脚本返回 `NOTARRAY`，转为 `TypeError`。
+- 元素的编码由序列化器的 `element(value)` 提供（`serialize([value])` 去掉方括号），因此 typed 编码的 Date 等在数组中同样还原；自定义序列化器没有 `element` 时退回读后写。
+- 与 ThinkPHP 的差异：ThinkPHP 6 的 push 会 `array_unique` 并只保留 1000 项，这里不去重、不截断（大列表应使用 Redis 列表）；不传 ttl 时保留原有效期，而 ThinkPHP 会按默认有效期重写。
+
+**标签**（`TaggedCache`，与 `CacheRepository` 在同一个文件中，避免类继承的循环导入）
+- 版本号命名空间：每个标签的版本键 `<prefix>tag:<name>:version`，值为 9 字节随机数的 base64url（不用自增：版本键被 `flush` 或淘汰后从 1 重新开始会让旧值复活）；不存在时用 `add` 写入，并发时以先写入者为准。值的键为 `<prefix>tagged:<sha1(按名字排序的 标签:版本 列表)>:<key>`，标签顺序无关；SHA-1 用 WebCrypto（Workers 可用），最近 1000 个结果缓存在进程内。
+- `clear()` 为每个标签写入新版本：包含其中任一标签的组合都换了命名空间，`Cache.tag('user').clear()` 同时使 `['user', 'post']` 的值失效。所有驱动通用（KV 上受最终一致影响）。
+- 读取必须使用写入时的同一组标签（与 Laravel 相同；ThinkPHP 的标签只记录键，值仍在原键下），文档中说明。
+- 实现方式：`CacheRepository` 的键解析改为受保护的异步 `resolve(keys)`，写入后调用 `written(key, ttl)` 钩子；`TaggedCache` 只覆盖这两个方法与 `flush()`，其余方法（get / set / remember / inc / push / many / pull / ttl / touch ...）全部继承，`many` / `setMany` / `deleteMany` 只解析一次命名空间。`tag('a').tag('b')` 合并标签。
+- redis 的键索引（`store.tags`）：每个标签一个有序集合 `<prefix>tag:<name>:keys`，成员为值的键，分数为过期时间（永久为 `+inf`），写入时 `ZADD` 并 `ZREMRANGEBYSCORE` 清掉已过期的成员，避免索引无限增长；`clear()` 先换版本号，再删除索引中的键与索引本身。正确性只依赖版本号：索引漏记（竞争）或残留成员（另一个标签已删除该值）都不影响结果。删除逐个执行（Cluster 上多键 DEL 要求同一个槽）。其它驱动没有索引，被清除的值留到过期。
+- 前缀：版本键、值键与索引都在 `prefix`（配置前缀 + 租户前缀）之下，不同应用 / 租户的标签互不影响；`flush()` 同时清掉标签版本。保留键：`tag:*`、`tagged:*`、`lock:*`。
+
+**Redis 数据结构**（`packages/core/src/cache/structures.ts`）
+- `RedisCacheRepository<Handler = RedisClient>` 继承 `CacheRepository`，提供 `hash` / `list` / `set` / `setOf` / `sortedSet`（`zset`）句柄与 `command(key, cmd, ...args)` / `commandBatch`。驱动通过 `store.commands`（小写命令名 + 已加前缀的键，返回值与 ioredis 相同）执行：redis 直接调用共享连接上的命令方法（ioredis 的 keyPrefix 照常生效），批量为 `MULTI`。
+- 句柄按调用时的前缀计算键（含租户），元素用存储的序列化器逐个编码，有序集合的分数保持数字（`inf` / `-inf` 解析为 Infinity）；哈希 `increment` 依赖数字以普通 JSON 数字存储（json 与 typed 都是），整数用 HINCRBY、小数用 HINCRBYFLOAT。
+- TTL：创建句柄时的 ttl 在每次写入后与 EXPIRE 放在同一个事务中；`hash.set` 与 `sortedSet.add` 可以直接传 ttl；`expire()` / `ttl()` / `exists()` / `drop()` 在所有句柄上可用，前两个复用仓库的 `touch` / `ttl`。
+- 几个歧义的取舍：`set(key)` 只有一个参数时返回集合句柄，两个以上参数仍是写缓存（原来单参数调用本来就是类型错误，不影响已有代码；带 ttl 的集合用 `setOf(key, ttl)`）；哈希的 `delete(field, ...fields)` 删除字段且类型上至少一个字段（避免空数组展开时误删整个键），删除整个键统一用 `drop()`，列表 / 集合 / 有序集合另有 `delete()`；有序集合 `add` 的第二个参数是数字时总是“成员 + 分数”（成员可以是对象），数组为 entries，只有一个对象参数时为 `{ 成员: 分数 }` 记录（记录形式不带 ttl，避免与分数混淆），成员本身是数组时类型上要求用 entries。
+- memory 也提供（决定）：`memoryCommands` 在进程内模拟用到的约 40 个命令（区间与负下标、LREM 的方向、ZRANGEBYSCORE 的开区间与 LIMIT、空结构删除键、WRONGTYPE），memory 的项可以是字符串或结构。这样业务代码 `Cache.redis().hash(...)` 在测试中把 redis 存储换成 memory 即可运行；文档标明“供测试”。因此 `isRedisCache()` 与 `Cache.redis()` 判断的是“有数据结构”（redis 与 memory），其它驱动抛错——这与“只接受 redis”的字面要求略有出入，是为了可测试性有意放宽。upstash 不提供：@upstash/redis 的方法签名与 ioredis 不同（`hset(key, record)`、`zadd(key, { score, member })`），需要单独适配，用 `handler()` 即可。
+- 仓库类型：管理器按 `store.commands` 是否存在决定创建 `RedisCacheRepository` 还是 `CacheRepository`（自定义驱动实现了 `commands` 时也可用，类型上可用 `isRedisCache` 收窄）。
+
+**类型**
+- `defineCacheConfig` 改为与 `defineRedisConfig` 相同的 `const` 泛型，存储名与驱动字面量进入生成的配置类型（typegen 不需要改动）。`CacheStoreName` 为生成后的存储名联合（未生成时为 string），`CacheRepositoryFor<Name, Stores = 生成的存储>` 按驱动映射：redis → `RedisCacheRepository`，memory → `MemoryCacheRepository`（handler 为 Map），upstash → `CacheRepository<UpstashClientLike>`，kv → `CacheRepository<KvNamespaceLike>`，其它与未生成时 → `CacheRepository`。
+- 门面 `Cache.store` 为三个重载（无参数、已知名字、可选名字），只接受已声明的名字；`CacheManager.store` 额外接受任意字符串，框架内部按配置值取存储（session、throttle、cacheResponse、密码重置等）在生成类型后也不报错。已用临时的声明合并（与 typegen 生成的形状相同）验证：`Cache.store('redis')` 为 `RedisCacheRepository`、拼错的名字与 kv 存储上的 `hash()` 报错、core 源码不报错。仓库测试中不做全局声明合并（会让 `ConfigPath` 只接受已知键而影响整个项目），类型测试对 `CacheRepositoryFor` 显式传入 `Stores`。
+- `CacheRepository<Handler>` 的泛型只用于 `handler()` 的返回类型。
+
+**`cache()` 助手函数**：重载 `cache()` → 默认存储的仓库、`cache<T>(key)` → 读取、`cache(key, null)` → 删除（返回是否存在）、`cache(key, value, ttl?)` → 写入；按参数个数区分，`cache(key, undefined)` 是写入。core 原来没有名为 `cache` 的导出，ORM 的 `query.cache()` 是方法，不冲突。
+
+**序列化**（`packages/core/src/cache/serializer.ts`）
+- `typedSerializer`（默认）：`JSON.stringify` 的 replacer 从 holder 上取原值（`toJSON` 之前），`Date` → `{"$t":"Date","v":ISO}`（无效日期为 `v: null`）、`BigInt` → `{"$t":"BigInt","v":"..."}`、`Map` → `{"$t":"Map","v":[[k,v],...]}`、`Set` → `{"$t":"Set","v":[...]}`、数组 / 对象中的 `undefined` → `{"$t":"undefined"}`；用户数据自身带 `$t` 键的对象整体转义为 `{"$t":"Object","v":[[k,v],...]}`。其它值保持普通 JSON，实现了 `toJSON` 的对象（模型）仍按 `toJSON` 的结果序列化；循环引用照常抛 TypeError；顶层 undefined 仍存为 null。
+- 读取：原文不含 `"$t"` 时直接 `JSON.parse`（大多数值没有额外开销），否则用 reviver 还原；只认键恰好为 `$t`（+ `v`）且标记名已知的对象，因此旧的纯 JSON 值照常读取（唯一的歧义是旧数据中恰好形如 `{"$t":"Date","v":...}` 的对象）。reviver 返回 undefined 会删除属性，因此先返回占位符，再由所在的数组 / 对象替换为 undefined（只在有待替换的占位符时扫描容器）。
+- `jsonSerializer`：原来的行为（BigInt 经 M29 的 `jsonReplacer` 写为字符串）。配置 `serializer: 'json' | 'typed' | { serialize, deserialize }`，全局与每个存储都可设置；`CacheStoreConfig` 改为驱动配置的联合与 `CacheStoreOptions` 的交叉类型。自增、锁的值不经过序列化器，与原来一致；ORM 的查询缓存遇到已还原的 Date / BigInt 时原样保留。
+
+**遥测与多租户**
+- `#observe` 改为受保护的 `observe`，标签缓存与数据结构复用；遥测的 operation 增加 `push` / `ttl` / `touch` / `command`，并新增 `command` 字段（`hset` 等），`add`、`increment`、`flush` 现在也会上报。OpenTelemetry 的 span 名为 `cache.<command 或 operation>`。标签版本号的读取不上报（开发面板只显示用户的操作）。
+- 新操作都经过 `prefix`（配置前缀 + 租户前缀），标签与数据结构按租户隔离；没有单独的 `Cache.fake()`，memory 驱动覆盖全部新接口（包括数据结构）。
+
+**测试**（`packages/core/test/cache-{api,tags,serializer,structures,types}.test.ts`，共用 `test/support/cache-drivers.ts`）
+- 通用接口、标签、序列化在 memory、KV（Miniflare）上运行，设置 `HAZE_TEST_REDIS_URL` 时加上内联 url 的 redis 与带 keyPrefix 的命名连接，设置 `HAZE_TEST_UPSTASH_URL` / `HAZE_TEST_UPSTASH_TOKEN` 时加上 upstash；数据结构在 memory 与两种 redis 上运行。
+- 覆盖：别名与 `deleteMany`；`push`（新建、空数组、非数组报错、ttl 保留与重设、原子驱动上 50 个并发 push）；`ttl` / `touch` / `expire`（永久、缺失、续期不改值、缩短后过期、自增的计数）；`handler()`（Map、与 `Redis.client('cache')` 是同一个 ioredis 实例、KV 绑定）；`cache()` 的四种用法；遥测上报新操作；驱动缺少 `ttl` / `touch` / `push` / `handler` 时的退回与报错；标签的单个 / 多个 / 跨组合清除 / remember 等方法 / 前缀隔离 / 租户隔离 / redis 上清除时删除键与索引；typed 序列化的往返（Date、BigInt、Map、Set、嵌套、undefined、无效日期、`$t` 转义、toJSON）与读取旧的纯 JSON 值、全局与按存储的序列化器、自定义序列化器的 push 退回；四种数据结构的全部方法、句柄与写入时的 ttl、前缀与 WRONGTYPE、租户隔离、redis 上为原生类型（TYPE、HGETALL 中的编码）；`expectTypeOf` 的类型测试（按驱动映射、门面与句柄、`cache()` 重载、`@ts-expect-error`）。
+- 本地 `redis:7`（colima）：新增的 5 个文件未设置环境变量时 49 个通过、4 个跳过，设置 `HAZE_TEST_REDIS_URL` 后 91 个通过、2 个跳过（KV 上的并发 push 与缩短 ttl 后过期）；原有的 `cache.test.ts` 与 `redis*.test.ts` 在真实 Redis 上全部通过。全量：未设置时 84 个文件（1 个整体跳过），950 个通过、55 个跳过（之前为 79 个文件、901 个通过、51 个跳过）；设置 `HAZE_TEST_REDIS_URL` 时 84 个文件，1040 个通过、27 个跳过。没有本地的 serverless-redis-http 镜像，Upstash 用例未运行（只按 @upstash/redis 的 `eval(script, keys, args)` / `ttl()` 接口实现，与已有的 increment 脚本相同的调用方式）。
+
+已知限制：KV 的 `ttl()` 依赖写入时记录的元数据，`touch()` 会重写值；memory 的数据结构只为测试准备（单进程、只实现用到的命令）；upstash 没有数据结构；非 redis 驱动上被清除的标签值留到过期为止（memory 上永久保存的标签值不会被回收）；redis 标签索引中永久值的残留成员只在该标签清除时删除；`push` 不去重、不截断；typed 序列化改变了 Date / BigInt 的读回类型，滚动发布期间旧实例会读到 `{ $t, v }` 对象（可设置 `serializer: 'json'`）；`set(key)` 的单参数重载依赖参数个数；缓存 `clear()` 在 Cluster 上只扫描一个节点（原有限制）。

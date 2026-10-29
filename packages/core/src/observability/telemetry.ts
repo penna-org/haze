@@ -18,8 +18,10 @@ export interface TelemetryEvents {
   }
   'cache': {
     store: string
-    operation: 'get' | 'set' | 'forget' | 'add' | 'increment' | 'flush'
+    operation: 'get' | 'set' | 'forget' | 'add' | 'increment' | 'flush' | 'push' | 'ttl' | 'touch' | 'command'
     key?: string
+    /** operation 为 command 时的数据结构命令（`hset`、`zadd` 等） */
+    command?: string
     /** get 是否命中 */
     hit?: boolean
     startTime: number

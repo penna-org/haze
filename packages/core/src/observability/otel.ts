@@ -514,7 +514,7 @@ function spanFromTelemetry<K extends TelemetryKind>(kind: K, data: TelemetryEven
       if (!traces.cache)
         return
       const cache = data as TelemetryEvents['cache']
-      name = `cache.${cache.operation}`
+      name = `cache.${cache.command ?? cache.operation}`
       attributes = {
         'haze.cache.store': cache.store,
         ...(cache.key !== undefined && {
