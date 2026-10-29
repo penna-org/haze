@@ -25,6 +25,7 @@ const KNOWN: Record<string, string> = {
   'Service Unavailable': '503',
   'Invalid signature.': 'invalid_signature',
   'Invalid or expired signature': 'invalid_signature',
+  'The application is down for maintenance. Please check back soon.': 'maintenance',
 }
 
 const ROUTE_NOT_FOUND_RE = /^Cannot find any route matching \[(\w+)\] (.*)$/

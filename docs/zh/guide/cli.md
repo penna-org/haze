@@ -166,6 +166,7 @@ npx haze make:<type> <name> [options]
 | `make:notification` | `InvoicePaid` | `app/notification/InvoicePaidNotification.ts` |
 | `make:channel` | `Order` | `app/channel/order.ts`（授权 `private-order.{id}`） |
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
+| `make:view` | `Home` | `app/view/Home.tsx`（[TSX 视图](./views)） |
 | `make:notifications-table` | — | `database/schema/notifications.ts`，见[下文](#make-notifications-table) |
 | `make:auth-tables` | — | `database/schema/auth.ts`，见[下文](#make-auth-tables) |
 | `make:module` | `blog` | `modules/blog/`：`module.ts`、路由、控制器、`config/blog.ts` 与测试，见[模块](./modules) |
@@ -340,6 +341,34 @@ MongoDB 连接没有 SQL 表结构，也没有迁移。
 | --- | --- |
 | `--transport`、`-t` | 要监听的传输，多个用逗号分隔，例如 `nats,grpc`。默认取 `config/microservices.ts` 的 `listen` 或 `default` |
 
+## 维护模式
+
+详见 [维护模式](./maintenance)。运行中的服务、worker 与定时任务在两秒内生效，无需重启。
+
+### `haze down`
+
+进入维护模式：请求返回 503（JSON 或 HTML 页面），健康检查、`--except` 中的路径与持有绕过 Cookie 的浏览器除外。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--secret` | 绕过密钥：访问 `/<secret>` 后设置 Cookie，该浏览器可以正常访问 |
+| `--with-secret` | 生成随机密钥并打印出来 |
+| `--retry` | `Retry-After` 秒数（默认 60） |
+| `--refresh` | `Refresh` 响应头的秒数 |
+| `--status` | 状态码（默认 503） |
+| `--redirect` | 浏览器请求重定向到该路径 |
+| `--render` | 代替内置页面渲染的视图（`app/view` 下） |
+| `--except` | 放行的路径，逗号分隔，支持 `*` 通配 |
+| `--message` | 页面与 JSON 响应中的提示（或翻译键） |
+
+### `haze up`
+
+退出维护模式。
+
+### `haze maintenance:status`
+
+显示当前状态以及保存的位置。
+
 ## 自定义命令
 
 `app/command` 下（含子目录）默认导出 `defineCommand()` 的文件都会成为命令：`app/command/SendReport.ts` 用 `haze send:report` 运行，`app/command/db/Cleanup.ts` 用 `haze db:cleanup` 运行。它们会出现在 `haze --help` 的列表中，和内置命令一样支持 `--help` 与 `--root`，并以 `run()` 返回的退出码结束。详见[自定义命令](./console)。
@@ -359,6 +388,9 @@ node dist/worker.mjs queue [--queue a,b] [--concurrency 5]      # 对应 haze qu
 node dist/worker.mjs schedule                                    # 对应 haze schedule:work
 node dist/worker.mjs schedule:run                                # 对应 haze schedule:run
 node dist/worker.mjs command <name> [args]                       # 对应 haze <name>（app/command）
+node dist/worker.mjs down [--secret s] [--retry 60] ...          # 对应 haze down
+node dist/worker.mjs up                                          # 对应 haze up
+node dist/worker.mjs maintenance:status                          # 对应 haze maintenance:status
 ```
 
 以上路径适用于使用 `node` 或 `bun` 预设的纯后端项目；全栈项目以及 `deno` / `docker` 预设下，这些文件位于 `dist/server/`。只有项目使用了 `@hazejs/orm` 时才会生成 `migrate.mjs`。Serverless 与 Edge 平台的做法见[部署](./deployment)。

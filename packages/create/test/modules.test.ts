@@ -137,8 +137,8 @@ export { blogPerPage, perPage }
 
     // 模板测试 + 本地模块骨架自带的测试（refreshDatabase 同时执行模块迁移）
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3 + account 4 + modules/blog 1
-    expect(tests.output, tests.output).toContain('20 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4 + home 1 + modules/blog 1
+    expect(tests.output, tests.output).toContain('21 passed')
 
     // 生产构建：模块迁移打包进产物，migrate.mjs 在全新的数据库上按同样顺序执行
     const build = await buildServer({ root: project.root })

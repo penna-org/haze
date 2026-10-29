@@ -150,6 +150,21 @@ export default defineCommand({
 
 与队列 worker 一样，监听进程需要常驻运行，因此 Serverless 与 Edge 预设不支持。
 
+## 维护模式 {#maintenance-mode}
+
+部署、迁移或修复数据期间可以让应用进入维护模式。常驻进程型预设的产物内置了这些命令：
+
+```bash
+node dist/worker.mjs down --secret=deploy-2026 --retry=60   # 除访问过 /deploy-2026 的浏览器外，所有请求返回 503
+node dist/migrate.mjs
+# ……重启 Web 进程……
+node dist/worker.mjs up
+```
+
+各实例从缓存存储（`config/maintenance.ts`）读取状态，因此使用 Redis 等共享存储时，一条命令即可让所有实例进入维护，`up` 在两秒内到达每个实例。使用默认的进程内 `memory` 存储时，状态保存在 `storage/framework/down`，只影响这台机器。健康检查仍返回 200，负载均衡不会摘除实例；队列 worker 在任务之间暂停，定时任务被跳过。
+
+旧实例在新实例就绪前继续服务的滚动部署通常不需要维护模式；旧代码无法在新表结构上运行的迁移才需要它。Workers、Vercel、Netlify 与 Lambda 没有 `worker.mjs`：请使用共享存储（KV、Upstash），在 CI 中设置状态键。详见 [维护模式](./maintenance#serverless-与边缘)。
+
 ## 健康检查
 
 产物默认提供 `/health/live`（存活检查，始终返回 200）与 `/health` / `/health/ready`（就绪检查：执行 `config/health.ts` 中的检查项，关键检查故障时返回 503）。它们不经过全局中间件，负载均衡探测无需凭据：

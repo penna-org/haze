@@ -149,6 +149,28 @@ export class FeedController {
 
 存储磁盘上的文件可以用 `Storage.download(path, name)` 直接生成下载响应，详见 [文件存储](./storage)。
 
+### HTML 视图
+
+`ctx.view()` 把 [TSX 视图](./views) 渲染为 `text/html` 响应，不经过统一格式。处理器直接返回 JSX 节点也一样：
+
+```tsx
+// app/controller/HomeController.tsx
+import type { HttpContext } from '@hazejs/core'
+import Home from '~/app/view/Home'
+
+export class HomeController {
+  index(ctx: HttpContext) {
+    return ctx.view(<Home name="Ada" />, { status: 200, headers: { 'cache-control': 'no-store' } })
+  }
+
+  about() {
+    return <p>关于我们</p> // 同样渲染为 HTML
+  }
+}
+```
+
+在普通的 `.ts` 路由文件中可以使用 `ctx.view(Home, props)` 与 `ctx.view('admin/Dashboard', props)`（`app/view` 下的文件）。详见 [视图](./views)。
+
 ## Cookie
 
 ```ts

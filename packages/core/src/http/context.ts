@@ -7,6 +7,8 @@ import type { TranslationKey, TranslationParams } from '../i18n/manager'
 import type { SignatureOptions } from '../routing/signed'
 import type { Session } from '../session/session'
 import type { Tenant } from '../tenancy/config'
+import type { Component, ViewNode } from '../view/jsx'
+import type { ViewResponseInit } from '../view/view'
 import type { CookieOptions } from './cookie'
 import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
@@ -22,6 +24,7 @@ import { appKey, sign, verify } from '../security/key'
 import { startSession } from '../session/session'
 import { currentTenant } from '../tenancy/context'
 import { parseSize } from '../utils'
+import { contextView } from '../view/view'
 import { defaultCookieOptions } from './cookie'
 import { formDataToObject, UploadedFile } from './upload'
 
@@ -351,6 +354,21 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
   noContent(): null {
     this.status(204)
     return null
+  }
+
+  /**
+   * 渲染 TSX 视图为 HTML 响应（`text/html`，不经过统一响应格式）：
+   *
+   * ```tsx
+   * return ctx.view(<Home user={user} />, { status: 200, headers: { 'cache-control': 'no-store' } })
+   * return ctx.view(Home, { user })        // 组件 + props
+   * return ctx.view('admin/Dashboard', {}) // app/view/admin/Dashboard.tsx
+   * ```
+   */
+  view(node: ViewNode, init?: ViewResponseInit): Promise<Response>
+  view<P>(component: Component<P> | string, props?: P, init?: ViewResponseInit): Promise<Response>
+  view(input: ViewNode | Component<any> | string, propsOrInit?: unknown, init?: ViewResponseInit): Promise<Response> {
+    return contextView(this, input, propsOrInit as Record<string, unknown> | undefined, init)
   }
 
   redirect(location: string, status = 302): HTTPResponse {

@@ -149,6 +149,28 @@ export class FeedController {
 
 For files on a storage disk, `Storage.download(path, name)` builds the response for you. See [File Storage](./storage).
 
+### HTML views
+
+`ctx.view()` renders a [TSX view](./views) into a `text/html` response that skips the envelope. Returning a JSX node from a handler does the same:
+
+```tsx
+// app/controller/HomeController.tsx
+import type { HttpContext } from '@hazejs/core'
+import Home from '~/app/view/Home'
+
+export class HomeController {
+  index(ctx: HttpContext) {
+    return ctx.view(<Home name="Ada" />, { status: 200, headers: { 'cache-control': 'no-store' } })
+  }
+
+  about() {
+    return <p>About us</p> // rendered as HTML as well
+  }
+}
+```
+
+`ctx.view(Home, props)` and `ctx.view('admin/Dashboard', props)` (a file in `app/view`) work in plain `.ts` route files. See [Views](./views).
+
 ## Cookies
 
 ```ts

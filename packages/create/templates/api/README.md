@@ -47,6 +47,7 @@ router.url('api.hello') // 路由名有补全，参数按路径检查
 - `app/response/Formatter.ts`：全局成功 / 失败响应结构（默认 `{ code, message, data }`）
 - `app/interceptor/*.ts`：出站拦截器，拿到最终 Response 后可改头或替换（`haze make:interceptor`）
 - 单个路由跳过：`.meta({ envelope: false })` 或 `return raw(value)`
+- HTML 页面：`app/view/*.tsx` 是服务端渲染的 TSX 视图（零依赖，文本与属性自动转义），`ctx.view(<Welcome app="..." />)` 返回 `text/html`；`GET /` 即 `app/view/Welcome.tsx`，`haze make:view Home` 生成新视图
 
 ## 数据库
 
@@ -352,6 +353,8 @@ export default defineHazeConfig({
 
 `pnpm preview`（`haze preview`，全栈项目也可直接 `vite preview`）按构建时的预设运行产物本身：node / bun / deno / docker 启动产物进程，aws-lambda / vercel / netlify 在进程内调用函数，cloudflare 用 Miniflare 运行 Worker（D1 迁移自动应用到本地预览库）。
 
+维护模式：`npx haze down --secret=<密钥> --retry=60` / `npx haze up`（生产环境 `node dist/worker.mjs down` / `up`），状态默认保存在缓存存储中，见 `config/maintenance.ts`（`defineMaintenanceConfig`）。
+
 ### 生产迁移
 
 迁移文件打包进产物，生产环境不需要源码与 drizzle-kit：
@@ -411,6 +414,7 @@ app/
   middleware/   中间件
   exception/    全局异常处理 Handler.ts
   provider/     服务提供者：注册绑定、启动逻辑
+  view/         TSX 视图（服务端渲染的 HTML 页面）
 config/         配置（文件名即配置键，如 config/app.ts → config('app.name')）
 route/          路由（集中定义）
 tests/          测试（@hazejs/testing）

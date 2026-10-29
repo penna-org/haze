@@ -3,6 +3,7 @@ import type { CloudflareQueueConfig } from './drivers/cloudflare'
 import type { RedisQueueConfig } from './drivers/redis'
 import type { ProcessResult, QueueCounts, QueueDriver } from './drivers/types'
 import type { DispatchOptions, FailedJob, JobContext, JobDefinition, JobMessage } from './job'
+import { MaintenanceManager } from '../maintenance/manager'
 import { traceJobDispatch, traceJobProcess } from '../observability/otel'
 import { currentTelemetryScope, runInTelemetryScope } from '../observability/scope'
 import { recordTelemetry, telemetryActive } from '../observability/telemetry'
@@ -369,7 +370,13 @@ export class QueueManager {
     return {
       queues,
       concurrency,
-      process: (message, attempt) => resolve().process(message, attempt),
+      process: async (message, attempt) => {
+        // 维护模式（pauseWorkers）：任务之间暂停，恢复后继续（取最新的应用，开发时热替换后同样生效）
+        const { container } = resolve().app
+        if (container.has(MaintenanceManager))
+          await container.make(MaintenanceManager).waitUntilUp()
+        return resolve().process(message, attempt)
+      },
       backoff: (message, attempt) => backoffSeconds(resolve().#jobs.get(message.job)?.backoff, attempt),
       tries: message => resolve().#jobs.get(message.job)?.tries ?? 1,
     }

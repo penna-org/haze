@@ -1,0 +1,26 @@
+import type { ViewChild } from '@hazejs/core'
+
+export interface {{className}}Props {
+  title?: string
+  children?: ViewChild
+}
+
+/**
+ * TSX 视图（服务端渲染为 HTML，文本与属性值自动转义）。
+ * 渲染：return ctx.view(<{{className}} title="..." />)；布局也是组件：<Layout><{{className}} /></Layout>
+ */
+export default function {{className}}({ title = '{{className}}', children }: {{className}}Props) {
+  return (
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{title}</title>
+      </head>
+      <body>
+        <h1>{title}</h1>
+        {children}
+      </body>
+    </html>
+  )
+}

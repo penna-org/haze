@@ -3,6 +3,7 @@ import process from 'node:process'
 import { defineCommand, runMain, showUsage } from 'citty'
 import { loadUserCommands } from './commands/console'
 import { generateCommand, migrateCommand, seedCommand } from './commands/db'
+import { downCommand, maintenanceStatusCommand, upCommand } from './commands/maintenance'
 import { makeAuthTablesCommand, makeCommands, makeModelCommand, makeModuleCommand, makeNotificationsTableCommand } from './commands/make'
 import { searchFlushCommand, searchImportCommand, searchSyncSettingsCommand } from './commands/search'
 import { queueFailedCommand, queueFlushCommand, queueForgetCommand, queueRetryCommand, queueWorkCommand, scheduleListCommand, scheduleRunCommand, scheduleWorkCommand } from './commands/worker'
@@ -42,6 +43,9 @@ const builtin = {
   'search:import': searchImportCommand,
   'search:flush': searchFlushCommand,
   'search:sync-settings': searchSyncSettingsCommand,
+  'down': downCommand,
+  'up': upCommand,
+  'maintenance:status': maintenanceStatusCommand,
 }
 
 // app/command 与模块的自定义命令（只在运行自定义命令或打印命令列表时加载）

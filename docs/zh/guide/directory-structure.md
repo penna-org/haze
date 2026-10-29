@@ -27,7 +27,8 @@ my-app/
 │  ├─ response/
 │  │  └─ Formatter.ts   统一响应格式（自动发现）
 │  ├─ service/          业务服务
-│  └─ validate/         请求校验
+│  ├─ validate/         请求校验
+│  └─ view/             TSX 视图（Welcome.tsx、Layout.tsx）
 ├─ config/              配置，一个文件对应一个配置键（自动发现）
 ├─ database/
 │  ├─ migrations/       drizzle-kit 生成的 SQL 迁移
@@ -115,6 +116,7 @@ Vite 插件用 `import.meta.glob` 为以下文件生成清单。带 `*` 的路�
 | `app/notification/*.ts` | 通知，文件名即通知类型 |
 | `app/channel/*.ts` | 广播频道授权（`defineChannels()`） |
 | `app/message/*.ts` | 微服务消息处理器，由 `@hazejs/microservices` 读取 |
+| `app/view/**/*.tsx` | [TSX 视图](./views)，`ctx.view('Name')` 与 `haze down --render` 使用时按需加载；路径即视图名（`admin/Dashboard.tsx` → `admin/Dashboard`） |
 | `lang/**/*.{ts,json}` | 翻译文件：`lang/<语言>/<文件>.ts`，文件路径是翻译键的第一段（`lang/en/admin/users.ts` → `admin.users.*`） |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | [多应用](./multi-app)下各应用自己的模块 |
 | `modules/<name>/{module.ts,route/*,config/*,schedule/*,app/<类型>/*}` | [本地模块](./modules)：与应用相同的各类定义（`provider`、`interceptor`、`policy`、`job`、`event`、`listener`、`notification`、`channel`、`socket`、`message` 与 `command/**`） |
@@ -170,6 +172,10 @@ Standard Schema 校验规则（默认 valibot，也可以用 zod、arktype 等�
 ### `app/mail`
 
 邮件定义（`defineMail()`），在发送的地方直接导入：`Mail.to(user.email).send(WelcomeMail, payload)`。不会被自动发现。详见[邮件](./mail)。
+
+### `app/view`
+
+[TSX 视图](./views)：在服务端渲染为 HTML 的组件，用 `ctx.view(<Home />)` 渲染。在使用的地方直接导入，或用 `ctx.view('admin/Dashboard', props)` 按名称渲染。布局同样是组件。`haze make:view Home` 生成 `app/view/Home.tsx`。
 
 ### `app/notification`
 
@@ -242,7 +248,7 @@ Socket.IO 命名空间（`defineNamespace()`），注册 `@hazejs/socket.io` 的
 | `.haze/` | 生成的文件：配置键、路由与授权能力的类型（`types/haze.d.ts`），翻译键的类型（`types/i18n.d.ts`），[类型安全客户端](./openapi#类型安全的客户端)使用的路由表（`routes.ts`）；以及最近一次构建的记录（`build.json`）、本地预览数据和 REPL 历史 | 否 |
 | `dist/` | 构建产物（`haze.config.ts` 的 `outDir`） | 否 |
 | `data/` | 模板默认的 SQLite 数据库（`DATABASE_URL=file:./data/app.db`） | 否 |
-| `storage/` | 本地文件存储磁盘（`storage/app`、`storage/app/public`） | 否 |
+| `storage/` | 本地文件存储磁盘（`storage/app`、`storage/app/public`），以及 [维护模式](./maintenance) 的状态文件 `storage/framework/down` | 否 |
 | `stubs/` | `haze stub:publish` 复制出来、供团队定制的代码生成模板 | 是 |
 
 记得在 `tsconfig.json` 的 `include` 中加入 `.haze/types/**/*.d.ts`（模板已配置好），编辑器才能识别配置键、路由名、授权能力和翻译键的类型。`haze dev` 会在代码修改后重新生成这些文件；CI 中运行 `haze typegen`。

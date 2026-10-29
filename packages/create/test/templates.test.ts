@@ -75,8 +75,8 @@ describe('api template', () => {
     expect(tsc.code).toBe(0)
 
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3 + account 4
-    expect(tests.output, tests.output).toContain('19 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4 + home 1
+    expect(tests.output, tests.output).toContain('20 passed')
     expect(tests.code).toBe(0)
   })
 
@@ -145,8 +145,8 @@ describe('code generation and types', () => {
     const typegen = await haze('typegen')
     expect(typegen.code, typegen.output).toBe(0)
     // api.hello + api.users.{index,store,show,update,destroy} + api.chat + api.auth.{register,login,me,avatar}
-    // + api.auth.tokens.{index,store,destroy} + verification.{send,verify} + password.{email,reset} + github(.callback)
-    expect(typegen.output).toContain('20 named route(s)')
+    // + api.auth.tokens.{index,store,destroy} + verification.{send,verify} + password.{email,reset} + github(.callback) + home
+    expect(typegen.output).toContain('21 named route(s)')
     expect(project.read('.haze/types/haze.d.ts')).toContain('"api.hello": Record<never, never>')
 
     for (const kind of [
@@ -165,6 +165,24 @@ describe('code generation and types', () => {
       const result = await haze(`make:${kind}`, 'order-item')
       expect(result.code, result.output).toBe(0)
     }
+    // TSX 视图：生成的文件与按组件 / 节点渲染的写法都要通过类型检查
+    const viewFile = await haze('make:view', 'admin/Dashboard')
+    expect(viewFile.output, viewFile.output).toContain('app/view/admin/Dashboard.tsx')
+    writeFileSync(join(project.root, 'probe-view.tsx'), `
+import type { HttpContext } from '@hazejs/core'
+import { csrfField, old } from '@hazejs/core'
+import Dashboard from '~/app/view/admin/Dashboard'
+declare const ctx: HttpContext
+async function Async(props: { id: number }) {
+  return <span>{props.id}</span>
+}
+export const page = ctx.view(<Dashboard title="Admin"><Async id={1} /><form method="post">{csrfField()}<input name="email" value={old('email')} /></form></Dashboard>, { status: 200 })
+export const byName = ctx.view('admin/Dashboard', { title: 'x' })
+// @ts-expect-error 未知属性
+export const typo = <a hreff="/" />
+// @ts-expect-error 缺少必填属性
+export const missing = <Async />
+`)
     // 新增配置 / 路由后重新生成类型
     await haze('typegen')
     const resource = await haze('make:controller', 'Product', '--resource')
@@ -242,8 +260,8 @@ export { email, enabled, name, productName, subject }
 
     // 生成的测试与模板测试一起通过
     const tests = await run(binOf('vitest'), ['run'], project.root)
-    // greeting 3 + users 4 + auth 5 + chat 3 + account 4 + 生成的测试 1
-    expect(tests.output, tests.output).toContain('20 passed')
+    // greeting 3 + users 4 + auth 5 + chat 3 + account 4 + home 1 + 生成的测试 1
+    expect(tests.output, tests.output).toContain('21 passed')
   })
 })
 
