@@ -190,7 +190,7 @@ export default defineCorsConfig(() => {
 
 ## 安全响应头
 
-`secureHeaders` 参考 helmet 的默认值设置一组响应头：`X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: no-referrer`、`Cross-Origin-Opener-Policy` 与 `Cross-Origin-Resource-Policy: same-origin` 等。`Strict-Transport-Security` 只在 `app.debug` 关闭且请求为 HTTPS 时发送。
+`secureHeaders` 参考 helmet 的默认值设置一组响应头：`X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: no-referrer`、`Cross-Origin-Opener-Policy` 与 `Cross-Origin-Resource-Policy: same-origin` 等。`Cross-Origin-Opener-Policy` 与 `Origin-Agent-Cluster` 只对 HTTPS 请求发送（http 下浏览器忽略，COOP 还会在控制台报错），`Strict-Transport-Security` 只在 `app.debug` 关闭且请求为 HTTPS 时发送。部署在反向代理之后时设置 `app.trustProxy`，按 `X-Forwarded-Proto` 判断。应用托管前端构建产物（`static`）时，`secureHeaders`、`cors` 等全局中间件同样作用于页面与静态资源。
 
 ```ts
 // config/secureHeaders.ts

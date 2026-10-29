@@ -36,6 +36,8 @@ export interface RouteDoc {
   contentType?: string
   /** 覆盖安全要求，`[]` 表示无需认证；默认按 auth 中间件推断 */
   security?: Array<Record<string, string[]>>
+  /** 规范扩展字段，原样写入 operation：`{ 'x-permission': ['user:delete'] }` */
+  extensions?: Record<`x-${string}`, unknown>
 }
 
 export interface OpenAPIInfo {

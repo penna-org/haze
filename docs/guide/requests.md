@@ -25,12 +25,13 @@ export class SearchController {
 
 | Method | Returns |
 |--------|---------|
-| `ctx.param(name)` / `ctx.params()` | Route parameters, always strings |
+| `ctx.param(name)` / `ctx.params()` | Route parameters, URL-decoded strings |
 | `ctx.query(name)` / `ctx.query()` | Query values. With a name, the first value if repeated |
 | `await ctx.body<T>()` | Parsed body |
 | `ctx.header(name)` | Header value or `undefined` |
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookie value. Signed cookies return `undefined` if tampered with |
 | `ctx.ip` | Client IP. Read from `X-Forwarded-For` only when `app.trustProxy` is `true` |
+| `ctx.origin` / `ctx.secure` | The address the client used (`https://admin.example.com`) and whether it is https. `X-Forwarded-Proto` / `X-Forwarded-Host` are honoured only when `app.trustProxy` is `true` |
 | `ctx.method`, `ctx.path`, `ctx.url` | Method, pathname, full `URL` |
 | `ctx.req` | The Web `Request` |
 

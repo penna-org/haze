@@ -359,6 +359,10 @@ describe('route .doc()', () => {
         responses: {
           404: { description: 'Post not found' },
         },
+        extensions: {
+          'x-permission': ['post:view'],
+          'x-rate-limit': { max: 5 },
+        },
       })
       r.delete('/posts/:id', () => null).doc({ status: 204, security: [] }).middleware('auth')
     }, {}, {
@@ -369,11 +373,13 @@ describe('route .doc()', () => {
 
     const show = doc.paths['/posts/{id}'].get
     expect(show).toMatchObject({
-      operationId: 'getPost',
-      summary: 'Show a post',
-      description: 'Returns one post',
-      tags: ['Blog'],
-      deprecated: true,
+      'operationId': 'getPost',
+      'summary': 'Show a post',
+      'description': 'Returns one post',
+      'tags': ['Blog'],
+      'deprecated': true,
+      'x-permission': ['post:view'],
+      'x-rate-limit': { max: 5 },
     })
     expect(show.responses['404']).toEqual({ description: 'Post not found' })
     expect(doc.paths['/posts/{id}'].delete.responses['204']).toEqual({ description: 'No content' })

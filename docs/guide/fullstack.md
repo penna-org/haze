@@ -210,7 +210,17 @@ A single process serves the API and the frontend:
 
 - requests under the prefix go to the application;
 - other `GET` / `HEAD` requests are served from `dist/client`; files under `/assets/` get a long-lived immutable `Cache-Control`;
-- unmatched requests that accept HTML fall back to `index.html` (no-cache), so client-side routing in history mode works. API paths never fall back.
+- HTML pages (`index.html`) are sent with `Cache-Control: no-cache`, so a new release shows up on the next reload;
+- unmatched requests that accept HTML fall back to `index.html` (no-cache), so client-side routing in history mode works. API paths never fall back;
+- global middleware (`secureHeaders`, `cors`, …) runs before static files are served, so pages get the same security headers as the API.
+
+When you serve a frontend build yourself (`createApplication({ static })`), `precompressed: true` returns the `.br` / `.gz` copies produced at build time according to `Accept-Encoding` (brotli preferred when both are accepted) instead of compressing on every request — worth it for large bundles and `.wasm` files:
+
+```ts
+await createApplication({
+  static: { dir: '/srv/web', spaFallback: true, exclude: ['/api'], precompressed: true },
+})
+```
 
 On `vercel`, `netlify` and `cloudflare` the frontend is served by the platform's CDN and only the prefix reaches your function.
 

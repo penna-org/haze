@@ -111,8 +111,13 @@ describe('secureHeaders', () => {
     expect(http.headers.get('x-frame-options')).toBe('DENY')
     expect(http.headers.get('content-security-policy')).toBe('default-src \'self\'')
     expect(http.headers.get('strict-transport-security')).toBeNull()
+    // COOP、Origin-Agent-Cluster 在 http 下被浏览器忽略（COOP 还会报错），只对 https 发送
+    expect(http.headers.get('cross-origin-opener-policy')).toBeNull()
+    expect(http.headers.get('origin-agent-cluster')).toBeNull()
     const https = await app.request('https://example.com/')
     expect(https.headers.get('strict-transport-security')).toContain('max-age=')
+    expect(https.headers.get('cross-origin-opener-policy')).toBe('same-origin')
+    expect(https.headers.get('origin-agent-cluster')).toBe('?1')
     // 异常响应同样带上
     expect((await app.request('/missing')).headers.get('x-content-type-options')).toBe('nosniff')
   })

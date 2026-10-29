@@ -10,7 +10,7 @@ import type { Tenant } from '../tenancy/config'
 import type { Component, ViewNode } from '../view/jsx'
 import type { ViewResponseInit } from '../view/view'
 import type { CookieOptions } from './cookie'
-import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, HTTPError, readBody, redirect, setCookie } from 'h3'
+import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, getRequestURL, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
 import { Gate } from '../auth/gate'
 import { Config } from '../config/config'
@@ -111,12 +111,19 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
     return this.event.url.pathname
   }
 
+  /** 路由参数（已 URL 解码：`/files/%E6%96%87` → `文`） */
   param(name: string): string | undefined {
-    return this.event.context.params?.[name]
+    const value = this.event.context.params?.[name]
+    return value === undefined
+      ? undefined
+      : decodeParam(value)
   }
 
   params(): Record<string, string> {
-    return { ...this.event.context.params }
+    return Object.fromEntries(Object.entries(this.event.context.params ?? {}).map(([name, value]) => [
+      name,
+      decodeParam(value),
+    ]))
   }
 
   query(): Record<string, string | string[]>
@@ -177,6 +184,20 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
     return getRequestIP(this.event, {
       xForwardedFor: this.config.get<boolean>('app.trustProxy', false),
     })
+  }
+
+  /**
+   * 客户端访问的地址（协议 + 主机，如 `https://admin.example.com`）：config/app.ts 的 trustProxy 为 true 时
+   * 取反向代理传来的 X-Forwarded-Proto / X-Forwarded-Host，用于生成给浏览器的绝对地址
+   */
+  get origin(): string {
+    const trust = this.config.get<boolean>('app.trustProxy', false)
+    return getRequestURL(this.event, { xForwardedHost: trust, xForwardedProto: trust }).origin
+  }
+
+  /** 是否为 https 请求（同样遵循 trustProxy），如决定 Cookie 是否加 Secure */
+  get secure(): boolean {
+    return this.origin.startsWith('https:')
   }
 
   cookie(name: string): string | undefined {
@@ -386,4 +407,16 @@ export function setHttpContext(event: H3Event, ctx: HttpContext): void {
 
 export function getHttpContext(event: H3Event): HttpContext | undefined {
   return (event.context as Record<symbol, unknown>)[kContext] as HttpContext | undefined
+}
+
+/** 路由参数按 URL 解码；不是合法的编码（如单独的 `%`）时原样返回 */
+function decodeParam(value: string): string {
+  if (!value.includes('%'))
+    return value
+  try {
+    return decodeURIComponent(value)
+  }
+  catch {
+    return value
+  }
 }

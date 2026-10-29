@@ -217,4 +217,4 @@ await Db.table(users).delete([1, 2, 3])
 
 ## 暂不支持
 
-ThinkPHP 的少数功能没有对应实现：表前缀与字符串表名（表是 drizzle 对象）、读写分离、XA 事务、`partition`、`force`（索引提示）和 `procedure`。需要时请使用 `Db.drizzle()` 或原生 SQL。
+ThinkPHP 的少数功能没有对应实现：表前缀与字符串表名（表是 drizzle 对象）、XA 事务、`partition`、`force`（索引提示）和 `procedure`。需要时请使用 `Db.drizzle()` 或原生 SQL。

@@ -1803,3 +1803,39 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - core 内置零依赖的 JSX 运行时（`@hazejs/core/jsx-runtime`）：节点惰性求值，渲染时在请求作用域内执行组件，同级异步组件并发渲染，文本与属性转义，`rawHtml()` / `dangerouslySetInnerHTML`、`Doctype`。`ctx.view()` / `view()` / 处理器直接返回 JSX 节点都输出 text/html 且不经过统一格式；`useHttpContext()`、`csrfField()`、`old()` / `flashInput()`。Vite 插件只在非 client 环境、对 srcDir 下的 .tsx/.jsx 用 oxc 编译（importSource `@hazejs/core`），React 前端不受影响；api 模板 `GET /` 渲染 `app/view/Welcome.tsx`，新增 `haze make:view`。
 
 已知限制：工厂只支持 SQL 模型，不支持 through 关联；请求之外的 sticky 需要 `Db.withinScope()`；HTTP 客户端没有连接超时、假响应不创建 span；批量成员手动重试后计数不准、批量内不支持任务链、函数回调只在进程内有效；SQLite 上多进程抢任务吞吐有限，D1 只能投递；视图没有流式渲染与注水，只能按名称渲染 `app/view` 下的视图；全栈开发时维护模式只拦截 `/api/**`；边缘平台需要通过共享存储设置维护状态。
+
+### ai-admin 迁移验证记录（2026-10-29）：用真实项目检验灵活性与稳定性
+
+把 antdv-pro AI Admin 的正式后端（`ai-admin/apps/backend`）从 Fastify 5 + awilix + @fastify 插件迁到 hazejs，以它原有的测试作为行为基准。项目规模：315 个源文件、约 3.2 万行，40 多个业务模块（RBAC 与数据权限、审批引擎、AI 网关与 SSE、文件中心（分片上传、Range、S3 直传）、socket.io 实时通知、演示模式、问卷、打印 PDF 等），43 个测试文件、403 个集成用例（PGlite 进程内数据库）。
+
+**难度评估（迁移前）**：中等。业务层与 Web 框架解耦良好——控制器只通过自写的 `Router` / `Controller` 抽象注册路由，服务按名称注入（awilix PROXY），直接接触 Fastify 的只有 `core/`、`middleware/`、`app.ts` 与 22 处业务代码（文件下载 / Range、SSE 与客户端断开、原始请求体流、问卷 Cookie、PDF、打包下载、socket.io 挂载）。风险点：响应按 Zod VO 编码、400 校验错误格式与路径、按路由限流、演示模式拦截顺序、静态资源预压缩、socket.io 需要 Node 服务器、测试依赖 `app.inject` 与 `remoteAddress`。
+
+**做法**：只换内核，业务模块不动。
+- 容器：保留 `constructor(deps: Pick<Cradle, ...>)` 的按名注入，底层换成 hazejs `Container`（每个名称一个 `createToken`，`cradle` 是按需 `make` 的 Proxy），并直接用应用的根容器——业务服务与框架的 Logger、Config 在同一个容器中，循环依赖由 hazejs 报出依赖链。
+- 路由：`Router` 把每条声明翻译为 hazejs 路由：`.validate()`（Zod 即 Standard Schema）、`.doc()`（`x-permission` 等走新增的 `extensions`）、按声明组装的路由中间件（操作日志 `ctx.onResponse` → 认证 → 演示模式 → 限流 `throttle` 命名规则 → `ctx.bodyLimit`）；返回值用 `z.safeEncode` 按 VO 编码；文档的响应 schema 包成 Standard JSON Schema，按 Zod 的 input 一侧（线上格式）生成。
+- 异常：继承 `ExceptionHandler`，`render()` 输出原格式 `{ statusCode, code, message, details }`，`ValidationException` 转为 400 并保留 `body.x` / `querystring.x` 路径。
+- 实时连接：后台服务通过 `registerServerExtension` 在开始监听时挂上 socket.io；优雅退出用 `app.serve()` 自带的流程，数据库在提供者的 `shutdown` 中关闭。
+- 测试：`app.inject()` 在 `app.fetch()` 上实现（构造 `Request` 并设置 `ip`），测试文件基本不改。
+
+**结果**
+- 403 个用例全部通过（迁移前后一致；改动的测试只涉及等价差异：Cookie 属性顺序、文档路径去掉末尾斜杠、`/health` 返回更多字段、SPA 回退要求 `Accept: text/html`、`swagger()` 变为异步）。测试总耗时 59.0s → 59.0s。
+- 依赖减少 103 个包（去掉 fastify、@fastify/*、fastify-type-provider-zod、@scalar/fastify-api-reference、awilix、close-with-grace、pino-pretty）。
+- 端到端：打包产物 + 内存数据库启动；HTTP 冒烟（中英文错误、校验、安全头、请求 ID、OpenAPI 224 个路径）、SSE 流式对话、socket.io（WebSocket 与长轮询、令牌校验）、SIGTERM 约 0.2s 优雅退出；按 Dockerfile 的运行阶段只安装 12 个第三方依赖后可运行；浏览器中登录、用户管理、审批“通过”（条件分支、自动通过、抄送、操作日志）全部正常。
+- 压测（同机交替两轮，32 并发，PGlite）：认证 + 查库 + 编码的接口 hazejs 为 Fastify 的 92%～106%（误差范围内），纯框架路径（404、400）约慢 10%（8.1k vs 9.0k req/s），两边零错误；CPU 剖析中 hazejs + h3 + srvx 合计约 9%，大头是 PGlite 与 drizzle。
+
+**迁移中发现并修复的框架问题**（均带测试与中英文文档）
+1. 路由参数没有 URL 解码：`ctx.param()` / `ctx.params()` / `.validate({ params })` 拿到 `%E6%96%87`。现在解码（非法编码原样保留）。
+2. 没有遵循 trustProxy 的协议 / 主机：新增 `ctx.origin`、`ctx.secure`（扫码登录生成绝对地址、Cookie 的 Secure 需要）。
+3. 静态文件不支持预压缩：新增 `static.precompressed`（br 优先，自己按配置顺序协商而不是按请求头顺序，`Vary: Accept-Encoding`）。
+4. 静态文件绕过全局中间件：前端页面没有 `X-Frame-Options` 等安全头（点击劫持风险）。静态文件改为在全局中间件之后提供；HTML 页面加 `Cache-Control: no-cache`。
+5. `secureHeaders` 在 http 下也发送 COOP 与 Origin-Agent-Cluster：浏览器忽略并在控制台报错。改为与 HSTS 一样只对 https 发送。
+6. OpenAPI 不能写规范扩展字段：`RouteDoc.extensions`（`x-*`）。
+
+**未修改、记录待定的问题**
+- ORM：`ConnectionConfig` 不能传 drizzle 的 `casing`（ai-admin 依赖 `snake_case`）、不能设置 PostgreSQL 会话时区、不能接管已创建的 PGlite / pg 连接——因此 ai-admin 仍直接使用 drizzle 与自己的 `TransactionManager`，没有换成 `@hazejs/orm`。
+- `memoryRateLimitStore()` 与 `throttle` 的默认存储是进程级的（为热更新保留），同一进程中的多个应用实例（测试）共享计数；ai-admin 通过 `throttle.store` 为每个应用传入独立存储。
+- `throttle:max,window` 的计数按“规格 + 用户 / IP”共享，使用同一规格的不同路由共用一个桶（与 Laravel 一致，但从 Fastify 迁来容易误解）；需要每条路由单独计数时用命名规则加自定义 `key`。
+- 校验失败固定为 422，文档里的错误响应也固定为 422；项目约定 400 时只能在异常处理器中转换，OpenAPI 中仍显示 422。
+- `@hazejs/testing` 与 `app.request()` 不能指定客户端 IP；目前只能自己构造 `Request` 并设置 `ip`。
+- 服务器扩展（`registerServerExtension`）是给 socket.io 包用的底层接口，没有文档；需要挂其他协议的应用直接用它。
+- `new Application(options)` 的 `routes` / `providers` 需要引用之后才创建的对象（业务容器依赖应用的根容器）时，只能先声明变量再赋值。

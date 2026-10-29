@@ -54,7 +54,7 @@ r.get('/posts/:postId/comments/:id', (ctx) => {
 })
 ```
 
-Raw parameter values are always strings. Use a schema to turn them into numbers.
+Parameter values are URL-decoded strings (`/files/%E6%96%87` gives `文`). Use a schema to turn them into numbers.
 
 ## Groups
 

@@ -548,9 +548,6 @@ export class Application {
 
     // 维护模式：紧跟异常边界，先于静态资源、OpenAPI、健康检查与全局中间件（健康检查、开发面板与 except 路径放行）
     h3.use(this.container.make(MaintenanceManager).middleware())
-    // 静态资源：在业务中间件之前，避免鉴权等逻辑作用于前端资源
-    if (this.#options.static)
-      h3.use(createStaticMiddleware(this.#options.static))
     // 文件存储：签名临时链接与 serve: true 的本地磁盘
     h3.use(this.container.make(StorageManager).middleware())
     // OpenAPI 文档（/openapi.json、/docs），在全局中间件之前，不受 CSP / 鉴权影响
@@ -566,6 +563,10 @@ export class Application {
       ...this.#moduleGlobal,
     ]))
       h3.use(registry.toH3(item))
+    // 静态资源：在全局中间件之后（安全头、CORS 等同样作用于前端页面与资源），路由之前；
+    // 鉴权等只用于接口的中间件应挂在路由组上，而不是全局
+    if (this.#options.static)
+      h3.use(createStaticMiddleware(this.#options.static))
 
     // 多应用分发：按域名 / 前缀进入应用自己的路由表（在全局中间件之后、全局路由之前）
     this.#apps.push(...this.#createApps(this.#appModules, registry))

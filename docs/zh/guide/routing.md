@@ -54,7 +54,7 @@ r.get('/posts/:postId/comments/:id', (ctx) => {
 })
 ```
 
-参数的原始值始终是字符串，需要数字时请用 Schema 转换。
+参数值是已 URL 解码的字符串（`/files/%E6%96%87` 得到 `文`），需要数字时请用 Schema 转换。
 
 ## 路由分组
 

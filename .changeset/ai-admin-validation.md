@@ -1,0 +1,5 @@
+---
+'@hazejs/core': minor
+---
+
+Fixes and additions found while porting a production Fastify backend (antdv-pro ai-admin, ~32k lines, 403 integration tests) to hazejs. Route parameters are now URL-decoded in `ctx.param()` / `ctx.params()` and before `.validate()` (`/files/%E6%96%87` gives `文`). New `ctx.origin` and `ctx.secure` report the address the client used, honouring `X-Forwarded-Proto` / `X-Forwarded-Host` when `app.trustProxy` is on. Static files (`createApplication({ static })`) gain `precompressed` to serve build-time `.br` / `.gz` copies by `Accept-Encoding` (brotli first, `Vary: Accept-Encoding`), send HTML pages with `Cache-Control: no-cache`, and are now served after global middleware, so `secureHeaders` and `cors` also cover the frontend pages and assets. `secureHeaders` sends `Cross-Origin-Opener-Policy` and `Origin-Agent-Cluster` only on HTTPS requests, like HSTS, since browsers ignore them over plain HTTP. Route docs accept `extensions` for OpenAPI `x-*` fields on the operation.

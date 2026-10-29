@@ -217,4 +217,4 @@ await Db.table(users).delete([1, 2, 3])
 
 ## Not supported
 
-A few ThinkPHP features have no equivalent here: table prefixes and string table names (tables are drizzle objects), read/write splitting, XA transactions, `partition`, `force` (index hints) and `procedure`. Drop down to `Db.drizzle()` or raw SQL when you need them.
+A few ThinkPHP features have no equivalent here: table prefixes and string table names (tables are drizzle objects), XA transactions, `partition`, `force` (index hints) and `procedure`. Drop down to `Db.drizzle()` or raw SQL when you need them.
