@@ -116,7 +116,8 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
   ? {
       adapter: {
         driver: 'redis',
-        url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+        // config/redis.ts 中的连接（默认为其 default 连接）
+        connection: 'default',
         key: 'my-app',
       },
     }
@@ -127,10 +128,10 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
 | --- | --- |
 | `path` | 路径，默认 `/socket.io/`（与客户端默认值一致） |
 | `cors` | Socket.IO 的 CORS 选项。默认沿用 `config/cors.ts` 的 `origin` 并允许携带凭据；设为 `false` 关闭（同源） |
-| `adapter` | 多实例：`{ driver: 'redis', url?, key? }`，基于 `@socket.io/redis-adapter`（`pnpm add @socket.io/redis-adapter ioredis`）。`key` 默认 `socket.io` |
+| `adapter` | 多实例：`{ driver: 'redis', connection?, url?, key? }`，基于 `@socket.io/redis-adapter`（`pnpm add @socket.io/redis-adapter ioredis`）。`connection` 为 [Redis 连接](./redis)名（默认 `default`），内联 `url` 优先。`key`（默认 `socket.io`）是 pub/sub 频道的前缀，连接的 `keyPrefix` 不作用于频道 |
 | `options` | 透传给 Socket.IO `Server` 的其他选项（`pingInterval`、`connectionStateRecovery` 等） |
 
-启用 Redis 适配器后，房间与广播（包括 `SocketIO.to()`）可以到达所有实例上的客户端。
+启用 Redis 适配器后，房间与广播（包括 `SocketIO.to()`）可以到达所有实例上的客户端。适配器在该连接的共享命令连接上发布，另用一个专用连接订阅。
 
 ## 客户端
 

@@ -20,10 +20,8 @@ export default defineCacheConfig(() => ({
   prefix: env('CACHE_PREFIX', 'my-app:'),
   stores: {
     memory: { driver: 'memory' },
-    redis: {
-      driver: 'redis',
-      url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
-    },
+    // A connection from config/redis.ts (defaults to its `default` connection, i.e. REDIS_URL)
+    redis: { driver: 'redis', connection: 'default' },
     upstash: {
       driver: 'upstash',
       url: env('UPSTASH_REDIS_REST_URL', ''),
@@ -53,7 +51,7 @@ export default defineCacheConfig(() => ({
 | `kv` | — (Workers binding) | No | Cloudflare only | Caching and sessions on Workers |
 | `custom` | — | Your choice | Your choice | Anything implementing `CacheStore` |
 
-- **redis** accepts `url`, `options` (passed to ioredis) or a ready-made `client` (for Cluster / Sentinel). Increments and lock releases run as Lua scripts. Install with `pnpm add ioredis`.
+- **redis** uses a named connection from [`config/redis.ts`](./redis) (`connection`, default: the `default` connection, which reads `REDIS_URL`); the store runs on that connection's shared command client, so Cluster, Sentinel and TLS are configured there. The connection's `keyPrefix` goes before the cache `prefix`, and `flush()` handles it. The older inline forms still work and take precedence: `url` (with `options` passed to ioredis) or a ready-made ioredis `client`. Increments and lock releases run as Lua scripts. Install with `pnpm add ioredis`.
 - **upstash** needs `url` and `token`. Install with `pnpm add @upstash/redis`.
 - **kv** reads the Workers binding named in `binding` (default `CACHE`). KV is eventually consistent, its minimum TTL is 60 seconds (shorter TTLs are enforced through metadata), and `add` / `increment` are read-then-write. Locks refuse to run on it.
 - **custom** takes `{ driver: 'custom', store }`, where `store` implements the `CacheStore` interface exported from `@hazejs/core` (`get`, `set`, `add`, `delete`, `increment`, `deleteIf`, `clear`, plus `driver` and `atomic`).

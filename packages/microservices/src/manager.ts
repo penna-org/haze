@@ -5,7 +5,7 @@ import type { GrpcTransportConfig } from './transports/grpc'
 import type { MemoryTransportConfig } from './transports/memory'
 import type { NatsTransportConfig } from './transports/nats'
 import type { RedisTransportConfig } from './transports/redis'
-import { useApp, validate } from '@hazejs/core'
+import { RedisManager, useApp, validate } from '@hazejs/core'
 import { NoHandlerError } from './errors'
 import { collectHandlers } from './handler'
 import { grpcTransport } from './transports/grpc'
@@ -44,13 +44,18 @@ export function defineMicroservicesConfig(config: MicroservicesConfig | (() => M
   return config
 }
 
+export interface CreateTransportOptions {
+  /** 应用的 Redis 连接管理器：redis 传输按名字使用 config/redis.ts 的连接并共用命令连接 */
+  redis?: RedisManager
+}
+
 /** 按配置创建传输（也可以在 hazejs 之外单独使用） */
-export function createTransport(config: TransportConfig): Transport {
+export function createTransport(config: TransportConfig, options: CreateTransportOptions = {}): Transport {
   switch (config.driver) {
     case 'memory':
       return memoryTransport(config)
     case 'redis':
-      return redisTransport(config)
+      return redisTransport(config, options.redis)
     case 'nats':
       return natsTransport(config)
     case 'grpc':
@@ -134,7 +139,11 @@ export class MicroserviceManager {
       const config = this.config.transports[name]
       if (!config)
         throw new Error(`Microservice transport "${name}" is not configured in config/microservices.ts`)
-      transport = createTransport(config)
+      transport = createTransport(config, {
+        redis: this.app.container.has(RedisManager)
+          ? this.app.make(RedisManager)
+          : undefined,
+      })
       this.#transports.set(name, transport)
     }
     return transport

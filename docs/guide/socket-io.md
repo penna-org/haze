@@ -116,7 +116,8 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
   ? {
       adapter: {
         driver: 'redis',
-        url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+        // A connection from config/redis.ts (default: its `default` connection)
+        connection: 'default',
         key: 'my-app',
       },
     }
@@ -127,10 +128,10 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
 | --- | --- |
 | `path` | Endpoint path. Default `/socket.io/` (the client's default) |
 | `cors` | Socket.IO CORS options. Defaults to the `origin` from `config/cors.ts` with credentials; `false` disables it (same-origin) |
-| `adapter` | `{ driver: 'redis', url?, key? }` for multiple instances, using `@socket.io/redis-adapter` (`pnpm add @socket.io/redis-adapter ioredis`). `key` defaults to `socket.io` |
+| `adapter` | `{ driver: 'redis', connection?, url?, key? }` for multiple instances, using `@socket.io/redis-adapter` (`pnpm add @socket.io/redis-adapter ioredis`). `connection` names a [Redis connection](./redis) (default: the `default` one); an inline `url` takes precedence. `key` (default `socket.io`) prefixes the pub/sub channels; the connection's `keyPrefix` does not apply to them |
 | `options` | Passed through to the Socket.IO `Server` (`pingInterval`, `connectionStateRecovery`, …) |
 
-With the Redis adapter, rooms and broadcasts (including `SocketIO.to()`) reach clients on every instance.
+With the Redis adapter, rooms and broadcasts (including `SocketIO.to()`) reach clients on every instance. The adapter publishes on the connection's shared command client and subscribes on one dedicated connection.
 
 ## Client
 

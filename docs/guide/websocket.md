@@ -140,7 +140,8 @@ export default defineWebSocketConfig(() => env('WS_BROADCAST', '') === 'redis'
   ? {
       broadcast: {
         driver: 'redis',
-        url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+        // A connection from config/redis.ts (default: its `default` connection)
+        connection: 'default',
         // Separate apps sharing one Redis (default haze:ws)
         channel: 'my-app:ws',
       },
@@ -148,7 +149,7 @@ export default defineWebSocketConfig(() => env('WS_BROADCAST', '') === 'redis'
   : {})
 ```
 
-Both `Socket.publish()` and `peer.publish()` are forwarded to every instance.
+Both `Socket.publish()` and `peer.publish()` are forwarded to every instance. Publishing uses the connection's shared command client, and one dedicated subscriber connection is opened per server. The connection's `keyPrefix` does not apply to `channel`. The older inline `url` (with `options`) still works and takes precedence over `connection`; see [Redis](./redis).
 
 ## Runtime support
 

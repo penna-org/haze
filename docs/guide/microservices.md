@@ -42,7 +42,7 @@ export default defineMicroservicesConfig(() => ({
   timeout: 5000,
   transports: {
     nats: { driver: 'nats', servers: env('NATS_URL', 'nats://127.0.0.1:4222') },
-    redis: { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379') },
+    redis: { driver: 'redis', connection: 'default' }, // a connection from config/redis.ts
     grpc: { driver: 'grpc', url: '0.0.0.0:50051', protoPath: 'proto/orders.proto', package: 'orders' },
     memory: { driver: 'memory' },
   },
@@ -187,7 +187,8 @@ Uses [ioredis](https://github.com/redis/ioredis).
 
 | Option | Description |
 | --- | --- |
-| `url` | Default `redis://127.0.0.1:6379` |
+| `connection` | A [Redis connection](./redis) from `config/redis.ts`. Default: the `default` connection (`REDIS_URL`) |
+| `url` | Inline address; takes precedence over `connection`. Standalone (outside an app), the default is `REDIS_URL` or `redis://127.0.0.1:6379` |
 | `prefix` | Key and channel prefix. Default `haze:ms:` |
 | `concurrency` | Requests a listener processes at once. Default `10` |
 | `options` | Passed to ioredis |
@@ -195,6 +196,7 @@ Uses [ioredis](https://github.com/redis/ioredis).
 - `send()` pushes the request onto a list (`<prefix>req:<pattern>`). Listeners pop with `BRPOP`, so every request is handled by exactly one instance. Replies come back over pub/sub on a channel owned by the caller.
 - `emit()` publishes on `<prefix>evt:<pattern>`. Redis pub/sub has no queue groups: **every** listening instance receives every event. Make event handlers idempotent, or use NATS when each service must handle an event once.
 - Redis cannot tell that nobody is listening, so `send()` waits until the timeout. Expired requests are skipped when a listener picks them up later.
+- Connections: inside an application, requests and replies are published on the connection's shared command client; each transport opens one dedicated subscriber for replies, and a listener opens two more (`BRPOP` and event subscriptions). `createTransport()` / `redisTransport()` used standalone own all of their connections and close them in `close()`. The connection's `keyPrefix` applies to the request lists but not to the pub/sub channels.
 
 ### gRPC
 

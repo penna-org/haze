@@ -6,6 +6,7 @@ import type { DispatchOptions, FailedJob, JobContext, JobDefinition, JobMessage 
 import { traceJobDispatch, traceJobProcess } from '../observability/otel'
 import { currentTelemetryScope, runInTelemetryScope } from '../observability/scope'
 import { recordTelemetry, telemetryActive } from '../observability/telemetry'
+import { RedisManager } from '../redis/manager'
 import { getRequestStore } from '../request'
 import { tenantQueueKey } from '../tenancy/context'
 import { tenancyOf } from '../tenancy/manager'
@@ -181,7 +182,9 @@ export class QueueManager {
           break
         }
         case 'redis':
-          driver = redisQueue(config)
+          driver = redisQueue(config, this.app.container.has(RedisManager)
+            ? this.app.make(RedisManager)
+            : undefined)
           break
         case 'cloudflare':
           driver = cloudflareQueue(name, config)

@@ -1,5 +1,7 @@
+import type { RedisConnectionName, RedisConnectionRef } from '../../redis/config'
+import type { RedisManager, RedisTarget } from '../../redis/manager'
 import type { CacheStore } from '../store'
-import { definePersistent } from '../../persistent'
+import { useRedisManager } from '../../redis/manager'
 
 /** INCRBY 与首次设置过期在同一个脚本中完成（原子） */
 export const INCREMENT_SCRIPT = `local value = redis.call('INCRBY', KEYS[1], ARGV[1])
@@ -15,60 +17,46 @@ export function remaining(ttl: number): number | undefined {
     : ttl
 }
 
-export interface RedisStoreConfig {
+export interface RedisStoreConfig extends RedisConnectionRef {
   driver: 'redis'
-  /** redis://[:password@]host:port/db，默认 redis://127.0.0.1:6379 */
+  /**
+   * config/redis.ts 中的连接名，默认为其 default 连接（REDIS_URL）。
+   * 连接的 keyPrefix 加在缓存前缀（config/cache.ts 的 prefix）之前
+   */
+  connection?: RedisConnectionName
+  /** 内联地址（旧写法）：redis://[:password@]host:port/db，设置后不使用命名连接 */
   url?: string
-  /** 传给 ioredis 的选项（Cluster / Sentinel 等请改用 client） */
+  /** 传给 ioredis 的选项：与 url 一起时为内联连接的选项，与 connection 一起时覆盖命名连接的选项 */
   options?: Record<string, unknown>
   /** 直接使用已创建的 ioredis 实例 */
   client?: unknown
 }
 
 interface IORedisLike {
+  readonly options?: { keyPrefix?: string }
   get: (key: string) => Promise<string | null>
   set: (key: string, value: string, ...args: (string | number)[]) => Promise<string | null>
   del: (...keys: string[]) => Promise<number>
   eval: (script: string, keys: number, ...args: (string | number)[]) => Promise<unknown>
   scan: (cursor: string, ...args: (string | number)[]) => Promise<[string, string[]]>
-  quit: () => Promise<unknown>
 }
 
-async function connect(config: RedisStoreConfig): Promise<IORedisLike> {
-  if (config.client)
-    return config.client as IORedisLike
-  type RedisClass = new (url: string, options?: Record<string, unknown>) => IORedisLike
-  let module: { default?: RedisClass, Redis?: RedisClass }
-  try {
-    module = await import('ioredis') as never
-  }
-  catch (error) {
-    throw new Error('Cache driver "redis" requires ioredis. Install it with: pnpm add ioredis', { cause: error })
-  }
-  const Redis = (module.Redis ?? module.default)!
-  return new Redis(config.url ?? 'redis://127.0.0.1:6379', { lazyConnect: false, maxRetriesPerRequest: 2, ...config.options })
-}
+const FEATURE = 'Cache driver "redis"'
 
-/** ioredis 驱动：连接跨热更新复用，应用关闭时断开 */
-export function redisStore(name: string, config: RedisStoreConfig): CacheStore {
-  const connections = definePersistent('cache:redis', () => new Map<string, Promise<IORedisLike>>(), {
-    dispose: async (pool) => {
-      await Promise.all([
-        ...pool.values(),
-      ].map(async client => (await client.catch(() => undefined))?.quit().catch(() => undefined)))
-      pool.clear()
-    },
-  })
-  const id = `${name}:${config.url ?? ''}`
-  const client = (): Promise<IORedisLike> => {
-    let connection = connections.get(id)
-    if (!connection) {
-      connection = connect(config)
-      connections.set(id, connection)
-      connection.catch(() => connections.delete(id))
-    }
-    return connection
-  }
+/**
+ * ioredis 驱动：使用 RedisManager 的共享命令连接（跨热更新复用，应用关闭时断开）。
+ * 内联 url 的旧写法保持原来的默认选项（maxRetriesPerRequest: 2，Redis 不可用时尽快失败）。
+ */
+export function redisStore(_name: string, config: RedisStoreConfig, redis: RedisManager = useRedisManager()): CacheStore {
+  const target: RedisTarget = config.client
+    ? { client: config.client }
+    : config.url
+      ? {
+          url: config.url,
+          options: { lazyConnect: false, maxRetriesPerRequest: 2, ...config.options },
+        }
+      : { connection: config.connection, options: config.options }
+  const client = async (): Promise<IORedisLike> => await redis.client(target, FEATURE) as unknown as IORedisLike
 
   return {
     driver: 'redis',
@@ -107,12 +95,17 @@ export function redisStore(name: string, config: RedisStoreConfig): CacheStore {
     },
     async clear(prefix) {
       const redis = await client()
+      // ioredis 的 keyPrefix 不作用于 SCAN 的模式，返回的键也带着它；DEL 时会再加一次，先去掉
+      const keyPrefix = redis.options?.keyPrefix ?? ''
       let cursor = '0'
       do {
-        const [next, keys] = await redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 500)
+        const [next, keys] = await redis.scan(cursor, 'MATCH', `${keyPrefix}${prefix}*`, 'COUNT', 500)
         cursor = next
-        if (keys.length)
-          await redis.del(...keys)
+        if (keys.length) {
+          await redis.del(...keys.map(key => key.startsWith(keyPrefix)
+            ? key.slice(keyPrefix.length)
+            : key))
+        }
       } while (cursor !== '0')
     },
   }

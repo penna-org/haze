@@ -48,6 +48,12 @@ const drivers: Driver[] = [
           config: { driver: 'redis', url: process.env.HAZE_TEST_REDIS_URL } as CacheStoreConfig,
           atomic: true,
         },
+        // config/redis.ts 的命名连接，带 keyPrefix（flush 时 SCAN 的模式与返回的键都要处理前缀）
+        {
+          name: 'redis-connection',
+          config: { driver: 'redis', connection: 'cache' } as CacheStoreConfig,
+          atomic: true,
+        },
       ]
     : []),
   // Upstash REST（本地可用 serverless-redis-http）：HAZE_TEST_UPSTASH_URL / HAZE_TEST_UPSTASH_TOKEN
@@ -70,6 +76,12 @@ function boot(store: Driver, routes: RouteRegistrar = () => {}, config: Record<s
       logger: { level: 'silent' },
       app: {
         key: generateKey(),
+      },
+      redis: {
+        connections: {
+          default: { url: process.env.HAZE_TEST_REDIS_URL ?? 'redis://127.0.0.1:6379' },
+          cache: { url: process.env.HAZE_TEST_REDIS_URL ?? 'redis://127.0.0.1:6379', keyPrefix: 'haze-test-kp:' },
+        },
       },
       cache: {
         default: store.name,

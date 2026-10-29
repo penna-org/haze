@@ -1668,3 +1668,53 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - create：module 模板生成 → tsc → 自带测试（3 个）→ tsdown 构建；api 模板中 `make:module` / `make:model --module` / `db:generate --module` / `make:command --module` + 链接安装的 module 模板包：`db:migrate` 两次（包 → 本地模块 → 项目，第二次全为 0）、`module:list`、`route:list`、模块命令、typegen + 类型探针 + tsc、模板测试加模块测试 20 个通过；生产构建后在全新数据库上执行 `migrate.mjs` 两次、启动产物读写模块包的表、`worker.mjs command` 列出模块命令、`worker.mjs schedule:run` 执行模块的定时任务。
 
 已知限制：模块没有隔离（中间件别名、全局中间件、提供者作用于整个应用），`app` 挂载只影响路由；模块不能有自己的异常处理器、响应格式与 `lang/`；`module.ts` 内联的默认配置没有类型；模块迁移先于项目迁移，不能依赖项目的表；生产内嵌要求迁移目录写成字面量 `new URL()`；Cloudflare D1 的 `wrangler d1 migrations apply` 只包含项目的迁移，模块包的定时任务 / WebSocket 不参与 Cloudflare 的自动检测；`db:seed` 不执行模块包的数据填充。
+
+### M29 实施记录（2026-10-28）：统一 Redis 连接
+
+背景：所有 TCP 访问早已统一为 ioredis 6（BullMQ 以它为 peer，Socket.IO 适配器直接拿 ioredis 实例），但连接配置分散在六处（缓存、队列、WebSocket 广播、广播总线、Socket.IO 适配器、微服务传输），各自默认 `redis://127.0.0.1:6379`；只有缓存接受 ioredis 选项或现成的客户端；每个功能各自建立连接；“动态导入 ioredis、取 `Redis` 或 `default`、报安装提示”的代码有五份且提示各不相同；应用代码没有 Redis 入口，`redisCheck` 只能探测缓存存储。`@upstash/redis`（HTTP）是边缘运行时的缓存驱动，不在本次范围内。
+
+确认的决策：
+- `config/redis.ts`（`defineRedisConfig`）声明命名连接，`CoreConfig` 新增 `redis` 键；缺省该文件时只有隐式的 `default` 连接（`REDIS_URL`，未设置时 `redis://127.0.0.1:6379`）；
+- 各功能用 `connection: '<name>'` 引用连接，原来的 `url` / `options` / `client` 写法保留且优先；都不写时用默认连接，一个 `REDIS_URL` 配置全部功能；
+- core 中的连接管理器负责共享与专用连接、关闭与热更新；新增 `Redis` 门面、`useRedis()`，`redisCheck(name)` 按连接 PING。
+
+**配置与解析**（`packages/core/src/redis/{config,load,manager}.ts`）
+- 一个连接是单机（`url` 或 host / port / username / password / db / tls）、Cluster（`cluster` 节点，节点选项在 `options.redisOptions`，顶层的认证与 TLS 复制进去）、Sentinel（`sentinels` + `name`）或自定义 `client` 工厂之一，另有 `keyPrefix` 与透传的 `options`。`client` 设计为工厂而不是实例：专用连接（订阅、阻塞命令、BullMQ）需要用同样的设置再建立连接，实例只能 `duplicate()`。
+- `default` 未设置时取 `default`，不存在则取第一个连接；有 config/redis.ts 时以它为准，不再补隐式连接。
+- 功能配置统一扩展 `RedisConnectionRef { connection?, url?, options? }`，由 `redisTarget()` 转成解析目标；优先级 `client`（只有缓存）> `url` > `connection` > 默认连接。`options` 与 `url` 一起是内联连接的选项，与 `connection` 一起时覆盖命名连接的选项（共享池的键包含设置的指纹，此时得到单独的连接）。缓存内联 `url` 的旧写法保留原默认值 `maxRetriesPerRequest: 2`，命名连接严格使用配置的选项（ioredis 默认值）。
+- 连接名的类型：`defineRedisConfig` 以 `const` 泛型保留连接名，typegen 本来就为每个 config 文件生成 `ConfigValue<typeof import(...)>`，`RedisConnectionName` 直接从 `GeneratedConfig['redis']['connections']` 取键（未生成时为 string），无需改 typegen。门面与各功能配置的 `connection` 使用它；管理器内部方法接受 string，避免生成类型后内部代码报错（已用临时的声明合并验证：错误的连接名在功能配置与 `Redis.connection()` 处报错，core 源码不报错）。
+- `loadRedis(feature)` 是唯一的 ioredis 加载入口（静态的 `import('ioredis')` 保证构建追踪），只加载一次，缺失时统一提示 `<feature> requires ioredis. Install it with: pnpm add ioredis`。缓存、WebSocket、广播总线、Socket.IO、微服务原来的五份代码全部删除；微服务的 Redis 传输不再使用自己的 `importOptional`（gRPC / NATS 仍用）。
+
+**共享规则**
+- `client(target)`：共享的命令连接，按“连接名（或内联地址）+ 设置指纹”放在 `definePersistent('redis:shared')` 中，跨热更新复用；`connection(name)` 返回命令代理（`Redis.connection('cache').get('k')`），代理不是 thenable，`client()` 取底层客户端做 pipeline / multi。
+- `create(target, overrides)` / `subscriber(target)`：专用连接，按同样的设置新建（自定义工厂再调用一次；已有实例时 `duplicate()`，Cluster 的 duplicate 签名不同，选项放进 `redisOptions`），由调用方关闭，同时登记在 `redis:dedicated` 中兜底。
+- 两个持久资源在管理器构造时（应用启动早期）就登记：`disposePersistent()` 按登记的逆序释放，广播总线、Socket.IO 等后登记的资源先关闭，关闭时还能使用 Redis。`app.dispose()`（非 hmr）断开全部连接，`reason: 'hmr'` 保留，与原来的 `disposePersistent` 语义一致；之后再使用会重新建立。
+- 各功能的连接：缓存存储——共享；WebSocket 广播——发布用共享连接，crossws 由它 `duplicate()` 出订阅连接并自己关闭；广播总线——发布与在线成员 Hash 用共享连接，订阅用专用连接（随总线的持久资源关闭）；Socket.IO 适配器——pub 为共享连接，sub 为专用连接；微服务——应用内（`MicroserviceManager` 经新增的 `createTransport(config, { redis })` 传入应用的管理器）请求与回复的发布用共享连接，回复订阅、`BRPOP`、事件订阅各用专用连接；单独使用（不传管理器）时经 `useRedisManager()` 解析连接、全部连接都归传输所有并在 `close()` 时断开，避免独立脚本因共享连接未关闭而无法退出。门面在应用之外退回只有隐式 `default` 的管理器。
+- `RedisManager` 在 `boot()` 中先于 CacheManager 创建并绑定（`setRedisManager` 供请求之外使用）；CacheManager / QueueManager / BroadcastManager / 健康检查 / 微服务 / Socket.IO 从容器取得；`webSocketPlugin` / `nodeUpgradeHandler` / `syncFromConfig` 增加可选的管理器参数（`app.serve()` 传入，Vite 开发服务器沿用最近启动的应用）。
+
+**BullMQ**
+- BullMQ 6 的 connection 接受 ioredis 选项（含 `url`，它自己 `new IORedis(url, rest)`）或实例；传实例时 Queue 共用、Worker 复制，且实例带 `keyPrefix` 时直接抛错；只有选项时无法创建 Cluster。因此 `bullmq(target)`：单机 / Sentinel 返回连接设置（去掉 `keyPrefix`，`maxRetriesPerRequest: null`），BullMQ 为每个 Queue / Worker 自己建立并关闭连接，与原来一致；Cluster 与自定义工厂返回一个专用实例（同样去掉 `keyPrefix` 并设置 `maxRetriesPerRequest: null`，Cluster 时放在 `redisOptions`），由队列驱动的 `close()` 断开。没有把共享命令连接交给 BullMQ：它的 `maxRetriesPerRequest` 与 `keyPrefix` 都可能不符合要求。
+- 连接的 `keyPrefix` 不映射为 BullMQ 的 `prefix`（避免已有队列的键变化），队列仍用自己的 `prefix`（默认 `haze`），文档说明 Cluster 需要哈希标签。
+
+**keyPrefix**
+- ioredis 的 `keyPrefix` 只作用于键（包括 `EVAL` 的 KEYS），不作用于 pub/sub 频道，也不作用于 `SCAN` 的 MATCH 模式，而 SCAN 返回的键带着前缀、`DEL` 时又会再加一次。缓存存储的 `clear()` 因此用 `<keyPrefix><缓存前缀>*` 匹配，删除前去掉 `keyPrefix`（单元测试的假客户端按 ioredis 的行为模拟，真实 Redis 下整套缓存用例在带 keyPrefix 的命名连接上再跑一遍）。连接前缀位于缓存前缀之前：`<keyPrefix><prefix><key>`。
+- 多租户在 CacheRepository 中给键加租户前缀，与存储使用哪个连接无关，不受影响。
+- 广播总线的在线成员 Hash 与微服务的请求列表是键，会带上前缀；WebSocket 的 `channel`、总线的 `prefix`、Socket.IO 的 `key` 是频道前缀，多个应用共用 Redis 时仍需各自设置。
+
+**健康检查与门面**
+- `redisCheck(name?)`：先按 Redis 连接名（含隐式 `default`）PING 共享连接；不是连接名而是缓存存储名时沿用读写检查（旧写法）；都不是时为 down 并说明原因；不传名字时 PING 默认连接（原来默认检查名为 `redis` 的缓存存储）；传入带 `ping()` 的对象不变。
+- `Redis` 门面是 Proxy：`connection` / `client` / `subscriber` / `create` 之外的属性都转为默认连接上的命令；常用命令有类型，其它命令返回 `Promise<any>`。`RedisManager` 也可以注入使用。没有做 `Redis.fake()` 与内存实现：需要模拟时可以在测试中 mock ioredis（core 的单元测试即如此），或用 `RedisManager` 的 `driver` 选项注入。
+
+**其它修正**
+- 微服务 Redis 传输的 BRPOP 循环：连接被关闭后（如同进程中另一个应用关闭时释放了全部 Redis 连接）命令立即失败，原来的 `continue` 会占满事件循环（真实 Redis 下多应用的测试因此挂住）；现在连接已结束时停止消费，其它错误等待 100ms 再试。
+- crossws 的 Redis 同步在共享连接已断开后不再发布（应用关闭后仍在关闭的连接会触发发布）；原实现的发布连接从未关闭，所以没有暴露。
+
+**模板**：api / vue / react 新增 `config/redis.ts`（默认连接读取 `REDIS_URL`，注释给出 cache 连接、Cluster、Sentinel 的写法）；`cache.ts`、`queue.ts`、`websocket.ts`、`socketio.ts` 改为 `connection: 'default'`，`REDIS_URL` 只出现一次；README 说明连接在 config/redis.ts 中声明。
+
+**测试**
+- core `redis.test.ts`（mock ioredis 与 bullmq，14 个）：隐式默认连接读取 REDIS_URL、默认连接的选取、优先级（内联 url > connection > 默认，options 覆盖）、单机 / TLS / Cluster / Sentinel / 自定义工厂的构造参数、同名共享与订阅连接独立、dispose 断开全部而 hmr 保留并被新应用复用、BullMQ 选项无 keyPrefix 且 `maxRetriesPerRequest: null`（Cluster 为专用实例并随队列关闭）、缺少 ioredis 时的统一提示、门面与 `useRedis()`、缓存在带 keyPrefix 的连接上读写与 flush、单个 REDIS_URL 同时配置缓存 / WebSocket / 广播总线（一个共享连接 + 一个订阅连接）、`redisCheck` 的三种情况。
+- 微服务：假客户端验证命名连接上的连接数与选项（BRPOP 连接 `maxRetriesPerRequest: null`、共享连接由管理器关闭、其余随传输关闭）。
+- 真实 Redis（`HAZE_TEST_REDIS_URL`）：新增 `redis-live.test.ts`（门面与 keyPrefix、pipeline、专用订阅连接、缓存与 `redisCheck` 使用同一套连接名、不可达连接为 down）；缓存整套用例增加带 keyPrefix 的命名连接；队列在带 keyPrefix 的命名连接上执行任务且键只用队列 prefix；广播总线在命名连接上收发、在线成员 Hash 带 keyPrefix；WebSocket 与 Socket.IO 跨实例用例分别以内联 url 与命名连接各跑一次；微服务整套传输语义在 `connection: 'default'`（REDIS_URL）上再跑一遍，另加单独使用的传输。
+- 全部测试（未设置 HAZE_TEST_REDIS_URL）：79 个文件（1 个整体跳过），901 个通过、51 个跳过（之前为 77 个文件、886 个通过、37 个跳过；新增的真实 Redis 用例计入跳过）。本地 `redis:7` 下设置 `HAZE_TEST_REDIS_URL` 全量运行：79 个文件，949 个通过、25 个跳过（其余跳过为 Upstash / NATS / MySQL 等未提供的服务），其中 vue 模板的 `account.test.ts` 偶发失败一次、单独重跑通过：它把签名的第一个字符替换为 `x` 来“篡改”，签名本身以 `x` 开头时（约 1/64）篡改无效，与本次改动无关。
+
+已知限制：`disposePersistent()` 是进程级的，同一进程中一个应用关闭（非 hmr）会断开所有应用的 Redis 连接（与原来的缓存连接池、广播总线一致）；热更新改了连接设置时旧连接保留到进程关闭；缓存 `clear()` 在 Cluster 上只扫描一个节点（原有限制）；连接级的 `keyPrefix` 不作用于 pub/sub 频道与 BullMQ，需要分别设置频道前缀与队列 prefix；共享连接上执行 SUBSCRIBE / 阻塞命令不会被阻止，只在文档中说明；`default` 用 env() 读取时类型为 string，需断言为连接名。

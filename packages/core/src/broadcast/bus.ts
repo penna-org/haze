@@ -1,6 +1,9 @@
+import type { RedisConnectionName, RedisConnectionRef } from '../redis/config'
+import type { RedisManager, RedisTarget } from '../redis/manager'
 import type { PresenceMember } from './channels'
 import type { BroadcastMessage } from './hub'
 import { definePersistent } from '../persistent'
+import { redisTarget, useRedisManager } from '../redis/manager'
 import { globalStore } from '../utils'
 import { localHub } from './hub'
 
@@ -24,9 +27,14 @@ export interface MemoryBusConfig {
   driver: 'memory'
 }
 
-export interface RedisBusConfig {
+export interface RedisBusConfig extends RedisConnectionRef {
   driver: 'redis'
-  /** 默认 redis://127.0.0.1:6379 */
+  /**
+   * config/redis.ts 中的连接名，默认为其 default 连接：发布与在线成员用共享连接，订阅另建一个专用连接。
+   * 连接的 keyPrefix 作用于在线成员的 Hash，不作用于 pub/sub 频道
+   */
+  connection?: RedisConnectionName
+  /** 内联地址（旧写法），设置后不使用命名连接 */
   url?: string
   /** pub/sub 频道与在线成员的键前缀，默认 `haze:broadcast`；多个应用共用 Redis 时请区分 */
   prefix?: string
@@ -100,7 +108,6 @@ interface RedisLike {
   on: (event: 'message', listener: (channel: string, message: string) => void) => unknown
   hvals: (key: string) => Promise<string[]>
   multi: () => RedisMulti
-  duplicate: () => RedisLike
   quit: () => Promise<unknown>
 }
 
@@ -116,13 +123,17 @@ interface RedisConnections {
   ready: Promise<{ pub: RedisLike, sub: RedisLike }>
 }
 
-/** 加载 ioredis（可选依赖），连接跨热更新复用，订阅一次后直接投递给本进程的连接表 */
-function redisConnections(url: string, channel: string): RedisConnections {
-  return definePersistent<RedisConnections>(`broadcast:redis:${url}:${channel}`, () => {
-    const ready = import('ioredis').then(async (module) => {
-      const Redis = (module as unknown as { Redis?: new (url: string) => RedisLike }).Redis ?? (module as unknown as { default: new (url: string) => RedisLike }).default
-      const pub = new Redis(url)
-      const sub = pub.duplicate()
+const FEATURE = 'Broadcast bus "redis"'
+
+/**
+ * 发布用 RedisManager 的共享命令连接，订阅用一个专用连接；订阅跨热更新复用，
+ * 订阅一次后直接投递给本进程的连接表
+ */
+function redisConnections(redis: RedisManager, target: RedisTarget, channel: string): RedisConnections {
+  return definePersistent<RedisConnections>(`broadcast:redis:${redis.resolve(target).key}:${channel}`, () => {
+    const ready = (async () => {
+      const pub = await redis.client(target, FEATURE) as unknown as RedisLike
+      const sub = await redis.subscriber(target, FEATURE) as unknown as RedisLike
       sub.on('message', (from, raw) => {
         if (from !== channel)
           return
@@ -133,27 +144,23 @@ function redisConnections(url: string, channel: string): RedisConnections {
       })
       await sub.subscribe(channel)
       return { pub, sub }
-    }, (error) => {
-      throw new Error('Broadcast bus "redis" requires ioredis. Install it with: pnpm add ioredis', { cause: error })
-    })
+    })()
     // 避免未使用时的未处理拒绝
     ready.catch(() => {})
     return { ready }
   }, {
     dispose: async ({ ready }) => {
+      // 共享的发布连接由 RedisManager 关闭
       const connections = await ready.catch(() => undefined)
-      await Promise.all([
-        connections?.pub.quit(),
-        connections?.sub.quit(),
-      ].map(item => item?.catch(() => {})))
+      await connections?.sub.quit().catch(() => {})
     },
   })
 }
 
 /** Redis 总线：pub/sub 转发到所有实例，在线成员存在 Hash 中（`<prefix>:presence:<channel>`） */
-export function redisBus(config: Omit<RedisBusConfig, 'driver'> = {}): BroadcastBus {
+export function redisBus(config: Omit<RedisBusConfig, 'driver'> = {}, redis: RedisManager = useRedisManager()): BroadcastBus {
   const prefix = config.prefix ?? 'haze:broadcast'
-  const { ready } = redisConnections(config.url ?? 'redis://127.0.0.1:6379', prefix)
+  const { ready } = redisConnections(redis, redisTarget(config), prefix)
   const key = (channel: string): string => `${prefix}:presence:${channel}`
   const parse = (values: unknown): PresenceMember[] => (Array.isArray(values)
     ? values

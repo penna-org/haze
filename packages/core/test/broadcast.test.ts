@@ -2,7 +2,7 @@ import type { Application } from '../src'
 import type { EchoChannel, EchoOptions, PresenceMember } from '../src/broadcast/echo'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createApplication, defineEvent, defineRoutes, defineUserProvider, Events, generateKey, issueTestCredentials } from '../src'
+import { createApplication, defineEvent, defineRoutes, defineUserProvider, Events, generateKey, issueTestCredentials, RedisManager } from '../src'
 import { Broadcast, broadcast, setBroadcastManager } from '../src/broadcast/broadcast'
 import { redisBus } from '../src/broadcast/bus'
 import { ChannelRegistry, defineChannels, parseChannel, presenceChannel, privateChannel } from '../src/broadcast/channels'
@@ -505,6 +505,40 @@ describe.runIf(process.env.HAZE_TEST_REDIS_URL)('broadcasting through Redis', ()
       { id: 2 },
     ])
     await second.presence.leave('presence-room', 's3')
+  })
+
+  it('uses a named connection: keyPrefix applies to presence keys, not to the pub/sub channel', async () => {
+    const prefix = `test:${crypto.randomUUID()}`
+    const redis = new RedisManager({
+      connections: {
+        bus: { url: process.env.HAZE_TEST_REDIS_URL, keyPrefix: 'kp:' },
+      },
+    })
+    const bus = redisBus({ connection: 'bus', prefix }, redis)
+    const received: unknown[] = []
+    localHub.add({
+      id: 'named-peer',
+      transport: 'test',
+      send: envelope => received.push(envelope),
+    })
+    localHub.join('named-peer', 'news')
+    closers.push(() => localHub.remove('named-peer'))
+    await bus.presence.members('room')
+    await sleep(200)
+    await bus.publish({
+      id: crypto.randomUUID(),
+      channels: ['news'],
+      event: 'Named',
+    })
+    await waitFor(() => received.length === 1)
+    await bus.presence.join('room', 's1', { id: 7 })
+    const { Redis } = await import('ioredis')
+    const raw = new Redis(process.env.HAZE_TEST_REDIS_URL!)
+    closers.push(() => raw.quit())
+    expect(await raw.hvals(`kp:${prefix}:presence:room`)).toEqual([
+      JSON.stringify({ id: 7 }),
+    ])
+    await bus.presence.leave('room', 's1')
   })
 
   it('reuses config/websocket.ts broadcast for the bus', async () => {

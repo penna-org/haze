@@ -2,7 +2,7 @@ import { defineCacheConfig, env } from '@hazejs/core'
 
 /**
  * 缓存：Cache.remember('key', '10m', () => ...)、Cache.increment()、Cache.lock()。
- * 多实例部署时设置 CACHE_STORE=redis（REDIS_URL），限流（config/throttle.ts）与 Session 也会共享计数 / 数据。
+ * 多实例部署时设置 CACHE_STORE=redis（连接见 config/redis.ts），限流（config/throttle.ts）与 Session 也会共享计数 / 数据。
  */
 export default defineCacheConfig(() => ({
   default: env('CACHE_STORE', 'memory'),
@@ -13,7 +13,8 @@ export default defineCacheConfig(() => ({
     // 需要安装 ioredis
     redis: {
       driver: 'redis',
-      url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+      // config/redis.ts 中的连接
+      connection: 'default',
     },
     // Edge / Serverless：Upstash（HTTP，需要安装 @upstash/redis）
     // upstash: { driver: 'upstash', url: env('UPSTASH_REDIS_REST_URL', ''), token: env('UPSTASH_REDIS_REST_TOKEN', '') },

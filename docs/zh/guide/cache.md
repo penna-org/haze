@@ -20,10 +20,8 @@ export default defineCacheConfig(() => ({
   prefix: env('CACHE_PREFIX', 'my-app:'),
   stores: {
     memory: { driver: 'memory' },
-    redis: {
-      driver: 'redis',
-      url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
-    },
+    // config/redis.ts 中的连接（缺省为其 default 连接，即 REDIS_URL）
+    redis: { driver: 'redis', connection: 'default' },
     upstash: {
       driver: 'upstash',
       url: env('UPSTASH_REDIS_REST_URL', ''),
@@ -53,7 +51,7 @@ export default defineCacheConfig(() => ({
 | `kv` | —（Workers 绑定） | 否 | 仅 Cloudflare | Workers 上的缓存与 Session |
 | `custom` | — | 取决于实现 | 取决于实现 | 任何实现了 `CacheStore` 的存储 |
 
-- **redis**：可传 `url`、`options`（透传给 ioredis），或直接传入已创建的 `client`（Cluster / Sentinel 场景）。自增与锁的释放都用 Lua 脚本完成。安装：`pnpm add ioredis`。
+- **redis**：使用 [`config/redis.ts`](./redis) 中的命名连接（`connection`，默认为 `default` 连接，读取 `REDIS_URL`），存储运行在该连接的共享命令连接上，Cluster、Sentinel 与 TLS 都在那里配置。连接的 `keyPrefix` 加在缓存 `prefix` 之前，`flush()` 会处理它。原来的内联写法仍然可用并且优先：`url`（`options` 透传给 ioredis）或直接传入已创建的 ioredis `client`。自增与锁的释放都用 Lua 脚本完成。安装：`pnpm add ioredis`。
 - **upstash**：需要 `url` 与 `token`。安装：`pnpm add @upstash/redis`。
 - **kv**：读取 `binding` 指定的 Workers 绑定（默认 `CACHE`）。KV 是最终一致的，TTL 最短 60 秒（更短的有效期通过元数据判断），`add` / `increment` 是先读后写。在 KV 上创建锁会直接报错。
 - **custom**：写成 `{ driver: 'custom', store }`，`store` 实现 `@hazejs/core` 导出的 `CacheStore` 接口（`get`、`set`、`add`、`delete`、`increment`、`deleteIf`、`clear`，以及 `driver` 与 `atomic`）。

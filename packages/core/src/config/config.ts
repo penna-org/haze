@@ -18,6 +18,7 @@ import type { ObservabilityConfig } from '../observability/config'
 import type { HealthConfig } from '../observability/health'
 import type { OpenAPIConfig } from '../openapi/types'
 import type { QueueConfig } from '../queue/manager'
+import type { RedisConfig } from '../redis/config'
 import type { ScheduleConfig } from '../schedule/scheduler'
 import type { SessionConfig } from '../session/session'
 import type { FilesystemConfig } from '../storage/config'
@@ -73,6 +74,8 @@ export interface CoreConfig {
   filesystem?: FilesystemConfig
   mail?: MailConfig
   queue?: QueueConfig
+  /** Redis 连接（config/redis.ts） */
+  redis?: RedisConfig
   websocket?: WebSocketConfig
   schedule?: ScheduleConfig
   auth?: AuthConfig

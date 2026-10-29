@@ -42,7 +42,7 @@ export default defineMicroservicesConfig(() => ({
   timeout: 5000,
   transports: {
     nats: { driver: 'nats', servers: env('NATS_URL', 'nats://127.0.0.1:4222') },
-    redis: { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379') },
+    redis: { driver: 'redis', connection: 'default' }, // config/redis.ts 中的连接
     grpc: { driver: 'grpc', url: '0.0.0.0:50051', protoPath: 'proto/orders.proto', package: 'orders' },
     memory: { driver: 'memory' },
   },
@@ -187,7 +187,8 @@ process.once('SIGTERM', async () => {
 
 | 选项 | 说明 |
 | --- | --- |
-| `url` | 默认 `redis://127.0.0.1:6379` |
+| `connection` | `config/redis.ts` 中的 [Redis 连接](./redis)，默认为 `default` 连接（`REDIS_URL`） |
+| `url` | 内联地址，优先于 `connection`。单独使用（不在应用中）时默认为 `REDIS_URL` 或 `redis://127.0.0.1:6379` |
 | `prefix` | 键与频道前缀，默认 `haze:ms:` |
 | `concurrency` | 监听方同时处理的请求数，默认 `10` |
 | `options` | 透传给 ioredis |
@@ -195,6 +196,7 @@ process.once('SIGTERM', async () => {
 - `send()` 把请求写入列表（`<prefix>req:<pattern>`），监听方用 `BRPOP` 竞争消费，每个请求只由一个实例处理；回复经 pub/sub 发到调用方独占的频道。
 - `emit()` 发布到 `<prefix>evt:<pattern>`。Redis pub/sub 没有队列组：**每个**监听中的实例都会收到每个事件。请让事件处理器保持幂等；需要每个服务只处理一次时请使用 NATS。
 - Redis 无法得知是否有监听方，没有服务在线时 `send()` 会一直等到超时；过期的请求之后被取出时不再处理。
+- 连接：在应用中，请求与回复在该连接的共享命令连接上发布；每个传输另建一个专用连接订阅回复，监听方再建两个（`BRPOP` 与事件订阅）。单独使用的 `createTransport()` / `redisTransport()` 拥有自己的全部连接，并在 `close()` 时断开。连接的 `keyPrefix` 作用于请求列表，不作用于 pub/sub 频道。
 
 ### gRPC
 

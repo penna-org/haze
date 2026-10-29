@@ -4,12 +4,16 @@ import type { IncomingMessage, Server as NodeServer } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { ServerPlugin } from 'srvx'
 import type { Config } from '../config/config'
+import type { RedisConnectionName, RedisConnectionRef } from '../redis/config'
+import type { RedisClient } from '../redis/load'
+import type { RedisManager } from '../redis/manager'
 import type { BunSocketLike } from '../server/extensions'
 import { getWebSocketHooks } from 'crossws'
 import bunAdapter from 'crossws/adapters/bun'
 import denoAdapter from 'crossws/adapters/deno'
-import { redis } from 'crossws/sync'
+import { redis as redisSync } from 'crossws/sync'
 import { NodeRequest } from 'srvx/node'
+import { redisTarget, useRedisManager } from '../redis/manager'
 import { extensionFor, registerNodeServer, serverExtensions } from '../server/extensions'
 import { globalStore, jsonReplacer } from '../utils'
 
@@ -20,7 +24,17 @@ export interface WebSocketConfig {
    * 多实例广播：Socket.publish / peer.publish 经 Redis pub/sub 转发到所有实例（需要 ioredis）。
    * channel 用于区分共用同一个 Redis 的不同应用。
    */
-  broadcast?: { driver: 'redis', url?: string, channel?: string }
+  broadcast?: WebSocketBroadcastConfig
+}
+
+export interface WebSocketBroadcastConfig extends RedisConnectionRef {
+  driver: 'redis'
+  /** config/redis.ts 中的连接名，默认为其 default 连接；发布用共享连接，订阅另建一个专用连接 */
+  connection?: RedisConnectionName
+  /** 内联地址（旧写法），设置后不使用命名连接 */
+  url?: string
+  /** pub/sub 频道（连接的 keyPrefix 不作用于频道），默认 `haze:ws` */
+  channel?: string
 }
 
 /** `config/websocket.ts` 的默认导出 */
@@ -72,21 +86,23 @@ export function resolveHooks(fetch: FetchHandler): (request: Request) => Promise
   }
 }
 
-/** 由配置创建 Redis 同步（ioredis 延迟加载） */
-export function syncFromConfig(config: WebSocketConfig | undefined): SyncAdapter | undefined {
+/**
+ * 由配置创建 Redis 同步（ioredis 延迟加载）：发布用 RedisManager 的共享命令连接，
+ * crossws 由它 duplicate() 出订阅连接（关闭时断开）。redis 缺省时取当前应用的管理器
+ */
+export function syncFromConfig(config: WebSocketConfig | undefined, redis?: RedisManager): SyncAdapter | undefined {
   const broadcast = config?.broadcast
   if (!broadcast)
     return undefined
   return (context) => {
     let driver: ReturnType<SyncAdapter> | undefined
-    const ready = import('ioredis').then((module) => {
-      const Redis = (module as unknown as { Redis?: new (url: string) => unknown, default?: new (url: string) => unknown }).Redis ?? (module as { default: new (url: string) => unknown }).default
-      driver = redis({
-        client: new Redis(broadcast.url ?? 'redis://127.0.0.1:6379') as never,
+    let publisher: RedisClient | undefined
+    const ready = (redis ?? useRedisManager()).client(redisTarget(broadcast), 'WebSocket broadcast "redis"').then((client) => {
+      publisher = client
+      driver = redisSync({
+        client: client as never,
         channel: broadcast.channel ?? 'haze:ws',
       })(context)
-    }, (error) => {
-      throw new Error('WebSocket broadcast "redis" requires ioredis. Install it with: pnpm add ioredis', { cause: error })
     })
     return {
       subscribe: async (deliver) => {
@@ -95,6 +111,9 @@ export function syncFromConfig(config: WebSocketConfig | undefined): SyncAdapter
       },
       publish: async (message) => {
         await ready
+        // 应用关闭后共享连接已断开（之后关闭的连接仍可能发布）：不再转发到其它实例
+        if (publisher?.status === 'end')
+          return
         return driver!.publish(message)
       },
       close: async () => {
@@ -109,9 +128,9 @@ export function syncFromConfig(config: WebSocketConfig | undefined): SyncAdapter
  * srvx 插件：按运行时（Node / Bun / Deno）接入 WebSocket 升级。
  * fetch 为应用（或开发时热替换后的最新应用）的请求处理函数。
  */
-export function webSocketPlugin(fetch: FetchHandler, config?: WebSocketConfig): ServerPlugin {
+export function webSocketPlugin(fetch: FetchHandler, config?: WebSocketConfig, redis?: RedisManager): ServerPlugin {
   const resolve = resolveHooks(fetch)
-  const sync = syncFromConfig(config)
+  const sync = syncFromConfig(config, redis)
   const runtime = globalThis as { Bun?: unknown, Deno?: unknown }
   return (server) => {
     if (runtime.Bun) {
@@ -152,7 +171,7 @@ export function webSocketPlugin(fetch: FetchHandler, config?: WebSocketConfig): 
         : next())
       return
     }
-    const upgrade = nodeUpgradeHandler(fetch, config)
+    const upgrade = nodeUpgradeHandler(fetch, config, redis)
     const serve = server.serve.bind(server)
     server.serve = () => {
       const node = server.node?.server as NodeServer | undefined
@@ -170,11 +189,11 @@ export function webSocketPlugin(fetch: FetchHandler, config?: WebSocketConfig): 
  * Node 的 upgrade 事件处理（产物服务端、Vite 开发服务器共用）。
  * Node 适配器按需加载：其内置的 ws 库在模块顶层使用 createRequire(import.meta.url)，不能在 Workers 中求值
  */
-export function nodeUpgradeHandler(fetch: FetchHandler, config?: WebSocketConfig): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
+export function nodeUpgradeHandler(fetch: FetchHandler, config?: WebSocketConfig, redis?: RedisManager): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
   const ready = import('crossws/adapters/node').then(({ default: nodeAdapter }) => {
     const ws = nodeAdapter({
       resolve: resolveHooks(fetch),
-      sync: syncFromConfig(config),
+      sync: syncFromConfig(config, redis),
     })
     registerWebSocketAdapter(ws)
     return ws

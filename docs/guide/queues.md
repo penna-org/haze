@@ -102,7 +102,8 @@ export default defineQueueConfig(() => ({
     sync: { driver: 'sync' },
     redis: {
       driver: 'redis',
-      url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+      // A connection from config/redis.ts (default: its `default` connection)
+      connection: 'default',
       queues: ['default', 'emails'],
     },
     cloudflare: { driver: 'cloudflare', binding: 'QUEUE' },
@@ -114,7 +115,7 @@ export default defineQueueConfig(() => ({
 | --- | --- |
 | `sync` | Runs the job during `dispatch()`; errors are thrown to the caller, no retries |
 | `memory` | In-process queue consumed by the same process (`concurrency`, default 1). Handles delay and backoff with timers. Jobs are lost when the process exits. The default when `config/queue.ts` is missing |
-| `redis` | BullMQ (`pnpm add bullmq ioredis`). Options: `url`, `prefix` (default `haze`), `queues` (managed by `queue:failed` / `queue:retry`, default `['default']`), `keepCompleted` (default 1000). Needs a separate worker process |
+| `redis` | BullMQ (`pnpm add bullmq ioredis`). Options: `connection` (a [Redis connection](./redis), default: the `default` one; BullMQ gets its settings without `keyPrefix` and opens its own connections), `url` (inline, takes precedence), `prefix` (default `haze`; the key prefix BullMQ uses), `queues` (managed by `queue:failed` / `queue:retry`, default `['default']`), `keepCompleted` (default 1000). Needs a separate worker process |
 | `cloudflare` | Cloudflare Queues producer binding (`binding`, default `QUEUE`); the Worker's `queue()` handler consumes it. Delays are capped at 12 hours |
 
 ## Running workers

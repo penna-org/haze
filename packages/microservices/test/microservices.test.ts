@@ -3,10 +3,10 @@ import type { MessageHandler, MicroservicesConfig, TransportConfig } from '../sr
 import { createServer } from 'node:net'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { createApplication, createToken, defineRoutes, inject, NotFoundException } from '@hazejs/core'
+import { createApplication, createToken, defineRoutes, inject, NotFoundException, RedisManager } from '@hazejs/core'
 import * as v from 'valibot'
-import { afterEach, describe, expect, it } from 'vitest'
-import { defineMessageHandler, listenMicroservices, Microservice, MicroserviceManager, microservicesProvider, MicroserviceTimeoutError, MicroserviceUnavailableError, RemoteError } from '../src'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { createTransport, defineMessageHandler, listenMicroservices, Microservice, MicroserviceManager, microservicesProvider, MicroserviceTimeoutError, MicroserviceUnavailableError, redisTransport, RemoteError } from '../src'
 
 const Prefix = createToken<string>('prefix')
 
@@ -539,9 +539,130 @@ describe('grpc transport', () => {
   })
 })
 
+/** ioredis 形状的假客户端：只记录连接与选项，BRPOP 总是超时 */
+class FakeRedis {
+  static created: FakeRedis[] = []
+  status = 'ready'
+  readonly args: unknown[]
+  constructor(...args: unknown[]) {
+    this.args = args
+    FakeRedis.created.push(this)
+  }
+
+  on() {
+    return this
+  }
+
+  once() {
+    return this
+  }
+
+  duplicate() {
+    return new FakeRedis(...this.args)
+  }
+
+  async subscribe() {}
+  async publish() {
+    return 0
+  }
+
+  async brpop() {
+    await new Promise(resolve => setTimeout(resolve, 5))
+    return null
+  }
+
+  async quit() {
+    this.status = 'end'
+  }
+
+  disconnect() {
+    this.status = 'end'
+  }
+}
+
+describe('redis transport connections', () => {
+  const driver = { Redis: FakeRedis, Cluster: FakeRedis } as never
+  const config = {
+    connections: {
+      default: { url: 'redis://main:6379' },
+      bus: { url: 'redis://bus:6379', keyPrefix: 'ms:' },
+    },
+  }
+
+  it('uses a named connection, sharing the command client inside an application', async () => {
+    FakeRedis.created.length = 0
+    const redis = new RedisManager(config, { driver })
+    const transport = createTransport({ driver: 'redis', connection: 'bus' }, { redis })
+    const server = await transport.listen({
+      patterns: ['a'],
+      dispatch: async () => null,
+      onError: () => {},
+    })
+    await transport.emit('a', 1)
+    // 服务端：BRPOP（maxRetriesPerRequest: null）、事件订阅、共享的发布连接；客户端：回复订阅，发布复用共享连接
+    expect(FakeRedis.created.map(client => client.args)).toEqual([
+      [
+        'redis://bus:6379',
+        { keyPrefix: 'ms:', maxRetriesPerRequest: null },
+      ],
+      [
+        'redis://bus:6379',
+        { keyPrefix: 'ms:' },
+      ],
+      [
+        'redis://bus:6379',
+        { keyPrefix: 'ms:' },
+      ],
+      [
+        'redis://bus:6379',
+        { keyPrefix: 'ms:' },
+      ],
+    ])
+    const shared = await redis.client('bus') as unknown as FakeRedis
+    await server.close()
+    await transport.close()
+    // 共享连接由 RedisManager 关闭，其它连接随传输关闭
+    expect(FakeRedis.created.filter(client => client !== shared).every(client => client.status === 'end')).toBe(true)
+    expect(shared.status).toBe('ready')
+    await redis.disconnect()
+    expect(shared.status).toBe('end')
+  })
+})
+
 const redisUrl = process.env.HAZE_TEST_REDIS_URL
 describe.runIf(redisUrl)('real redis', () => {
   transportSemantics('redis', () => ({ driver: 'redis', url: redisUrl, prefix: `test:${crypto.randomUUID()}:` }), { queueGroups: false, noResponders: false })
+
+  // 命名连接：不写 url，使用 core 的默认连接（缺省 config/redis.ts 时读取 REDIS_URL）
+  describe('named connection', () => {
+    const previous = process.env.REDIS_URL
+    beforeAll(() => {
+      process.env.REDIS_URL = redisUrl
+    })
+    afterAll(() => {
+      if (previous === undefined)
+        delete process.env.REDIS_URL
+      else
+        process.env.REDIS_URL = previous
+    })
+    transportSemantics('redis (connection: default)', () => ({ driver: 'redis', connection: 'default', prefix: `test:${crypto.randomUUID()}:` }), { queueGroups: false, noResponders: false })
+
+    it('works standalone (outside an application), owning its connections', async () => {
+      const transport = redisTransport({ prefix: `test:${crypto.randomUUID()}:` })
+      const server = await transport.listen({
+        patterns: ['echo'],
+        dispatch: async packet => packet.data,
+        onError: () => {},
+      })
+      try {
+        expect(await transport.send('echo', { ok: 1 }, { timeout: 2000 })).toEqual({ ok: 1 })
+      }
+      finally {
+        await server.close()
+        await transport.close()
+      }
+    })
+  })
 })
 
 const natsUrl = process.env.HAZE_TEST_NATS_URL

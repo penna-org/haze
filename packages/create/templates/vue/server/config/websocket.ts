@@ -5,7 +5,8 @@ export default defineWebSocketConfig(() => env('WS_BROADCAST', '') === 'redis'
   ? {
       broadcast: {
         driver: 'redis',
-        url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+        // config/redis.ts 中的连接
+        connection: 'default',
         channel: '{{name}}:ws',
       },
     }

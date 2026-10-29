@@ -38,7 +38,7 @@ export default defineBroadcastingConfig(() => ({
   // 内置接口额外使用的路由中间件（全局中间件始终生效）
   middleware: ['throttle:120,60'],
   bus: env('BROADCAST_BUS', 'memory') === 'redis'
-    ? { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379'), prefix: 'my-app:broadcast' }
+    ? { driver: 'redis', connection: 'default', prefix: 'my-app:broadcast' }
     : { driver: 'memory' },
 }))
 ```
@@ -48,7 +48,7 @@ export default defineBroadcastingConfig(() => ({
 | `path` | 内置接口的前缀，默认 `/broadcasting`。 |
 | `routes` | 为 `false` 时不注册接口（例如只用 Socket.IO）。 |
 | `middleware` | 作用于内置接口的路由中间件，如 `throttle:120,60`。 |
-| `bus` | 广播如何到达所有实例：`{ driver: 'memory' }`、`{ driver: 'redis', url?, prefix? }`，或者自己实现的 `BroadcastBus`。`config/websocket.ts` 的 `broadcast.driver` 为 `redis` 时默认沿用它的 Redis，否则为 `memory`。 |
+| `bus` | 广播如何到达所有实例：`{ driver: 'memory' }`、`{ driver: 'redis', connection?, url?, prefix? }`（`connection` 为 [Redis 连接](./redis)名，默认 `default`；内联 `url` 优先），或者自己实现的 `BroadcastBus`。`config/websocket.ts` 的 `broadcast.driver` 为 `redis` 时默认沿用它的 Redis，否则为 `memory`。 |
 | `transports` | `{ ws?: boolean, sse?: boolean }`，默认都启用。 |
 | `heartbeat` | SSE 心跳间隔，默认 `25` 秒。 |
 | `maxChannels` | 每个 SSE 连接最多订阅的频道数，默认 100。 |
@@ -241,11 +241,11 @@ const echo = createEcho({ transport: 'socket.io', io })
 ```ts
 // config/broadcasting.ts
 export default defineBroadcastingConfig({
-  bus: { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379'), prefix: 'my-app:broadcast' },
+  bus: { driver: 'redis', connection: 'default', prefix: 'my-app:broadcast' },
 })
 ```
 
-需要安装 `ioredis`（`pnpm add ioredis`）。如果 `config/websocket.ts` 已经设置了 `broadcast: { driver: 'redis' }`，广播会自动使用同一个 Redis。在线成员按频道存在 Redis Hash 中（`<prefix>:presence:<channel>`）。Socket.IO 传输同样经这条总线投递，广播不依赖 Socket.IO 自己的 `adapter` 设置。
+需要安装 `ioredis`（`pnpm add ioredis`）。如果 `config/websocket.ts` 已经设置了 `broadcast: { driver: 'redis' }`，广播会自动使用同一个连接。发布与在线成员使用该连接的共享命令连接，另加一个专用的订阅连接。在线成员按频道存在 Redis Hash 中（`<prefix>:presence:<channel>`，前面再加上连接的 `keyPrefix`；`keyPrefix` 不作用于 pub/sub 频道）。Socket.IO 传输同样经这条总线投递，广播不依赖 Socket.IO 自己的 `adapter` 设置。
 
 ## 测试
 

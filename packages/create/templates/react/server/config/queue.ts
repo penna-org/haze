@@ -12,7 +12,8 @@ export default defineQueueConfig(() => ({
     sync: { driver: 'sync' },
     redis: {
       driver: 'redis',
-      url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+      // config/redis.ts 中的连接（BullMQ 不使用连接的 keyPrefix，键前缀为 prefix，默认 haze）
+      connection: 'default',
       queues: ['default'],
     },
     // Cloudflare Workers：Queues 绑定（wrangler.json 的 queues.producers / consumers）

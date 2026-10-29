@@ -119,6 +119,8 @@ node dist/worker.mjs command inspire --all     # run one; exits with the command
 
 Workers stop gracefully on `SIGTERM` / `SIGINT`, letting running jobs finish. In full-stack projects (and always with `deno`) the path is `dist/server/worker.mjs`; in Docker, `docker run <image> node server/worker.mjs queue`.
 
+`--connection` is the queue connection from `config/queue.ts`. The worker reads the same `REDIS_URL` (or `config/redis.ts`) as the web process, so the [Redis](./redis) settings only need to be set once per environment.
+
 `worker.mjs command` runs the [console commands](./console) in `app/command` without the CLI or the source, which makes it the place for one-off and cron-driven maintenance in production. Serverless and edge presets have no command entry.
 
 On the other platforms scheduled tasks are triggered by the platform: Cron Triggers on Cloudflare, an EventBridge rule on Lambda, Vercel Cron on Vercel. See [Queues](./queues) and [Task Scheduling](./scheduling).

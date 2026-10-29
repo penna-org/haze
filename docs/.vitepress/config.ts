@@ -57,6 +57,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
     text: ['Digging Deeper', '进阶'],
     items: [
       ['cache', ['Cache', '缓存']],
+      ['redis', ['Redis', 'Redis']],
       ['queues', ['Queues', '队列']],
       ['scheduling', ['Task Scheduling', '定时任务']],
       ['events', ['Events', '事件']],

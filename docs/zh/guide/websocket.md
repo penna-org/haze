@@ -140,7 +140,8 @@ export default defineWebSocketConfig(() => env('WS_BROADCAST', '') === 'redis'
   ? {
       broadcast: {
         driver: 'redis',
-        url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+        // config/redis.ts 中的连接（默认为其 default 连接）
+        connection: 'default',
         // 多个应用共用一个 Redis 时用频道区分（默认 haze:ws）
         channel: 'my-app:ws',
       },
@@ -148,7 +149,7 @@ export default defineWebSocketConfig(() => env('WS_BROADCAST', '') === 'redis'
   : {})
 ```
 
-`Socket.publish()` 与 `peer.publish()` 都会转发到所有实例。
+`Socket.publish()` 与 `peer.publish()` 都会转发到所有实例。发布使用该连接的共享命令连接，每个服务器另建一个专用的订阅连接。连接的 `keyPrefix` 不作用于 `channel`。原来的内联 `url`（及 `options`）写法仍然可用，并且优先于 `connection`，见 [Redis](./redis)。
 
 ## 运行时支持
 

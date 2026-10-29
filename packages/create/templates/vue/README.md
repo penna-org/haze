@@ -133,7 +133,7 @@ export default definePolicy(User, {
 
 ## 缓存
 
-`server/config/cache.ts`（默认内存；设置 `CACHE_STORE=redis` 与 `REDIS_URL` 切换到 Redis，需要 `pnpm add ioredis`）：
+`server/config/cache.ts`（默认内存；设置 `CACHE_STORE=redis` 与 `REDIS_URL` 切换到 Redis，需要 `pnpm add ioredis`；Redis 连接统一在 `server/config/redis.ts` 中声明，队列、WebSocket、Socket.IO 按名字引用同一个连接）：
 
 ```ts
 import { Cache } from '@hazejs/core'

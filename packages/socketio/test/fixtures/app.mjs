@@ -77,14 +77,25 @@ export function createApp(config = {}) {
   })
 }
 
-// 作为子进程运行：PORT、REDIS_URL
+// 作为子进程运行：PORT、REDIS_URL（ADAPTER_CONNECTION=1 时改用 config/redis.ts 的命名连接）
 if (process.argv[1]?.endsWith('app.mjs')) {
   const app = await createApp(process.env.REDIS_URL
-    ? {
-        socketio: {
-          adapter: { driver: 'redis', url: process.env.REDIS_URL, key: process.env.ADAPTER_KEY },
-        },
-      }
+    ? process.env.ADAPTER_CONNECTION
+      ? {
+          redis: {
+            connections: {
+              pubsub: { url: process.env.REDIS_URL },
+            },
+          },
+          socketio: {
+            adapter: { driver: 'redis', connection: 'pubsub', key: process.env.ADAPTER_KEY },
+          },
+        }
+      : {
+          socketio: {
+            adapter: { driver: 'redis', url: process.env.REDIS_URL, key: process.env.ADAPTER_KEY },
+          },
+        }
     : {})
   const server = app.serve({
     port: Number(process.env.PORT),

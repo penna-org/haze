@@ -3,11 +3,13 @@ import type { EventDefinition } from '../events/event'
 import type { HttpContext } from '../http/context'
 import type { RouteRegistrar } from '../routing/builder'
 import type { Peer } from '../websocket/handler'
+import type { WebSocketConfig } from '../websocket/server'
 import type { BroadcastBus } from './bus'
 import type { PresenceMember } from './channels'
 import type { BroadcastingConfig } from './config'
 import type { BroadcastEnvelope, BroadcastMessage, HubConnection } from './hub'
 import { BadRequestException, ForbiddenException, UnauthorizedException } from '../exception/exceptions'
+import { RedisManager } from '../redis/manager'
 import { getRequestStore } from '../request'
 import { appKey, sign, verify } from '../security/key'
 import { parseDuration } from '../utils'
@@ -153,15 +155,27 @@ export class BroadcastManager {
   bus(): BroadcastBus {
     if (!this.#bus) {
       const config = this.config.bus
-      const ws = this.app.config.get<{ broadcast?: { driver: 'redis', url?: string, channel?: string } } | undefined>('websocket', undefined)?.broadcast
-      if (config && 'publish' in config)
+      const ws = this.app.config.get<WebSocketConfig | undefined>('websocket', undefined)?.broadcast
+      const redis = (): RedisManager | undefined => this.app.container.has(RedisManager)
+        ? this.app.make(RedisManager)
+        : undefined
+      if (config && 'publish' in config) {
         this.#bus = config
-      else if (config?.driver === 'redis')
-        this.#bus = redisBus(config)
-      else if (!config && ws?.driver === 'redis')
-        this.#bus = redisBus({ url: ws.url, prefix: `${ws.channel ?? 'haze:ws'}:broadcast` })
-      else
+      }
+      else if (config?.driver === 'redis') {
+        this.#bus = redisBus(config, redis())
+      }
+      else if (!config && ws?.driver === 'redis') {
+        this.#bus = redisBus({
+          connection: ws.connection,
+          url: ws.url,
+          options: ws.options,
+          prefix: `${ws.channel ?? 'haze:ws'}:broadcast`,
+        }, redis())
+      }
+      else {
         this.#bus = memoryBus()
+      }
     }
     return this.#bus
   }

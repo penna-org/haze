@@ -1,6 +1,7 @@
 import type { Config } from '../config/config'
 import type { CacheConfig, CacheStoreConfig } from './config'
 import type { CacheStore } from './store'
+import { RedisManager } from '../redis/manager'
 import { getRequestStore } from '../request'
 import { defaultCacheConfig } from './config'
 import { kvStore } from './drivers/kv'
@@ -9,12 +10,12 @@ import { redisStore } from './drivers/redis'
 import { upstashStore } from './drivers/upstash'
 import { CacheRepository } from './repository'
 
-function createStore(name: string, config: CacheStoreConfig): CacheStore {
+function createStore(name: string, config: CacheStoreConfig, redis: () => RedisManager): CacheStore {
   switch (config.driver) {
     case 'memory':
       return memoryStore(name)
     case 'redis':
-      return redisStore(name, config)
+      return redisStore(name, config, redis())
     case 'upstash':
       return upstashStore(config)
     case 'kv':
@@ -30,7 +31,12 @@ function createStore(name: string, config: CacheStoreConfig): CacheStore {
 export class CacheManager {
   readonly #repositories = new Map<string, CacheRepository>()
 
-  constructor(readonly appConfig: Config) {}
+  readonly #redis: RedisManager | undefined
+
+  /** redis 为应用的 Redis 连接管理器（redis 驱动的存储使用其命名连接），缺省时按同一份配置创建 */
+  constructor(readonly appConfig: Config, redis?: RedisManager) {
+    this.#redis = redis
+  }
 
   get config(): CacheConfig {
     const config = this.appConfig.get<Partial<CacheConfig> | undefined>('cache', undefined)
@@ -55,7 +61,7 @@ export class CacheManager {
       const config = this.config.stores[name]
       if (!config)
         throw new Error(`Cache store "${name}" is not defined in config/cache.ts`)
-      repository = new CacheRepository(name, createStore(name, config), this.config.prefix ?? '')
+      repository = new CacheRepository(name, createStore(name, config, () => this.#redis ?? new RedisManager(this.appConfig)), this.config.prefix ?? '')
       this.#repositories.set(name, repository)
     }
     return repository

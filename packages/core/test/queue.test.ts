@@ -222,6 +222,46 @@ describe.runIf(process.env.HAZE_TEST_REDIS_URL)('queue (redis / BullMQ)', () => 
     }
   }
 
+  it('runs on a named connection; the connection keyPrefix is not passed to BullMQ', async () => {
+    const prefix = `test-${crypto.randomUUID()}`
+    const queue = {
+      default: 'redis',
+      connections: {
+        redis: { driver: 'redis', connection: 'jobs', prefix },
+      },
+    }
+    const instance = await boot(queue, {
+      config: {
+        logger: { level: 'silent' },
+        redis: {
+          connections: {
+            jobs: { url: process.env.HAZE_TEST_REDIS_URL, keyPrefix: 'ignored:' },
+          },
+        },
+        queue,
+      },
+    })
+    const worker = await instance.make(QueueManager).work()
+    try {
+      await Greet.dispatch({ name: 'named' })
+      await waitFor(() => log.length >= 1)
+      expect(log).toEqual(['greet:named:1'])
+      const { Redis } = await import('ioredis')
+      const raw = new Redis(process.env.HAZE_TEST_REDIS_URL!)
+      try {
+        // BullMQ 的键只用队列的 prefix
+        expect((await raw.keys(`${prefix}:*`)).length).toBeGreaterThan(0)
+        expect(await raw.keys(`ignored:${prefix}:*`)).toEqual([])
+      }
+      finally {
+        await raw.quit()
+      }
+    }
+    finally {
+      await worker.stop()
+    }
+  }, 30_000)
+
   it('distributes jobs across two workers, each job processed exactly once', async () => {
     const queue = connection()
     const producer = await boot(queue)

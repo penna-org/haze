@@ -3,6 +3,7 @@ import type { Application } from '../application'
 import type { MaybePromise } from '../utils'
 import { CacheManager } from '../cache/manager'
 import { QueueManager } from '../queue/manager'
+import { RedisManager } from '../redis/manager'
 import { StorageManager } from '../storage/manager'
 
 export type HealthStatus = 'ok' | 'degraded' | 'down'
@@ -249,17 +250,34 @@ export function cacheCheck(store?: string): HealthCheckFn {
   }
 }
 
+/** PING 一个 ioredis 风格的客户端 */
+async function ping(client: { ping: () => Promise<unknown> }): Promise<HealthCheckResult> {
+  const reply = await client.ping()
+  if (reply !== 'PONG' && reply !== 'pong')
+    return { status: 'down', message: `unexpected PING reply: ${String(reply)}` }
+}
+
 /**
- * Redis：传入缓存存储名（redis / upstash 驱动的存储，读写探测），
- * 或带 ping() 的客户端（如 ioredis 实例）
+ * Redis：
+ * - 传入名字时，先按 config/redis.ts 的连接名（缺省 config/redis.ts 时只有 default）PING 共享连接；
+ *   不是连接名而是缓存存储名（redis / upstash 驱动）时，对该存储做读写检查（旧写法）；
+ * - 不传时 PING 默认连接；
+ * - 也可以传入带 ping() 的客户端（如 ioredis 实例）。
  */
-export function redisCheck(target: string | { ping: () => Promise<unknown> } = 'redis'): HealthCheckFn {
-  if (typeof target === 'string')
-    return cacheCheck(target)
-  return async () => {
-    const reply = await target.ping()
-    if (reply !== 'PONG' && reply !== 'pong')
-      return { status: 'down', message: `unexpected PING reply: ${String(reply)}` }
+export function redisCheck(target?: string | { ping: () => Promise<unknown> }): HealthCheckFn {
+  if (target !== undefined && typeof target !== 'string')
+    return async () => ping(target)
+  return async (context) => {
+    const { app } = context
+    const redis = app.container.has(RedisManager)
+      ? app.make(RedisManager)
+      : new RedisManager(app.config)
+    const name = target ?? redis.defaultConnection
+    if (redis.has(name))
+      return ping(await redis.client(name, 'Health check "redis"') as unknown as { ping: () => Promise<unknown> })
+    if (app.make(CacheManager).config.stores[name])
+      return cacheCheck(name)(context)
+    return { status: 'down', message: `"${name}" is neither a Redis connection (config/redis.ts) nor a cache store` }
   }
 }
 

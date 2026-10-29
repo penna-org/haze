@@ -119,6 +119,8 @@ node dist/worker.mjs command inspire --all     # 运行其中一个，退出码�
 
 worker 收到 `SIGTERM` / `SIGINT` 后会等执行中的任务完成再退出。全栈项目（以及 `deno` 预设）的路径为 `dist/server/worker.mjs`；Docker 中为 `docker run <镜像> node server/worker.mjs queue`。
 
+`--connection` 是 `config/queue.ts` 中的队列连接。worker 与 Web 进程读取同一个 `REDIS_URL`（或 `config/redis.ts`），每个环境只需设置一次 [Redis](./redis) 连接。
+
 `worker.mjs command` 不依赖命令行工具和源码，直接运行 `app/command` 下的[自定义命令](./console)，生产环境中的一次性维护操作和由 cron 触发的脚本都可以放在这里。Serverless 与 Edge 预设没有命令入口。
 
 其它平台的定时任务由平台触发：Cloudflare 用 Cron Triggers，Lambda 用 EventBridge 规则，Vercel 用 Vercel Cron。详见[队列](./queues)与[定时任务](./scheduling)。

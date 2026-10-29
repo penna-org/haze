@@ -24,7 +24,7 @@ export default defineHealthConfig({
   checks: {
     db: dbCheck(Db),
     cache: cacheCheck(),
-    redis: redisCheck('redis'),
+    redis: redisCheck(), // 对 config/redis.ts 的默认连接 PING
     storage: { check: storageCheck('s3'), critical: false },
     queue: queueCheck({ connection: 'redis', maxFailed: 100 }),
     payments: async ({ signal }) => {
@@ -66,7 +66,7 @@ export default defineHealthConfig({
 |------|------|
 | `dbCheck(Db, { connection?, query? })` | 经 `@hazejs/orm` 的 `Db` 执行 `select 1`（由你传入 Db，core 不依赖 ORM） |
 | `cacheCheck(store?)` | 写入、读回并删除一个短期键 |
-| `redisCheck(存储名 \| 客户端)` | 对 Redis 缓存存储做读写检查，或调用 ioredis 等客户端的 `ping()` |
+| `redisCheck(名字? \| 客户端)` | 对 [Redis 连接](./redis)发送 `PING`（默认为 `default` 连接）。名字不是连接名而是缓存存储名时，对该存储做读写检查（旧写法）。也可以传入 ioredis 等客户端，调用其 `ping()` |
 | `storageCheck(disk?)` | 检查磁盘能否响应（只读） |
 | `queueCheck({ connection?, maxFailed? })` | 返回等待 / 延迟 / 执行中 / 失败数量，失败数超过 `maxFailed` 时为 `degraded` |
 

@@ -24,7 +24,7 @@ export default defineHealthConfig({
   checks: {
     db: dbCheck(Db),
     cache: cacheCheck(),
-    redis: redisCheck('redis'),
+    redis: redisCheck(), // PING on the default connection of config/redis.ts
     storage: { check: storageCheck('s3'), critical: false },
     queue: queueCheck({ connection: 'redis', maxFailed: 100 }),
     payments: async ({ signal }) => {
@@ -66,7 +66,7 @@ Built-in checks:
 |-------|--------------|
 | `dbCheck(Db, { connection?, query? })` | Runs `select 1` through `@hazejs/orm`'s `Db` (passed in, so core doesn't depend on the ORM) |
 | `cacheCheck(store?)` | Writes, reads and deletes a short-lived key |
-| `redisCheck(storeName \| client)` | A cache check on a Redis store, or `client.ping()` on an ioredis-style client |
+| `redisCheck(name? \| client)` | `PING` on a [Redis connection](./redis) (default: the `default` one). A name that is not a connection but a cache store gets a cache check on that store (the older form). Or `client.ping()` on an ioredis-style client |
 | `storageCheck(disk?)` | Checks that the disk responds (read only) |
 | `queueCheck({ connection?, maxFailed? })` | Reports waiting / delayed / active / failed counts; `degraded` above `maxFailed` |
 

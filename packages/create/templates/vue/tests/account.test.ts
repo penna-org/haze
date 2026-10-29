@@ -50,7 +50,9 @@ describe('account', () => {
     expect(link.pathname).toMatch(/^\/api\/auth\/email\/verify\/\d+\/\w+$/)
 
     // 篡改签名返回 403
-    const tampered = `${link.pathname}?${link.searchParams.toString().replace(/signature=./, 'signature=x')}`
+    const tampered = `${link.pathname}?${link.searchParams.toString().replace(/signature=(.)/, (_, first: string) => `signature=${first === 'x'
+      ? 'y'
+      : 'x'}`)}`
     expect((await t.get(tampered)).status).toBe(403)
 
     const verified = await t.get(`${link.pathname}${link.search}`)

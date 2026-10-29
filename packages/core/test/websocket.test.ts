@@ -145,12 +145,25 @@ describe('websocket', () => {
     expect(await authorized.next(1)).toBe('secret')
   })
 
-  it.runIf(process.env.HAZE_TEST_REDIS_URL)('broadcasts across instances through Redis', async () => {
-    const config = {
-      websocket: {
-        broadcast: { driver: 'redis', url: process.env.HAZE_TEST_REDIS_URL, channel: `test:${crypto.randomUUID()}` },
-      },
-    }
+  // 内联 url（旧写法）与 config/redis.ts 的命名连接
+  it.runIf(process.env.HAZE_TEST_REDIS_URL).each(['url', 'connection'])('broadcasts across instances through Redis (%s)', async (mode) => {
+    const channel = `test:${crypto.randomUUID()}`
+    const config = mode === 'url'
+      ? {
+          websocket: {
+            broadcast: { driver: 'redis', url: process.env.HAZE_TEST_REDIS_URL, channel },
+          },
+        }
+      : {
+          redis: {
+            connections: {
+              ws: { url: process.env.HAZE_TEST_REDIS_URL, keyPrefix: 'ignored-for-channels:' },
+            },
+          },
+          websocket: {
+            broadcast: { driver: 'redis', connection: 'ws', channel },
+          },
+        }
     const [first, second] = await Promise.all([
       start(config),
       start(config),

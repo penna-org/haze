@@ -6,7 +6,8 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
   ? {
       adapter: {
         driver: 'redis',
-        url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+        // config/redis.ts 中的连接
+        connection: 'default',
         key: '{{name}}',
       },
     }

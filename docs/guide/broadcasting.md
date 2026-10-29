@@ -38,7 +38,7 @@ export default defineBroadcastingConfig(() => ({
   // Extra route middleware for the endpoints (global middleware always runs)
   middleware: ['throttle:120,60'],
   bus: env('BROADCAST_BUS', 'memory') === 'redis'
-    ? { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379'), prefix: 'my-app:broadcast' }
+    ? { driver: 'redis', connection: 'default', prefix: 'my-app:broadcast' }
     : { driver: 'memory' },
 }))
 ```
@@ -48,7 +48,7 @@ export default defineBroadcastingConfig(() => ({
 | `path` | Prefix of the endpoints. Defaults to `/broadcasting`. |
 | `routes` | `false` registers no endpoints (for example when only Socket.IO is used). |
 | `middleware` | Route middleware applied to the endpoints, such as `throttle:120,60`. |
-| `bus` | How broadcasts reach every instance: `{ driver: 'memory' }` or `{ driver: 'redis', url?, prefix? }`, or your own `BroadcastBus`. Defaults to the Redis settings of `config/websocket.ts` when `broadcast.driver` is `redis`, otherwise `memory`. |
+| `bus` | How broadcasts reach every instance: `{ driver: 'memory' }` or `{ driver: 'redis', connection?, url?, prefix? }` (`connection` names a [Redis connection](./redis), default: the `default` one; an inline `url` takes precedence), or your own `BroadcastBus`. Defaults to the Redis settings of `config/websocket.ts` when `broadcast.driver` is `redis`, otherwise `memory`. |
 | `transports` | `{ ws?: boolean, sse?: boolean }`. Both default to `true`. |
 | `heartbeat` | SSE keep-alive interval, `25` seconds by default. |
 | `maxChannels` | Maximum channels per SSE connection. Defaults to 100. |
@@ -241,11 +241,11 @@ With the default `memory` bus, broadcasts reach only the connections of the curr
 ```ts
 // config/broadcasting.ts
 export default defineBroadcastingConfig({
-  bus: { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379'), prefix: 'my-app:broadcast' },
+  bus: { driver: 'redis', connection: 'default', prefix: 'my-app:broadcast' },
 })
 ```
 
-This needs `ioredis` (`pnpm add ioredis`). If `config/websocket.ts` already sets `broadcast: { driver: 'redis' }`, broadcasting uses the same Redis automatically. Presence members are kept in a Redis hash per channel (`<prefix>:presence:<channel>`). The Socket.IO transport delivers through this bus too, so its own `adapter` setting is not needed for broadcasting.
+This needs `ioredis` (`pnpm add ioredis`). If `config/websocket.ts` already sets `broadcast: { driver: 'redis' }`, broadcasting uses the same connection automatically. Publishing and presence use the connection's shared command client, plus one dedicated subscriber connection. Presence members are kept in a Redis hash per channel (`<prefix>:presence:<channel>`, after the connection's `keyPrefix`, which does not apply to the pub/sub channel). The Socket.IO transport delivers through this bus too, so its own `adapter` setting is not needed for broadcasting.
 
 ## Testing
 

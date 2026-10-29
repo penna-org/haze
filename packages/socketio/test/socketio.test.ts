@@ -175,8 +175,13 @@ async function spawnApp(command: string, env: Record<string, string>): Promise<s
 }
 
 describe.runIf(process.env.HAZE_TEST_REDIS_URL)('socket.io across instances (redis-adapter)', () => {
-  it('emits to a room from another instance', async () => {
-    const env = { REDIS_URL: process.env.HAZE_TEST_REDIS_URL!, ADAPTER_KEY: `test-${crypto.randomUUID()}` }
+  // 内联 url（旧写法）与 config/redis.ts 的命名连接
+  it.each(['url', 'connection'])('emits to a room from another instance (%s)', async (mode) => {
+    const env = {
+      REDIS_URL: process.env.HAZE_TEST_REDIS_URL!,
+      ADAPTER_KEY: `test-${crypto.randomUUID()}`,
+      ...(mode === 'connection' && { ADAPTER_CONNECTION: '1' }),
+    }
     const [first, second] = await Promise.all([
       spawnApp(process.execPath, env),
       spawnApp(process.execPath, env),

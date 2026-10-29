@@ -1,11 +1,19 @@
+import type { RedisConnectionName, RedisConnectionRef } from '../../redis/config'
+import type { RedisManager } from '../../redis/manager'
 import type { FailedJob, JobMessage } from '../job'
 import type { ConsumeOptions, QueueDriver } from './types'
+import { redisTarget, useRedisManager } from '../../redis/manager'
 
-export interface RedisQueueConfig {
+export interface RedisQueueConfig extends RedisConnectionRef {
   driver: 'redis'
-  /** redis://…，默认 redis://127.0.0.1:6379 */
+  /**
+   * config/redis.ts 中的连接名，默认为其 default 连接（REDIS_URL）。
+   * BullMQ 不允许 ioredis 的 keyPrefix：连接上的 keyPrefix 会被去掉，键前缀请用 prefix
+   */
+  connection?: RedisConnectionName
+  /** 内联地址（旧写法）：redis://…，设置后不使用命名连接 */
   url?: string
-  /** BullMQ 键前缀，默认 haze */
+  /** BullMQ 键前缀，默认 haze（Cluster 需要带哈希标签，如 `{haze}`） */
   prefix?: string
   /** 要管理的队列（queue:failed / retry 遍历），默认 ['default'] */
   queues?: string[]
@@ -28,15 +36,17 @@ async function loadBullMQ(): Promise<BullMQ> {
  * BullMQ 驱动：延迟、重试与退避、执行中进程崩溃后的恢复（stalled）、并发、失败任务保留。
  * 重试由 BullMQ 调度：attempts 为任务的 tries，退避按任务定义计算。
  */
-export function redisQueue(config: RedisQueueConfig): QueueDriver {
+export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRedisManager()): QueueDriver {
   const prefix = config.prefix ?? 'haze'
-  const connection = { url: config.url ?? 'redis://127.0.0.1:6379' }
+  const target = redisTarget(config)
   const queues = new Map<string, import('bullmq').Queue>()
   const workers: import('bullmq').Worker[] = []
+  // 连接选项（或 Cluster / 自定义客户端的专用实例），Queue 与 Worker 共用这一份设置
+  let resolved: ReturnType<RedisManager['bullmq']> | undefined
 
-  const connectionOptions = (): { connection: { url: string, maxRetriesPerRequest: null }, prefix: string } => ({
-    // Worker 的阻塞命令要求 maxRetriesPerRequest 为 null
-    connection: { ...connection, maxRetriesPerRequest: null } as never,
+  const connectionOptions = async (): Promise<{ connection: unknown, prefix: string }> => ({
+    // Worker 的阻塞命令要求 maxRetriesPerRequest 为 null（RedisManager.bullmq 已设置）
+    connection: (await (resolved ??= redis.bullmq(target))).connection,
     prefix,
   })
 
@@ -44,7 +54,9 @@ export function redisQueue(config: RedisQueueConfig): QueueDriver {
     let instance = queues.get(queueName)
     if (!instance) {
       const { Queue } = await loadBullMQ()
-      instance = new Queue(queueName, connectionOptions() as never)
+      const options = await connectionOptions()
+      // 等待期间可能已由并发的调用创建
+      instance = queues.get(queueName) ?? new Queue(queueName, options as never)
       queues.set(queueName, instance)
     }
     return instance
@@ -104,7 +116,7 @@ export function redisQueue(config: RedisQueueConfig): QueueDriver {
               : new Error(String(result.error))
           }
         }, {
-          ...connectionOptions(),
+          ...await connectionOptions(),
           concurrency: options.concurrency,
           settings: {
             backoffStrategy: (attemptsMade: number, _type: string | undefined, _error: Error | undefined, job: import('bullmq').Job | undefined) => job
@@ -167,6 +179,9 @@ export function redisQueue(config: RedisQueueConfig): QueueDriver {
         ...queues.values(),
       ].map(instance => instance.close()))
       queues.clear()
+      const connection = resolved
+      resolved = undefined
+      await (await connection?.catch(() => undefined))?.close()
     },
   }
 }

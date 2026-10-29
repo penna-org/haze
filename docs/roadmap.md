@@ -68,6 +68,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M26 | **Search** (database full-text, Meilisearch, Typesense, Elasticsearch / OpenSearch) and multi-tenancy |
 | M27 | Optional packages: GraphQL, microservice transports (Redis, NATS, gRPC) |
 | M28 | **Modules**: reusable feature units as local `modules/<name>/` folders or npm packages (`defineModule`), with routes, middleware, config defaults, providers, migrations, jobs, events, commands and policies; `make:module`, `module:list`, a `module` template |
+| M29 | **Unified Redis connections**: `config/redis.ts` with named connections (single node, TLS, Cluster, Sentinel, custom factories) referenced by cache, queues, WebSocket, broadcasting, Socket.IO and microservices; shared command connections, a `Redis` facade, `redisCheck()` on a connection |
 
 ## Next
 

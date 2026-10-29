@@ -1,6 +1,6 @@
-import type { Application, ConfigInput, ServerExtension, ServiceProvider } from '@hazejs/core'
+import type { Application, ConfigInput, RedisConnectionName, RedisConnectionRef, ServerExtension, ServiceProvider } from '@hazejs/core'
 import type { Namespace, Server, ServerOptions, Socket } from 'socket.io'
-import { BroadcastManager, createToken, definePersistent, registerServerExtension, subscribeEnvelope, unregisterServerExtension } from '@hazejs/core'
+import { BroadcastManager, closeRedisClient, createToken, definePersistent, RedisManager, redisTarget, registerServerExtension, subscribeEnvelope, unregisterServerExtension } from '@hazejs/core'
 
 export type { Namespace, Server, Socket }
 
@@ -12,7 +12,7 @@ export interface SocketIOConfig {
   /** CORS，默认沿用 config/cors.ts 的 origin；false 关闭（同源） */
   cors?: ServerOptions['cors'] | false
   /** 多实例：官方 @socket.io/redis-adapter（需要 ioredis） */
-  adapter?: { driver: 'redis', url?: string, key?: string }
+  adapter?: SocketIORedisAdapterConfig
   /** 透传给 socket.io Server 的其它选项（pingInterval、connectionStateRecovery 等） */
   options?: Partial<ServerOptions>
   /**
@@ -20,6 +20,16 @@ export interface SocketIOConfig {
    * 前端 `createEcho({ transport: 'socket.io', io })` 连接；频道授权与 WebSocket / SSE 相同。
    */
   broadcasting?: boolean | { namespace?: string }
+}
+
+export interface SocketIORedisAdapterConfig extends RedisConnectionRef {
+  driver: 'redis'
+  /** config/redis.ts 中的连接名，默认为其 default 连接：发布用共享连接，订阅另建一个专用连接 */
+  connection?: RedisConnectionName
+  /** 内联地址（旧写法），设置后不使用命名连接 */
+  url?: string
+  /** pub/sub 频道前缀（连接的 keyPrefix 不作用于频道），默认 `socket.io` */
+  key?: string
 }
 
 /** `config/socketio.ts` 的默认导出 */
@@ -146,12 +156,15 @@ async function createServer(app: Application, current: State): Promise<Server> {
     ...config.options,
   })
   if (config.adapter?.driver === 'redis') {
-    const [{ createAdapter }, ioredis] = await Promise.all([import('@socket.io/redis-adapter'), import('ioredis')])
-    const Redis = (ioredis as unknown as { Redis?: new (url: string) => any }).Redis ?? (ioredis as unknown as { default: new (url: string) => any }).default
-    const pub = new Redis(config.adapter.url ?? 'redis://127.0.0.1:6379')
-    const sub = pub.duplicate()
+    // 连接来自 core 的 RedisManager：发布用共享的命令连接（由它关闭），订阅用专用连接
+    const redis = app.make(RedisManager)
+    const target = redisTarget(config.adapter)
+    const feature = 'Socket.IO adapter "redis"'
+    const { createAdapter } = await import('@socket.io/redis-adapter')
+    const pub = await redis.client(target, feature)
+    const sub = await redis.subscriber(target, feature)
     io.adapter(createAdapter(pub, sub, { key: config.adapter.key ?? 'socket.io' }))
-    current.close.push(() => pub.quit(), () => sub.quit())
+    current.close.push(() => closeRedisClient(sub))
   }
 
   const prefix = path.replace(/\/$/, '')

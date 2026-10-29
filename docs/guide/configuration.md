@@ -50,6 +50,7 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | `config/observability.ts` | `defineObservabilityConfig` | `@hazejs/core` |
 | `config/openapi.ts` | `defineOpenAPIConfig` | `@hazejs/core` |
 | `config/queue.ts` | `defineQueueConfig` | `@hazejs/core` |
+| `config/redis.ts` | `defineRedisConfig` | `@hazejs/core` |
 | `config/schedule.ts` | `defineScheduleConfig` | `@hazejs/core` |
 | `config/secureHeaders.ts` | `defineSecureHeadersConfig` | `@hazejs/core` |
 | `config/session.ts` | `defineSessionConfig` | `@hazejs/core` |
@@ -64,7 +65,7 @@ npx haze make:config payment   # config/payment.ts → config('payment.enabled')
 | `config/search.ts` | `defineSearchConfig` | `@hazejs/search` |
 | `config/socketio.ts` | `defineSocketIOConfig` | `@hazejs/socket.io` |
 
-The options of each file are documented on the page of its module: [Broadcasting](./broadcasting), [Observability](./observability) (`health`, `observability`), [Localization](./localization), [Notifications](./notifications), [OpenAPI](./openapi), [Multi-tenancy](./tenancy), [AI](./ai), [GraphQL](./graphql), [Microservices](./microservices), [OAuth Social Login](./oauth), [Search](./search) and so on. Most of these files are optional: OpenAPI docs and health checks work without them, and `config/i18n.ts` turns on translated validation and framework messages.
+The options of each file are documented on the page of its module: [Broadcasting](./broadcasting), [Redis](./redis), [Observability](./observability) (`health`, `observability`), [Localization](./localization), [Notifications](./notifications), [OpenAPI](./openapi), [Multi-tenancy](./tenancy), [AI](./ai), [GraphQL](./graphql), [Microservices](./microservices), [OAuth Social Login](./oauth), [Search](./search) and so on. Most of these files are optional: OpenAPI docs and health checks work without them, and `config/i18n.ts` turns on translated validation and framework messages.
 
 ### Object form vs function form
 
@@ -78,7 +79,7 @@ export default defineQueueConfig(() => ({
   default: env('QUEUE_CONNECTION', 'memory'),
   connections: {
     memory: { driver: 'memory', concurrency: 2 },
-    redis: { driver: 'redis', url: env('REDIS_URL', 'redis://127.0.0.1:6379') },
+    redis: { driver: 'redis', connection: 'default' },
   },
 }))
 ```

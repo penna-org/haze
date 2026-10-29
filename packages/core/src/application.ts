@@ -43,6 +43,7 @@ import { openAPIMiddleware } from './openapi/middleware'
 import { disposePersistent } from './persistent'
 import { setQueueManager } from './queue/context'
 import { QueueManager } from './queue/manager'
+import { RedisManager, setRedisManager } from './redis/manager'
 import { getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
 import { Scheduler } from './schedule/scheduler'
@@ -199,8 +200,12 @@ export class Application {
     for (const [, policy] of this.#items('policies', options.policies))
       gate.register(policy)
     this.container.instance(Gate, gate)
+    // Redis：config/redis.ts 的命名连接（缺省时只有读取 REDIS_URL 的 default），缓存、队列、广播等按名字引用
+    const redis = new RedisManager(this.config)
+    this.container.instance(RedisManager, redis)
+    setRedisManager(redis)
     // 缓存：config/cache.ts，缺省为内存缓存
-    const cache = new CacheManager(this.config)
+    const cache = new CacheManager(this.config, redis)
     this.container.instance(CacheManager, cache)
     setCacheManager(cache)
     // 文件存储：config/filesystem.ts，缺省为 local / public 两个本地磁盘
@@ -288,7 +293,7 @@ export class Application {
       gracefulShutdown: false,
       ...options,
       plugins: [
-        webSocketPlugin(request => this.fetch(request), webSocketConfig(this.config)),
+        webSocketPlugin(request => this.fetch(request), webSocketConfig(this.config), this.make(RedisManager)),
         ...(options.plugins ?? []),
       ],
     })

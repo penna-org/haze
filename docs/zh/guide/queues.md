@@ -102,7 +102,8 @@ export default defineQueueConfig(() => ({
     sync: { driver: 'sync' },
     redis: {
       driver: 'redis',
-      url: env('REDIS_URL', 'redis://127.0.0.1:6379'),
+      // config/redis.ts 中的连接（默认为其 default 连接）
+      connection: 'default',
       queues: ['default', 'emails'],
     },
     cloudflare: { driver: 'cloudflare', binding: 'QUEUE' },
@@ -114,7 +115,7 @@ export default defineQueueConfig(() => ({
 | --- | --- |
 | `sync` | 在 `dispatch()` 中立即执行，失败直接抛给调用方，不重试 |
 | `memory` | 进程内队列，由当前进程消费（`concurrency`，默认 1），用计时器处理延迟与退避；进程退出时任务丢失。没有 `config/queue.ts` 时的默认值 |
-| `redis` | BullMQ（`pnpm add bullmq ioredis`）。选项：`url`、`prefix`（默认 `haze`）、`queues`（`queue:failed` / `queue:retry` 遍历的队列，默认 `['default']`）、`keepCompleted`（默认 1000）。需要单独的消费进程 |
+| `redis` | BullMQ（`pnpm add bullmq ioredis`）。选项：`connection`（[Redis 连接](./redis)，默认为 `default` 连接；BullMQ 拿到去掉 `keyPrefix` 的连接设置，自己建立连接）、`url`（内联地址，优先）、`prefix`（默认 `haze`，BullMQ 使用的键前缀）、`queues`（`queue:failed` / `queue:retry` 遍历的队列，默认 `['default']`）、`keepCompleted`（默认 1000）。需要单独的消费进程 |
 | `cloudflare` | Cloudflare Queues 生产者绑定（`binding`，默认 `QUEUE`），由 Worker 的 `queue()` 消费。延迟上限 12 小时 |
 
 ## 运行消费进程

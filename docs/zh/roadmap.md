@@ -68,6 +68,7 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | M26 | **搜索**（数据库全文检索、Meilisearch、Typesense、Elasticsearch / OpenSearch）与多租户 |
 | M27 | 可选包：GraphQL、微服务传输（Redis、NATS、gRPC） |
 | M28 | **模块**：以本地 `modules/<name>/` 目录或 npm 包（`defineModule`）提供可复用的功能单元，包含路由、中间件、默认配置、提供者、迁移、任务、事件、命令与授权策略；`make:module`、`module:list` 与 `module` 模板 |
+| M29 | **统一 Redis 连接**：`config/redis.ts` 声明命名连接（单机、TLS、Cluster、Sentinel、自定义工厂），缓存、队列、WebSocket、广播、Socket.IO 与微服务按名字引用；共享命令连接、`Redis` 门面、按连接 PING 的 `redisCheck()` |
 
 ## 后续计划
 
