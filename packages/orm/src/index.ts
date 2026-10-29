@@ -35,6 +35,8 @@ export type { CursorPaginated, JoinTable, JoinType, PaginateXOptions, QueryOptio
 export { Conditions } from './query/conditions'
 export type { BuildContext, FieldPath, SubqueryLike, WhereCondition, WhereObject, WhereTuple } from './query/conditions'
 export type { TimeInput, TimeKeyword, TimeUnit } from './query/time'
+export { databaseQueue } from './queue'
+export type { DatabaseQueueConfig, DatabaseQueueOptions } from './queue'
 export { configureSnowflake, DEFAULT_SNOWFLAKE_EPOCH, Snowflake, snowflakeId, useSnowflake } from './snowflake'
 export type { SnowflakeOptions, SnowflakeParts } from './snowflake'
 export { refreshDatabase } from './testing'

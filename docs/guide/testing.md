@@ -226,7 +226,7 @@ describe('registration', () => {
 
 | Fake | Assertions & helpers |
 |------|----------------------|
-| `Queue.fake()` | `assertDispatched(job, predicate?)`, `assertNotDispatched(job, predicate?)`, `assertCount(n)`, `drain()` runs the recorded jobs in order (ignoring delays), `dispatched` |
+| `Queue.fake()` | `assertDispatched(job, predicate?)`, `assertNotDispatched(job, predicate?)`, `assertCount(n)`; chains: `assertChained([JobA, JobB.with(payload)])`; batches: `assertBatched(batch => ...)`, `assertBatchCount(n)`, `assertNothingBatched()`; unique jobs: `assertPushedUnique(job, predicate?)`, `assertSkipped(job, predicate?)`; `drain()` runs the recorded jobs in order (ignoring delays; jobs they dispatch, such as the next job of a chain, are recorded again); `dispatched`, `chains`, `batches`, `skipped` |
 | `Events.fake(events?)` | `assertEmitted(event, predicate?)`, `assertNotEmitted(event, predicate?)`, `assertEmittedTimes(event, n)`, `emitted`. Pass a list to fake only those events. |
 | `Mail.fake()` | `assertSent`, `assertNotSent`, `assertSentTimes`, `assertQueued`, `assertNotQueued`, `assertNothingSent`, `assertNothingQueued`; `MailFake.hasRecipient(mail, address)` |
 | `Storage.fake(disk?)` | `assertExists`, `assertMissing`, `assertCount`, `assertDirectoryEmpty` (all async); see [File Storage](./storage#testing) for an upload example |

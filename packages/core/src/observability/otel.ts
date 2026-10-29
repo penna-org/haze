@@ -452,7 +452,8 @@ export async function traceJobProcess<R extends { status: string, error?: unknow
   const result = await api.context.with(span
     ? api.trace.setSpan(parent, span)
     : parent, fn)
-  const failed = result.status !== 'ok'
+  // released（放回队列）不是失败
+  const failed = result.status === 'retry' || result.status === 'failed'
   const errorType = failed
     ? (result.error as Error)?.name ?? 'Error'
     : undefined

@@ -1,0 +1,26 @@
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+// 数据库队列的任务表与失败任务表（config/queue.ts 的 driver: 'database'）
+// 此文件只依赖 drizzle-orm，不要使用 ~ 别名（drizzle-kit 需要直接读取）；生成迁移：haze db:generate && haze db:migrate
+// 时间列为毫秒时间戳；表名改动后在连接配置中同步设置 table / failedTable
+export const jobs = sqliteTable('jobs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  queue: text('queue').notNull(),
+  payload: text('payload').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  reservedAt: integer('reserved_at'),
+  availableAt: integer('available_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, table => [
+  index('jobs_queue_index').on(table.queue, table.availableAt),
+])
+
+export const failedJobs = sqliteTable('failed_jobs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  uuid: text('uuid').notNull().unique(),
+  connection: text('connection').notNull(),
+  queue: text('queue').notNull(),
+  payload: text('payload').notNull(),
+  exception: text('exception').notNull(),
+  failedAt: integer('failed_at').notNull(),
+})

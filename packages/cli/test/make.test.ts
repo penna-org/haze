@@ -4,7 +4,7 @@ import { join, relative } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable } from '../src/make/generator'
+import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable, makeQueueTables } from '../src/make/generator'
 import { camelCase, commandName, kebabCase, parseName, plural } from '../src/make/naming'
 
 const root = fileURLToPath(new URL(`./.tmp/make-${process.pid}`, import.meta.url))
@@ -420,6 +420,35 @@ describe('make', () => {
         expect(content).toContain(field)
     }
     await expect(makeAuthTables({ root, srcDir })).rejects.toThrow(/already exists/)
+  })
+
+  it('generates the database queue tables for each SQL dialect', async () => {
+    for (const dialect of ['sqlite', 'postgres', 'mysql'] as const) {
+      const result = await makeQueueTables({ root, srcDir, dialect, force: true })
+      expect(rel(result.schema)).toBe('server/database/schema/queue.ts')
+      const content = readFileSync(result.schema, 'utf8')
+      const table = { sqlite: 'sqliteTable', postgres: 'pgTable', mysql: 'mysqlTable' }[dialect]
+      expect(content).toContain(`from 'drizzle-orm/${{ sqlite: 'sqlite', postgres: 'pg', mysql: 'mysql' }[dialect]}-core'`)
+      expect(content).toContain(`export const jobs = ${table}('jobs'`)
+      expect(content).toContain(`export const failedJobs = ${table}('failed_jobs'`)
+      // 列名与 @hazejs/orm 的 databaseQueue() 使用的 SQL 一致
+      for (const column of [
+        'queue',
+        'payload',
+        'attempts',
+        'reserved_at',
+        'available_at',
+        'created_at',
+        'uuid',
+        'connection',
+        'exception',
+        'failed_at',
+      ])
+        expect(content).toContain(`('${column}'`)
+      expect(content).not.toContain('~/')
+    }
+    expect((await makeQueueTables({ root, srcDir, force: true })).hint).toContain('driver: \'database\'')
+    await expect(makeQueueTables({ root, srcDir })).rejects.toThrow(/already exists/)
   })
 
   it('refuses to overwrite unless forced', async () => {
