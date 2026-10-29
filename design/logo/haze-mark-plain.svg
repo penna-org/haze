@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="haze-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9b8cff"/>
+      <stop offset="1" stop-color="#4fc3f7"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- h 的竖笔与弧：弧线在 (43,38) 落下，先走一小段竖直 -->
+  <path d="M19 15v34M19 40c0-9 5.5-14 12-14s12 5 12 14" stroke="url(#haze-bg)" stroke-width="6" stroke-linecap="round"/>
+  <!-- 右腿化作三层雾气，逐层变宽、变淡、向右漂移 -->
+  <path d="M41.5 40h5" stroke="url(#haze-bg)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M39 47h11" stroke="url(#haze-bg)" stroke-opacity=".6" stroke-width="5" stroke-linecap="round"/>
+  <path d="M37 53.5h15" stroke="url(#haze-bg)" stroke-opacity=".3" stroke-width="4.5" stroke-linecap="round"/>
+</svg>

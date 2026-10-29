@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="haze-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8b7cff"/>
+      <stop offset="1" stop-color="#3fb6e8"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#haze-bg)"/>
+  <!-- 三层雾带：首尾错落，像在横向漂移；最上层左端翘起形成 h 的竖笔暗示 -->
+  <path d="M17 16v12" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M17 28h30" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M13 40h26" stroke="#fff" stroke-opacity=".7" stroke-width="7" stroke-linecap="round"/>
+  <path d="M23 52h28" stroke="#fff" stroke-opacity=".4" stroke-width="7" stroke-linecap="round"/>
+</svg>

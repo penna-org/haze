@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 236 64" fill="none" color="#1d1d2b">
+  <defs>
+    <linearGradient id="haze-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1d1e3c"/>
+      <stop offset="1" stop-color="#101128"/>
+    </linearGradient>
+    <linearGradient id="haze-h" x1="16" y1="14" x2="52" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9b8cff"/>
+      <stop offset="1" stop-color="#4fc3f7"/>
+    </linearGradient>
+    <linearGradient id="haze-js" x1="172" y1="20" x2="226" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8b7cff"/>
+      <stop offset="1" stop-color="#3fb6e8"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#haze-bg)"/>
+  <rect x="4.5" y="4.5" width="55" height="55" rx="15.5" stroke="#fff" stroke-opacity=".1"/>
+  <path d="M19 15v34M19 40c0-9 5.5-14 12-14s12 5 12 14" stroke="url(#haze-h)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M41.5 40h5" stroke="url(#haze-h)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M39 47h11" stroke="url(#haze-h)" stroke-opacity=".6" stroke-width="5" stroke-linecap="round"/>
+  <path d="M37 53.5h15" stroke="url(#haze-h)" stroke-opacity=".3" stroke-width="4.5" stroke-linecap="round"/>
+  <text x="74" y="46" font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="40" font-weight="700" letter-spacing="-1" fill="currentColor">haze<tspan font-weight="500" fill="url(#haze-js)">js</tspan></text>
+</svg>
