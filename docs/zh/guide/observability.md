@@ -4,7 +4,7 @@ hazejs 提供四项可观测性能力：
 
 - **健康检查**：`/health`、`/health/ready` 与 `/health/live`，供负载均衡与容器编排探测；
 - **OpenTelemetry**：HTTP 请求、数据库查询、队列任务、邮件与 AI 调用的链路和指标，支持 W3C 追踪上下文传播，需要安装可选依赖 `@opentelemetry/api`；
-- **开发面板**：开发时访问 `/__haze`，查看请求、查询、任务、邮件、事件、缓存操作、日志、异常与 AI 调用的记录；
+- **开发面板**：开发时访问 `/__haze`，查看请求、查询、任务、邮件、事件、缓存操作、日志、异常、AI 调用与出站 HTTP 请求的记录；
 - **队列面板**：查看失败任务并重试或删除；它是开发面板的一个标签页，也可以挂在生产环境中，由你自己的中间件保护。
 
 日志通道（文件、发送到 Loki / Datadog / Better Stack 等）见[异常与日志](./errors#channels)。
@@ -148,7 +148,7 @@ node --import ./instrumentation.mjs dist/worker.mjs queue # 队列 worker
 | `mail.send` | CLIENT | `haze.mail.mailer`、`haze.mail.driver`、`haze.mail.recipients` |
 | `chat <模型>` / `embeddings <模型>`（`@hazejs/ai`） | CLIENT | `gen_ai.operation.name`、`gen_ai.provider.name`、`gen_ai.request.model`、`gen_ai.usage.input_tokens`、`gen_ai.usage.output_tokens`、`gen_ai.response.finish_reasons` |
 | `cache.get`、`cache.set` 等（需开启） | CLIENT | `haze.cache.store`、`haze.cache.key`、`haze.cache.hit` |
-| `GET`（`tracedFetch`） | CLIENT | `http.request.method`、`url.full`、`server.address`、`http.response.status_code` |
+| `GET`（`tracedFetch`、[`Http`](./http-client)） | CLIENT | `http.request.method`、`url.full`、`server.address`、`http.response.status_code` |
 
 5xx 响应会把 span 标记为错误，异常处理器渲染的异常作为 span 事件记录。用 `traces: { db: false, ai: false, … }` 关闭某类 span。健康检查与开发面板的路径默认忽略。
 
@@ -171,7 +171,7 @@ await tracer.startActiveSpan('charge', async (span) => {
 ### 追踪上下文传播
 
 - **入站**：请求头中的 `traceparent` / `tracestate` 会接续调用方的链路。
-- **出站 HTTP**：`tracedFetch()` 的用法与 `fetch` 相同，它会创建 CLIENT span，并把 `traceparent` 传给下游。未启用 OpenTelemetry 时就是普通的 `fetch`。
+- **出站 HTTP**：经 [`Http` 客户端](./http-client)发出的请求都会创建 CLIENT span，并把 `traceparent` 传给下游；直接用 `fetch` 时可以改用 `tracedFetch()`，效果相同。未启用 OpenTelemetry 时两者都是普通的 `fetch`。
 - **队列**：`dispatch()` 把追踪上下文写入任务消息（`message.context`），worker 执行时接续同一条链路，即使在另一个进程中或经过 Redis。
 - **自定义传输**：`injectTraceContext(carrier)` 把当前上下文写入普通对象；`withTraceContext(carrier, fn)` 在从对象中恢复的上下文中执行 `fn`。
 
@@ -211,7 +211,7 @@ bus.subscribe('orders', message => withTraceContext(message.headers, () => handl
 - `@hazejs/orm` 的 **SQL 查询**，含绑定参数与耗时；
 - 投递与执行的**任务**（状态、第几次执行、耗时、错误）；
 - 发送的**邮件**，可在沙箱中预览渲染后的 HTML；
-- **事件**、**缓存**命中 / 未命中 / 写入、**日志**、**异常**（5xx）以及 **AI 调用**（模型、token、延迟）。
+- **事件**、**缓存**命中 / 未命中 / 写入、**日志**、**异常**（5xx）、**AI 调用**（模型、token、延迟），以及经 [`Http`](./http-client) 发出的**出站请求**（方法、URL、状态码、耗时、大小，凭据已脱敏）。
 
 所有记录都关联到引发它的请求，包括之后才执行的任务及任务中发送的邮件。点击请求即可在同一页看到它的查询、任务、邮件与日志。新记录通过 Server-Sent Events 实时推送。调试模式渲染开发错误页时，页面上有指向面板中该请求的链接。
 

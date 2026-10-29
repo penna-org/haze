@@ -1,6 +1,6 @@
 # Testing
 
-`@hazejs/testing` runs your application inside [Vitest](https://vitest.dev) without opening a port. Each test gets a fresh application built from the same `config/`, `route/` and `app/` files as `haze dev`, an HTTP client to call it, and fakes for queues, events, mail, storage, notifications, broadcasts, search and AI.
+`@hazejs/testing` runs your application inside [Vitest](https://vitest.dev) without opening a port. Each test gets a fresh application built from the same `config/`, `route/` and `app/` files as `haze dev`, an HTTP client to call it, and fakes for queues, events, mail, storage, notifications, broadcasts, outgoing HTTP requests, search and AI.
 
 ## Setup
 
@@ -232,8 +232,9 @@ describe('registration', () => {
 | `Storage.fake(disk?)` | `assertExists`, `assertMissing`, `assertCount`, `assertDirectoryEmpty` (all async); see [File Storage](./storage#testing) for an upload example |
 | `Notification.fake()` | `assertSentTo(notifiable, notification, predicate?)`, `assertNotSentTo`, `assertSentOnDemand`, `assertSentTimes`, `assertNothingSentTo`, `assertNothingSent`, `assertCount`; `sentTo(notifiable, notification)` returns records whose `message(channel)` renders the content |
 | `Broadcast.fake()` | `assertBroadcast(event, predicate?)`, `assertBroadcastOn(channel, event?, predicate?)`, `assertNotBroadcast`, `assertBroadcastTimes`, `assertNothingBroadcast`; `broadcasts` |
+| `Http.fake(stubs?)` | `Http.assertSent(predicate)`, `assertNotSent`, `assertSentCount(n)`, `assertNothingSent`, `assertSentInOrder`, `assertSequencesAreEmpty`, `recorded()`; `Http.preventStrayRequests()` makes unfaked requests throw. Only requests made through `Http` are intercepted; see [HTTP Client](./http-client#testing) |
 
-Jobs can be matched by definition or by name, e.g. `queue.assertDispatched('mail:send')`. Each fake also has a `restore()` on its facade (`Queue.restore()`, `Events.restore()`, `Mail.restore()`, `Storage.restore()`, `Notification.restore()`, `Broadcast.restore()`). More detail lives on each feature's page: [Queues](./queues), [Events](./events), [Mail](./mail#testing), [File Storage](./storage#testing), [Notifications](./notifications#testing), [Broadcasting](./broadcasting#testing).
+Jobs can be matched by definition or by name, e.g. `queue.assertDispatched('mail:send')`. Each fake also has a `restore()` on its facade (`Queue.restore()`, `Events.restore()`, `Mail.restore()`, `Storage.restore()`, `Notification.restore()`, `Broadcast.restore()`, `Http.restore()`). More detail lives on each feature's page: [Queues](./queues), [Events](./events), [Mail](./mail#testing), [File Storage](./storage#testing), [Notifications](./notifications#testing), [Broadcasting](./broadcasting#testing), [HTTP Client](./http-client#testing).
 
 ### Other packages
 

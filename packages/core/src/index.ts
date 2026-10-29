@@ -89,6 +89,7 @@ export * from './exception/exceptions'
 
 export { ExceptionHandler } from './exception/handler'
 export type { NormalizedError } from './exception/handler'
+export * from './http-client'
 export { getHttpContext, HttpContext } from './http/context'
 export type { ContextState, ResponseHook, Validated, ValidationTargets } from './http/context'
 

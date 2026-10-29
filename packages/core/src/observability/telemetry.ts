@@ -91,6 +91,29 @@ export interface TelemetryEvents {
     duration: number
     error?: string
   }
+  /** 出站 HTTP 请求（`Http` 客户端上报，每次尝试一条；URL 与敏感请求头已脱敏） */
+  'http': {
+    method: string
+    url: string
+    /** 连接失败时没有状态码 */
+    status?: number
+    /** 命名客户端（config/http.ts 的 clients） */
+    client?: string
+    /** 第几次尝试（从 1 开始） */
+    attempt: number
+    requestHeaders: Record<string, string>
+    responseHeaders?: Record<string, string>
+    /** 请求体字节数（multipart 等无法预先得知时缺省） */
+    requestSize?: number
+    /** 响应体字节数（取 content-length，或已读取的响应体长度） */
+    responseSize?: number
+    /** 由 Http.fake() 返回的响应 */
+    faked?: boolean
+    startTime: number
+    /** 到收到响应头为止的耗时 */
+    duration: number
+    error?: string
+  }
 }
 
 export type TelemetryKind = keyof TelemetryEvents

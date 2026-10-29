@@ -27,6 +27,7 @@ import { setEventManager } from './events/context'
 import { EventManager } from './events/manager'
 import { NotFoundException } from './exception/exceptions'
 import { ExceptionHandler } from './exception/handler'
+import { HttpManager, setHttpManager } from './http-client/manager'
 import { getHttpContext, HttpContext, setHttpContext } from './http/context'
 import { mutableResponse } from './http/cookie'
 import { ResponseFormatter } from './http/formatter'
@@ -212,6 +213,10 @@ export class Application {
     const storage = new StorageManager(this.config)
     this.container.instance(StorageManager, storage)
     setStorageManager(storage)
+    // 出站 HTTP 客户端：config/http.ts 的命名客户端与 Http.fake() 的状态（每个应用一份）
+    const http = new HttpManager(this.config)
+    this.container.instance(HttpManager, http)
+    setHttpManager(http)
     // 队列与定时任务
     const queue = new QueueManager(this)
     for (const [name, job] of this.#items('jobs', options.jobs))
