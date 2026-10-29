@@ -27,7 +27,8 @@ my-app/
 │  ├─ response/
 │  │  └─ Formatter.ts   Response envelope (auto-discovered)
 │  ├─ service/          Business services
-│  └─ validate/         Request validation schemas
+│  ├─ validate/         Request validation schemas
+│  └─ view/             TSX views (Welcome.tsx, Layout.tsx)
 ├─ config/              Configuration, one file per key (auto-discovered)
 ├─ database/
 │  ├─ factories/        Model factories for tests and seeders (UserFactory.ts)
@@ -116,6 +117,7 @@ The Vite plugin builds a manifest of these files with `import.meta.glob`. Patter
 | `app/notification/*.ts` | Notifications. The file name is the notification type |
 | `app/channel/*.ts` | Broadcast channel authorization (`defineChannels()`) |
 | `app/message/*.ts` | Microservice message handlers, read by `@hazejs/microservices` |
+| `app/view/**/*.tsx` | [TSX views](./views), loaded on demand for `ctx.view('Name')` and `haze down --render`; the path is the view name (`admin/Dashboard.tsx` → `admin/Dashboard`) |
 | `lang/**/*.{ts,json}` | Translations: `lang/<locale>/<file>.ts`; the file path is the first part of the key (`lang/en/admin/users.ts` → `admin.users.*`) |
 | `app/<name>/{route,config,provider,exception,response}/*.ts` | Per-app modules for [multiple apps](./multi-app) |
 | `modules/<name>/{module.ts,route/*,config/*,schedule/*,app/<kind>/*}` | [Local modules](./modules): the same kinds as the app (`provider`, `interceptor`, `policy`, `job`, `event`, `listener`, `notification`, `channel`, `socket`, `message`, and `command/**`) |
@@ -171,6 +173,10 @@ Events (`defineEvent()`) and listeners (`defineListener(Event, handler)`). Both 
 ### `app/mail`
 
 Mail definitions (`defineMail()`), imported where you send them: `Mail.to(user.email).send(WelcomeMail, payload)`. Not discovered. See [Mail](./mail).
+
+### `app/view`
+
+[TSX views](./views): components rendered to HTML on the server with `ctx.view(<Home />)`. Import them where you render them, or render by name with `ctx.view('admin/Dashboard', props)`. Layouts are components too. `haze make:view Home` creates `app/view/Home.tsx`.
 
 ### `app/notification`
 
@@ -244,7 +250,7 @@ Vitest tests using `@hazejs/testing`. Always at the project root, even in full-s
 | `.haze/` | Generated files: types for config keys, routes and abilities (`types/haze.d.ts`), translation keys (`types/i18n.d.ts`), the route list for the [typed client](./openapi#typed-client) (`routes.ts`); plus the last build record (`build.json`), local preview data and the REPL history | No |
 | `dist/` | Build output (`outDir` in `haze.config.ts`) | No |
 | `data/` | The template's SQLite database (`DATABASE_URL=file:./data/app.db`) | No |
-| `storage/` | Local file storage disks (`storage/app`, `storage/app/public`) | No |
+| `storage/` | Local file storage disks (`storage/app`, `storage/app/public`), and the [maintenance](./maintenance) state file `storage/framework/down` | No |
 | `stubs/` | Your customized generator templates, created by `haze stub:publish` | Yes |
 
 Include `.haze/types/**/*.d.ts` in your `tsconfig.json` (the templates already do) so typed config keys, route names, abilities and translation keys are picked up by the editor. `haze dev` regenerates these files as you edit; run `haze typegen` in CI.

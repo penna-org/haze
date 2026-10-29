@@ -60,6 +60,8 @@ export const en = {
     503: 'Service Unavailable',
     route_not_found: 'Cannot find any route matching [{method}] {path}',
     invalid_signature: 'Invalid signature.',
+    maintenance: 'The application is down for maintenance. Please check back soon.',
+    maintenance_title: 'Down for maintenance',
   },
 }
 
@@ -120,6 +122,8 @@ export const zhCN: FrameworkMessages = {
     503: '服务暂不可用',
     route_not_found: '找不到与 [{method}] {path} 匹配的路由',
     invalid_signature: '签名无效或链接已过期',
+    maintenance: '系统正在维护，请稍后再访问。',
+    maintenance_title: '系统维护中',
   },
 }
 

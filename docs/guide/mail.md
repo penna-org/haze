@@ -176,6 +176,10 @@ html`<p>${user.bio}</p>` // "<script>" becomes "&lt;script&gt;"
 html`<div>${rawHtml(trustedMarkdownHtml)}</div>`
 ```
 
+::: tip TSX mail bodies
+Mail bodies can also be [TSX views](./views): name the mail file `.tsx` and return `html: await renderToString(<Welcome name={payload.name} />)` from an `async` render function. The same escaping rules apply, and `mailLayout({ body: rawHtml(await renderToString(...)) })` combines both.
+:::
+
 ## Queued sending
 
 `queue()` and `later()` dispatch the built-in `mail:send` job instead of sending inline. Failed sends are retried according to `mail.queue.tries` and `backoff`.

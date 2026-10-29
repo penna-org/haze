@@ -3,6 +3,8 @@
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.tsbuildinfo",
     "target": "ES2023",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@hazejs/core",
     "lib": [
       "ES2023"
     ],
@@ -27,6 +29,7 @@
   },
   "include": [
     "server/**/*.ts",
+    "server/**/*.tsx",
     "tests/**/*.ts",
     "*.config.ts",
     ".haze/types/**/*.d.ts"

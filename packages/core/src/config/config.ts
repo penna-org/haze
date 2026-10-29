@@ -7,6 +7,7 @@ import type { CookieOptions } from '../http/cookie'
 import type { I18nConfig } from '../i18n/config'
 import type { LoggerConfig } from '../logger'
 import type { MailConfig } from '../mail/config'
+import type { MaintenanceConfig } from '../maintenance/config'
 import type { CompressOptions } from '../middleware/builtin/compress'
 import type { CorsOptions } from '../middleware/builtin/cors'
 import type { CsrfConfig } from '../middleware/builtin/csrf'
@@ -91,6 +92,8 @@ export interface CoreConfig {
   tenancy?: TenancyConfig
   /** 模块（config/modules.ts） */
   modules?: ModulesConfig
+  /** 维护模式（config/maintenance.ts） */
+  maintenance?: MaintenanceConfig
 }
 
 /**

@@ -36,6 +36,7 @@ import { createStaticMiddleware } from './http/static'
 import { I18nManager, setI18nManager } from './i18n/manager'
 import { Logger } from './logger'
 import { MailManager, setMailManager } from './mail/manager'
+import { MaintenanceManager, setMaintenanceManager } from './maintenance/manager'
 import { MiddlewareRegistry } from './middleware/registry'
 import { moduleCommands, moduleConfig, moduleDiscovered, moduleEntries, moduleMiddlewareConfig, resolveModules } from './modules'
 import { NotificationManager, setNotificationManager } from './notification/manager'
@@ -51,6 +52,8 @@ import { Scheduler } from './schedule/scheduler'
 import { setStorageManager, StorageManager } from './storage/manager'
 import { tenancyMiddleware } from './tenancy/manager'
 import { isClass, isModuleRecord, normalizeModules, toJsonSafe } from './utils'
+import { isViewNode } from './view/jsx'
+import { renderViewResponse } from './view/view'
 import { webSocketConfig, webSocketPlugin } from './websocket/server'
 
 export type AppMode = 'development' | 'production' | 'test'
@@ -99,6 +102,8 @@ export interface ApplicationOptions {
    * 按 modules/<name>/ 分组，默认全部启用（config/modules.ts 的 local 可关闭或配置）
    */
   localModules?: ModuleRecord
+  /** 视图（app/view/**\/*.tsx，按需加载）：`import.meta.glob('/app/view/**\/*.tsx')` */
+  views?: ModuleRecord
   /** 托管静态资源（全栈项目的前端构建产物） */
   static?: StaticOptions
   /** 在提供者 register 之后、boot 之前执行，常用于测试中替换绑定 */
@@ -251,6 +256,10 @@ export class Application {
     const notifications = new NotificationManager(this)
     this.container.instance(NotificationManager, notifications)
     setNotificationManager(notifications, NotificationManager)
+    // 维护模式：config/maintenance.ts，状态默认保存在缓存存储中
+    const maintenance = new MaintenanceManager(this)
+    this.container.instance(MaintenanceManager, maintenance)
+    setMaintenanceManager(maintenance)
 
     // 4. 提供者 register → setup → boot（模块的提供者在前，项目可覆盖其绑定；已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()
@@ -318,6 +327,11 @@ export class Application {
       ...this.#modules.flatMap(module => moduleDiscovered(module, name)),
       ...normalizeModules<unknown>(this.#options.discovered?.[name] as unknown[] | ModuleRecord | undefined),
     ] as Array<[string | undefined, T]>
+  }
+
+  /** 视图模块（app/view 下的文件，键为 glob 路径，值为加载函数或模块） */
+  viewModules(): ModuleRecord {
+    return this.#options.views ?? {}
   }
 
   /** 已启用的模块（按启用顺序，迁移也按此顺序执行） */
@@ -522,6 +536,9 @@ export class Application {
         const result = await next()
         if (result === kNotFound)
           throw new NotFoundException(`Cannot find any route matching [${ctx.method}] ${ctx.path}`)
+        // TSX 视图：`return <Home />` 渲染为 HTML（不经过统一响应格式）
+        if (isViewNode(result))
+          return await renderViewResponse(result, ctx)
         return formatOutbound(result, event, ctx)
       }
       catch (error) {
@@ -529,6 +546,8 @@ export class Application {
       }
     })
 
+    // 维护模式：紧跟异常边界，先于静态资源、OpenAPI、健康检查与全局中间件（健康检查、开发面板与 except 路径放行）
+    h3.use(this.container.make(MaintenanceManager).middleware())
     // 静态资源：在业务中间件之前，避免鉴权等逻辑作用于前端资源
     if (this.#options.static)
       h3.use(createStaticMiddleware(this.#options.static))

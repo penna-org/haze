@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2023",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@hazejs/core",
     "lib": [
       "ES2023"
     ],
@@ -25,6 +27,7 @@
   },
   "include": [
     "**/*.ts",
+    "**/*.tsx",
     ".haze/types/**/*.d.ts"
   ],
   "exclude": [

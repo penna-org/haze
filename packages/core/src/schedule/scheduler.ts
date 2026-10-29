@@ -2,6 +2,7 @@ import type { Application } from '../application'
 import type { CacheRepository } from '../cache/repository'
 import type { ScheduleDefinition, ScheduledTask } from './schedule'
 import { CacheManager } from '../cache/manager'
+import { MaintenanceManager } from '../maintenance/manager'
 import { QueueManager } from '../queue/manager'
 import { isScheduleDefinition, Schedule } from './schedule'
 
@@ -20,7 +21,7 @@ export function defineScheduleConfig(config: ScheduleConfig | (() => ScheduleCon
 export interface TaskRun {
   name: string
   status: 'ok' | 'failed' | 'skipped'
-  reason?: 'filter' | 'overlapping' | 'other-server'
+  reason?: 'filter' | 'overlapping' | 'other-server' | 'maintenance'
   error?: unknown
   duration: number
 }
@@ -125,7 +126,18 @@ export class Scheduler {
 
   /** 执行该分钟到期的任务（haze schedule:run / Cron Triggers / EventBridge） */
   async runDue(date: Date = new Date()): Promise<TaskRun[]> {
-    return Promise.all(this.due(date).map(task => this.runTask(task, date)))
+    // 维护模式（pauseWorkers）：到期的任务全部跳过
+    const due = this.due(date)
+    if (due.length && this.app.container.has(MaintenanceManager) && await this.app.make(MaintenanceManager).pausesScheduler()) {
+      this.app.logger.info(`Application is in maintenance mode, skipped ${due.length} scheduled task(s)`)
+      return due.map(task => ({
+        name: task.name,
+        status: 'skipped',
+        reason: 'maintenance',
+        duration: 0,
+      }))
+    }
+    return Promise.all(due.map(task => this.runTask(task, date)))
   }
 
   /** 常驻：每分钟整点执行到期任务，直到 signal 中止 */

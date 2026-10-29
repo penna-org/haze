@@ -176,6 +176,10 @@ html`<p>${user.bio}</p>` // "<script>" 会变成 "&lt;script&gt;"
 html`<div>${rawHtml(trustedMarkdownHtml)}</div>`
 ```
 
+::: tip 用 TSX 编写邮件正文
+邮件正文也可以使用 [TSX 视图](./views)：把邮件文件命名为 `.tsx`，在 `async` 渲染函数中返回 `html: await renderToString(<Welcome name={payload.name} />)`。转义规则相同，也可以组合使用：`mailLayout({ body: rawHtml(await renderToString(...)) })`。
+:::
+
 ## 排队发送
 
 `queue()` 与 `later()` 不会立即发送，而是投递内置任务 `mail:send`，失败时按 `mail.queue.tries` 与 `backoff` 重试：

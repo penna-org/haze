@@ -9,7 +9,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import process from 'node:process'
 import { nodeUpgradeHandler, registerNodeServer } from '@hazejs/core'
 import { toNodeHandler } from 'srvx/node'
-import { normalizePath } from 'vite'
+import { normalizePath, transformWithOxc } from 'vite'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { createAppHost } from './host'
@@ -94,7 +94,11 @@ interface Settings {
 }
 
 const RESOLVED_PREFIX = '\0'
-const SOURCE_RE = /\.[cm]?[jt]s$/
+const SOURCE_RE = /\.[cm]?[jt]sx?$/
+/** 后端的 TSX / JSX 文件（视图）：用 @hazejs/core 的 JSX 运行时编译 */
+const JSX_RE = /\.[jt]sx$/
+/** 文件自己声明了 JSX 运行时（如在后端使用 React 渲染）时不处理 */
+const JSX_PRAGMA_RE = /@jsx(?:ImportSource|Runtime)?\s/
 const virtualIds = new Set<string>(Object.values(VIRTUAL_MODULES))
 
 /**
@@ -388,7 +392,22 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
 
     transform: {
       order: 'pre',
-      handler(code, id) {
+      async handler(code, id) {
+        // 后端视图（srcDir 下的 .tsx / .jsx）：JSX 编译为 @hazejs/core/jsx-runtime 的调用。
+        // 只作用于后端环境（client 环境即前端，React / Vue 等使用各自的 JSX 配置），先于 Vite 内置的 oxc 转换执行
+        if (JSX_RE.test(id.split('?')[0]) && this.environment?.name !== 'client') {
+          const file = normalizePath(id.split('?')[0])
+          if (file.startsWith(`${settings.srcDir}/`) && !file.includes('/node_modules/') && !JSX_PRAGMA_RE.test(code)) {
+            const result = await transformWithOxc(code, file, {
+              lang: file.endsWith('.jsx')
+                ? 'jsx'
+                : 'tsx',
+              jsx: { runtime: 'automatic', importSource: '@hazejs/core' },
+              sourcemap: true,
+            })
+            return { code: result.code, map: result.map }
+          }
+        }
         // 生产构建：模块包中指向迁移目录的 new URL(..., import.meta.url) 改为内嵌迁移文件的键
         if (isDev || this.environment?.name !== 'ssr' || !settings.modulePackages.length || !code.includes('import.meta.url'))
           return
@@ -494,6 +513,8 @@ function manifestCode(settings: Settings, dev: boolean): string {
     // 扩展包读取的目录（app.discovered(name)）。
     // commands 按需加载（Web 进程不执行命令代码），含子目录（db/Cleanup.ts → db:cleanup），由命令行与 worker.mjs 读取
     `export const discovered = { sockets: ${glob('app/socket/*.{ts,mts,js,mjs}')}, messages: ${glob('app/message/*.{ts,mts,js,mjs}')}, channels: ${glob('app/channel/*.{ts,mts,js,mjs}')}, notifications: ${glob('app/notification/*.{ts,mts,js,mjs}')}, commands: import.meta.glob(${JSON.stringify(`${base}/app/command/**/*.{ts,mts,js,mjs}`)}) }`,
+    // 视图：app/view/**/*.tsx（按需加载，view('Name') 与维护页的 render 使用）
+    `export const views = import.meta.glob(${JSON.stringify(`${base}/app/view/**/*.{tsx,jsx,ts,mts,js,mjs}`)})`,
     // 翻译文件：lang/<locale>/*.ts
     `export const lang = ${glob('lang/**/*.{ts,mts,js,mjs,json}')}`,
     // 多应用：app/<name>/ 下的路由、配置、提供者、异常处理与响应格式（是否启用由 config/app.ts 的 apps 决定）
@@ -551,6 +572,7 @@ export function createApp(options = {}) {
     lang: manifest.lang,
     apps: manifest.apps,
     localModules: manifest.modules,
+    views: manifest.views,
     ...options,
   })
 }

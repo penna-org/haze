@@ -47,6 +47,14 @@
       "types": "./dist/broadcast/echo.d.mts",
       "default": "./dist/broadcast/echo.mjs"
     },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.mts",
+      "default": "./dist/jsx-runtime.mjs"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.mts",
+      "default": "./dist/jsx-dev-runtime.mjs"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.mjs",

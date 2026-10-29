@@ -150,6 +150,21 @@ export default defineCommand({
 
 Like queue workers, listeners need a long-running process, so they are not available on serverless or edge presets.
 
+## Maintenance mode {#maintenance-mode}
+
+Take the application down while you deploy, migrate or fix data. With the process-based presets the build has the commands built in:
+
+```bash
+node dist/worker.mjs down --secret=deploy-2026 --retry=60   # 503 for everyone except /deploy-2026 holders
+node dist/migrate.mjs
+# ...restart the web processes...
+node dist/worker.mjs up
+```
+
+Every instance reads the state from the cache store (`config/maintenance.ts`), so with a shared store such as Redis one command takes down the whole fleet, and `up` reaches every instance within two seconds. With the default in-process `memory` store the state is kept in `storage/framework/down`, which only affects that machine. Health checks keep returning 200, so load balancers don't remove the instances; queue workers pause between jobs and scheduled tasks are skipped.
+
+Rolling deploys that keep old instances serving rarely need maintenance mode; use it for migrations that old code cannot run against. On Workers, Vercel, Netlify and Lambda there is no `worker.mjs`: use a shared store (KV, Upstash) and set the key from CI. See [Maintenance Mode](./maintenance#serverless-and-edge).
+
 ## Health checks
 
 Every build serves `/health/live` (liveness, always 200) and `/health` / `/health/ready` (readiness: runs the checks in `config/health.ts` and returns 503 when a critical one fails). They bypass global middleware, so load balancers don't need credentials:

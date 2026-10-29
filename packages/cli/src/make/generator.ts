@@ -179,6 +179,17 @@ export const KINDS = {
     stub: 'mail',
     hint: v => `发送：await Mail.to(user.email).send(${v.className}, { name: user.name })；排队发送用 .queue(...)`,
   },
+  view: {
+    description: 'TSX 视图',
+    suffix: '',
+    dir: 'app/view',
+    base: 'src',
+    file: 'class',
+    ext: '.tsx',
+    global: true,
+    stub: 'view',
+    hint: v => `渲染：return ctx.view(<${v.className} title="..." />)，或按名称 ctx.view('<app/view 下的路径>', { title: '...' })`,
+  },
   notification: {
     description: '通知',
     suffix: 'Notification',

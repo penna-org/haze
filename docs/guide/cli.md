@@ -167,6 +167,7 @@ Paths are relative to `srcDir` (except tests). Examples show the file generated 
 | `make:notification` | `InvoicePaid` | `app/notification/InvoicePaidNotification.ts` |
 | `make:channel` | `Order` | `app/channel/order.ts` (authorizes `private-order.{id}`) |
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
+| `make:view` | `Home` | `app/view/Home.tsx` ([TSX view](./views)) |
 | `make:notifications-table` | — | `database/schema/notifications.ts`; see [below](#make-notifications-table) |
 | `make:auth-tables` | — | `database/schema/auth.ts`; see [below](#make-auth-tables) |
 | `make:queue-tables` | — | `database/schema/queue.ts`, then `db:generate`; see [below](#make-queue-tables) |
@@ -347,6 +348,34 @@ Listen for [microservice](./microservices) messages without opening an HTTP port
 | --- | --- |
 | `--transport`, `-t` | Transports to listen on, comma-separated, for example `nats,grpc`. Default: `listen` or `default` in `config/microservices.ts` |
 
+## Maintenance mode
+
+See [Maintenance Mode](./maintenance). Running servers, workers and the scheduler pick up the change within two seconds, without a restart.
+
+### `haze down`
+
+Put the application into maintenance mode: requests get 503 (JSON or an HTML page), except health checks, `--except` paths and browsers holding the bypass cookie.
+
+| Option | Description |
+| --- | --- |
+| `--secret` | Bypass secret: visiting `/<secret>` sets a cookie that lets that browser in |
+| `--with-secret` | Generate a random secret and print it |
+| `--retry` | `Retry-After` in seconds (default 60) |
+| `--refresh` | `Refresh` header in seconds |
+| `--status` | Status code (default 503) |
+| `--redirect` | Redirect browser requests to this path |
+| `--render` | View in `app/view` to render instead of the built-in page |
+| `--except` | Paths that pass through, comma-separated, `*` wildcards |
+| `--message` | Message (or translation key) for the page and the JSON response |
+
+### `haze up`
+
+Leave maintenance mode.
+
+### `haze maintenance:status`
+
+Print the current state and where it is stored.
+
 ## Your own commands
 
 Every file in `app/command` (subdirectories included) that default-exports `defineCommand()` becomes a command: `app/command/SendReport.ts` runs as `haze send:report`, `app/command/db/Cleanup.ts` as `haze db:cleanup`. They are listed in `haze --help`, accept `--help` and `--root` like built-in commands, and exit with the code their `run()` returns. See [Console Commands](./console).
@@ -366,6 +395,9 @@ node dist/worker.mjs queue [--queue a,b] [--concurrency 5]      # haze queue:wor
 node dist/worker.mjs schedule                                    # haze schedule:work
 node dist/worker.mjs schedule:run                                # haze schedule:run
 node dist/worker.mjs command <name> [args]                       # haze <name> (app/command)
+node dist/worker.mjs down [--secret s] [--retry 60] ...          # haze down
+node dist/worker.mjs up                                          # haze up
+node dist/worker.mjs maintenance:status                          # haze maintenance:status
 ```
 
 The paths above are for backend-only projects with the `node` or `bun` preset. Full-stack projects and the `deno` / `docker` presets put these files in `dist/server/`. `migrate.mjs` is only emitted when the project uses `@hazejs/orm`. See [Deployment](./deployment) for serverless and edge platforms.

@@ -1,6 +1,8 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@hazejs/core",
     "paths": {
       "@hazejs/core": [
         "./packages/core/src/index.ts"
@@ -10,6 +12,12 @@
       ],
       "@hazejs/core/echo": [
         "./packages/core/src/broadcast/echo.ts"
+      ],
+      "@hazejs/core/jsx-runtime": [
+        "./packages/core/src/jsx-runtime.ts"
+      ],
+      "@hazejs/core/jsx-dev-runtime": [
+        "./packages/core/src/jsx-dev-runtime.ts"
       ],
       "~/*": [
         "./playground/*"

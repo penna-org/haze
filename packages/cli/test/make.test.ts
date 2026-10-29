@@ -59,6 +59,7 @@ describe('make', () => {
       factory: 'server/database/factories/admin/UserProfileFactory.ts',
       command: 'server/app/command/admin/UserProfile.ts',
       mail: 'server/app/mail/admin/UserProfileMail.ts',
+      view: 'server/app/view/admin/UserProfile.tsx',
       notification: 'server/app/notification/UserProfileNotification.ts',
       channel: 'server/app/channel/user-profile.ts',
       resource: 'server/app/resource/admin/UserProfileResource.ts',

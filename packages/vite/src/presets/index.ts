@@ -110,7 +110,7 @@ const rel = (context: FinalizeContext, path: string): string => normalizePath(re
 export function workerEntryCode(): string {
   return `import process from 'node:process'
 import { parseArgs } from 'node:util'
-import { QueueManager, runConsole, Scheduler } from '@hazejs/core'
+import { QueueManager, runConsole, runMaintenanceCommand, Scheduler } from '@hazejs/core'
 import { createApp } from '${VIRTUAL_MODULES.app}'
 
 // 自定义命令的参数由命令自己的定义解析，不经过下面的 parseArgs
@@ -126,6 +126,21 @@ if (process.argv[2] === 'command') {
   }
   await app.dispose()
   // 管道输出在 macOS 上是异步的：先等缓冲写完再退出
+  await Promise.all([process.stdout, process.stderr].map(stream => new Promise(resolve => stream.write('', resolve))))
+  process.exit(code)
+}
+
+// 维护模式：down [--secret ...] / up / maintenance:status（参数由 core 解析）
+if (['down', 'up', 'maintenance:status'].includes(process.argv[2])) {
+  const app = await createApp({ mode: 'production' })
+  let code = 1
+  try {
+    code = await runMaintenanceCommand(app, process.argv.slice(2))
+  }
+  catch (error) {
+    app.logger.error(error)
+  }
+  await app.dispose()
   await Promise.all([process.stdout, process.stderr].map(stream => new Promise(resolve => stream.write('', resolve))))
   process.exit(code)
 }
@@ -168,7 +183,7 @@ else if (command === 'schedule:run') {
   process.exit(runs.some(run => run.status === 'failed') ? 1 : 0)
 }
 else {
-  app.logger.error(\`Unknown command "\${command}" (queue | schedule | schedule:run | command)\`)
+  app.logger.error(\`Unknown command "\${command}" (queue | schedule | schedule:run | command | down | up | maintenance:status)\`)
   await app.dispose()
   process.exit(1)
 }

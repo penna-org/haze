@@ -93,6 +93,53 @@ describe.each(frameworks)('$name + haze()', (framework) => {
 })
 
 describe('react template', () => {
+  it('backend TSX views use the hazejs runtime while the React frontend keeps React JSX', async () => {
+    project = createProject('react')
+    project.write('server/app/view/Page.tsx', `export default function Page(props: { name: string }) {
+  return <section class="page" data-name={props.name}>{['a', 'b'].map(item => <i key={item}>{item}</i>)}</section>
+}
+`)
+    project.write('server/route/page.ts', `import { defineRoutes } from '@hazejs/core'
+import Page from '~/app/view/Page'
+
+export default defineRoutes((r) => {
+  r.get('/api/page', ctx => ctx.view(Page, { name: '<x>' }))
+})
+`)
+    const typecheck = await run(binOf('typescript', 'tsc'), ['--build'], project.root)
+    expect(typecheck.output).toBe('')
+
+    server = await createServer({
+      root: project.root,
+      logLevel: 'silent',
+      server: { port: await freePort() },
+    })
+    await server.listen()
+    const base = url(server)
+    const page = await fetch(`${base}/api/page`)
+    expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    expect(await page.text()).toBe('<section class="page" data-name="&lt;x&gt;"><i>a</i><i>b</i></section>')
+    // 前端组件仍由 React 的 JSX 运行时编译
+    const app = await (await fetch(`${base}/src/App.tsx`)).text()
+    // 依赖预构建后的路径为 react_jsx-dev-runtime.js
+    expect(app).toMatch(/react[/_]jsx-dev-runtime/)
+    expect(app).not.toContain('@hazejs/core')
+    await server.close()
+    server = undefined
+
+    const builder = await createBuilder({ root: project.root, logLevel: 'silent' })
+    await builder.buildApp()
+    server = await preview({
+      root: project.root,
+      logLevel: 'silent',
+      preview: { port: await freePort() },
+    })
+    expect(await (await fetch(`${url(server)}/api/page`)).text()).toContain('<section class="page"')
+    expect(await (await fetch(`${url(server)}/`, {
+      headers: { accept: 'text/html' },
+    })).text()).toContain('<div id="app"></div>')
+  })
+
   it('typechecks and passes its own tests', async () => {
     project = createProject('react')
     const typecheck = await run(binOf('typescript', 'tsc'), ['--build'], project.root)

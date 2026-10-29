@@ -6,6 +6,8 @@ export default defineConfig({
     'src/adapters/cloudflare.ts',
     'src/client.ts',
     'src/broadcast/echo.ts',
+    'src/jsx-runtime.ts',
+    'src/jsx-dev-runtime.ts',
   ],
   // Workers 运行时内置模块
   deps: {
