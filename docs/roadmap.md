@@ -70,6 +70,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M28 | **Modules**: reusable feature units as local `modules/<name>/` folders or npm packages (`defineModule`), with routes, middleware, config defaults, providers, migrations, jobs, events, commands and policies; `make:module`, `module:list`, a `module` template |
 | M29 | **Unified Redis connections**: `config/redis.ts` with named connections (single node, TLS, Cluster, Sentinel, custom factories) referenced by cache, queues, WebSocket, broadcasting, Socket.IO and microservices; shared command connections, a `Redis` facade, `redisCheck()` on a connection |
 | M30 | **Cache API, ThinkPHP style**: `delete` / `clear` / `inc` / `dec` / PSR-16 aliases, atomic `push`, `ttl()` / `touch()`, `handler()`, tags on every driver, typed Redis hashes / lists / sets / sorted sets (emulated on memory for tests), the `cache()` helper, JSON serialization that restores `Date`, `BigInt`, `Map` and `Set` |
+| M31 | **Developer essentials**: model factories (`defineFactory`, states, sequences, `for` / `has` / `hasAttached`, faker), read/write splitting with sticky reads and pool options, an outgoing `Http` client with retries, timeouts, pools, named clients and `Http.fake()`, queue database driver, chains, batches, unique jobs and job middleware, maintenance mode (`haze down` / `up`, secret bypass, paused workers) and zero-dependency TSX server views |
 
 ## Next
 

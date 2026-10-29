@@ -1779,3 +1779,27 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - 本地 `redis:7`（colima）：新增的 5 个文件未设置环境变量时 49 个通过、4 个跳过，设置 `HAZE_TEST_REDIS_URL` 后 91 个通过、2 个跳过（KV 上的并发 push 与缩短 ttl 后过期）；原有的 `cache.test.ts` 与 `redis*.test.ts` 在真实 Redis 上全部通过。全量：未设置时 84 个文件（1 个整体跳过），950 个通过、55 个跳过（之前为 79 个文件、901 个通过、51 个跳过）；设置 `HAZE_TEST_REDIS_URL` 时 84 个文件，1040 个通过、27 个跳过。没有本地的 serverless-redis-http 镜像，Upstash 用例未运行（只按 @upstash/redis 的 `eval(script, keys, args)` / `ttl()` 接口实现，与已有的 increment 脚本相同的调用方式）。
 
 已知限制：KV 的 `ttl()` 依赖写入时记录的元数据，`touch()` 会重写值；memory 的数据结构只为测试准备（单进程、只实现用到的命令）；upstash 没有数据结构；非 redis 驱动上被清除的标签值留到过期为止（memory 上永久保存的标签值不会被回收）；redis 标签索引中永久值的残留成员只在该标签清除时删除；`push` 不去重、不截断；typed 序列化改变了 Date / BigInt 的读回类型，滚动发布期间旧实例会读到 `{ $t, v }` 对象（可设置 `serializer: 'json'`）；`set(key)` 的单参数重载依赖参数个数；缓存 `clear()` 在 Cluster 上只扫描一个节点（原有限制）。
+
+### M31 实施记录（2026-10-29）：开发常用能力
+
+确认的决策：服务端模板采用 TSX 视图（零依赖、构建时编译、所有预设可用）；假数据使用 `@faker-js/faker`（可选 peer）；维护模式状态默认存于缓存存储；批量任务状态存于缓存存储。四个部分在独立工作树中并行开发后合并。
+
+**模型工厂与读写分离（@hazejs/orm）**
+- `defineFactory(Model, ({ faker, sequence, n, index }) => 属性)` 放在 `database/factories`（本地模块为 `modules/<name>/database/factories`），`haze make:factory`。工厂不可变：`make / create / raw / count / createMany / makeMany`、命名状态（状态名有类型约束）、`sequence`、`afterMake / afterCreate`；属性值可以是函数或另一个工厂（创建后取主键）；类型来自模型表的插入类型。
+- 关联读取模型上的关联定义：`for()`（belongsTo / morphTo，同一次调用只创建一个父模型）、`has()`（hasMany / hasOne / morphMany / morphOne / belongsToMany）、`hasAttached()`（中间表数据）；写入多条或带关联时在一个事务中执行。faker 10.6 按需动态导入，语言取 `.locale()` 或 `database.factories.locale`，未安装时只有访问 `ctx.faker` 才报错。
+- 读写分离：`write`、`read`（一个或多个副本，未写字段继承连接配置）、`sticky`；`pool` 可为 `{ max, idleTimeout, connectTimeout }`。没有使用 drizzle 的 `withReplicas`（加锁读也会走副本、没有 sticky），在 `resolveSession` 中手动路由：只读查询随机选副本；写入、事务、`lock()`、`useWriter()` / `Model.onWriter()` / `Db.useWriter()`、`Db.execute()` 与 `refresh()` 走写库。sticky 通过包装写库 session 的 `prepareQuery` 识别写语句，请求内以 `getRequestStore()` 为作用域、请求外用 `Db.withinScope()`，按解析后的连接名（含租户）记录。D1 与 MongoDB 配置读写分离时报错。
+
+**HTTP 客户端（core）**
+- `Http` 是不可变的请求构造器（`Http.create()` 创建不读取配置默认值的独立客户端），基于 fetch、零依赖。设置在发送时按层合并：`config/http.ts` 的 defaults、命名客户端、构造器链、单次选项。时长中的数字为毫秒；超时按每次尝试计时并覆盖缓冲读取响应体，进入流式读取后不再计时。
+- `retry(n)` 为总尝试次数，默认只重试连接失败与 408 / 425 / 429 / 5xx（501 除外），429 / 503 遵循 retry-after（超过 maxRetryAfter 时直接返回）；失败响应先缓冲，`throw()` 同步抛出带响应体预览的 `HttpRequestException`；`ConnectionException` / `TimeoutException`；URL 凭据与类似密钥的查询参数在错误与遥测中脱敏。
+- 中间件包在每次尝试外面，重试在中间件之外，每次尝试记录一条 `http` 遥测（开发面板新增 HTTP Client 标签）并创建一个 CLIENT span。`Http.fake()` 属于每个应用的 HttpManager，URL 模式规则后添加的优先；不修改 globalThis.fetch，第三方 SDK 用 `toFetch()` 接入。`pool()` 用惰性请求实现真实的并发上限。
+
+**队列增强（core + @hazejs/orm）**
+- 队列驱动注册表 `registerQueueDriver`（配置类型经 `QueueDriverRegistry` 声明合并），`databaseProvider` 注册 `database` 驱动：PostgreSQL / MySQL 8 用 `SELECT … FOR UPDATE SKIP LOCKED`，SQLite / libsql / Turso / D1 用原子的 `UPDATE … RETURNING`；超过 retryAfter 的预留可被重新领取，确认 / 放回以领取时的 reserved_at 为条件；表由 `haze make:queue-tables` 生成。
+- 任务链、批量、唯一任务与任务中间件在 QueueManager 中实现，所有驱动通用。任务链的剩余任务随消息传递；回调可以是任务引用或函数，函数只在 sync / memory 连接上允许。批次状态存于缓存存储，原子计数，以 `add` 写入 finished 标记选出唯一执行者运行 then / finally，第一次失败时执行 catch。唯一任务以消息 ID 持有缓存锁，在开始执行或执行结束时释放。`job.release(delay)` 放回队列不消耗次数；内置 rateLimited、withoutOverlapping、throttlesExceptions、skipIf 与全局中间件。Queue.fake() 新增 assertChained / assertBatched / assertPushedUnique 等。
+
+**维护模式与 TSX 视图（core + vite + cli）**
+- `haze down / up / maintenance:status`（生产为 `worker.mjs down|up|maintenance:status`）。状态默认直接读写默认缓存存储（不加租户前缀、不产生缓存遥测），也可用文件；缓存为进程内 memory 时非测试模式自动改用文件并提示。各进程缓存状态 2 秒。中间件紧跟请求作用域与异常边界，先于静态资源、OpenAPI、健康检查、多租户与全局中间件；健康检查、开发面板、except 放行。JSON 请求返回统一错误格式，HTML 请求返回内置页面、`--render` 视图或重定向；访问 `/<secret>` 设置签名 Cookie 绕过。`pauseWorkers` 时队列 worker 在任务之间等待、定时任务跳过；触发 `MaintenanceModeEnabled / Disabled` 事件。
+- core 内置零依赖的 JSX 运行时（`@hazejs/core/jsx-runtime`）：节点惰性求值，渲染时在请求作用域内执行组件，同级异步组件并发渲染，文本与属性转义，`rawHtml()` / `dangerouslySetInnerHTML`、`Doctype`。`ctx.view()` / `view()` / 处理器直接返回 JSX 节点都输出 text/html 且不经过统一格式；`useHttpContext()`、`csrfField()`、`old()` / `flashInput()`。Vite 插件只在非 client 环境、对 srcDir 下的 .tsx/.jsx 用 oxc 编译（importSource `@hazejs/core`），React 前端不受影响；api 模板 `GET /` 渲染 `app/view/Welcome.tsx`，新增 `haze make:view`。
+
+已知限制：工厂只支持 SQL 模型，不支持 through 关联；请求之外的 sticky 需要 `Db.withinScope()`；HTTP 客户端没有连接超时、假响应不创建 span；批量成员手动重试后计数不准、批量内不支持任务链、函数回调只在进程内有效；SQLite 上多进程抢任务吞吐有限，D1 只能投递；视图没有流式渲染与注水，只能按名称渲染 `app/view` 下的视图；全栈开发时维护模式只拦截 `/api/**`；边缘平台需要通过共享存储设置维护状态。
