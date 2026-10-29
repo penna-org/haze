@@ -1,7 +1,10 @@
 import type { FailedJob, JobMessage } from '../job'
 
-/** 处理一条消息的结果：成功；需要重试（delay 秒后）；最终失败 */
-export type ProcessResult = { status: 'ok' } | { status: 'retry', delay: number, error: unknown } | { status: 'failed', error: unknown }
+/**
+ * 处理一条消息的结果：成功；需要重试（delay 秒后）；最终失败；
+ * 被 job.release() 放回（QueueManager 已重新投递一条新消息，驱动按成功处理原消息即可）
+ */
+export type ProcessResult = { status: 'ok' } | { status: 'retry', delay: number, error: unknown } | { status: 'failed', error: unknown } | { status: 'released', delay: number }
 
 export interface ConsumeOptions {
   queues: string[]

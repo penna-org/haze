@@ -77,8 +77,14 @@ export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRe
       queue: job.queueName,
       payload: message.payload,
       error: job.failedReason,
-      attempts: job.attemptsMade,
+      attempts: (message.attempts ?? 0) + job.attemptsMade,
       failedAt: job.finishedOn ?? Date.now(),
+      ...(message.batch && {
+        batch: message.batch,
+      }),
+      ...(message.chain && {
+        chain: message.chain.id,
+      }),
     }
   }
 
@@ -95,10 +101,13 @@ export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRe
     driver: 'redis',
     async push(message, delaySeconds) {
       const tries = (message as JobMessage & { tries?: number }).tries ?? 1
+      // release() 放回的消息：原任务仍在执行中（jobId 不能重复），换一个 jobId；已用掉的次数记在 attempts 中
       await (await queue(message.queue)).add(message.job, message, {
-        jobId: message.id,
+        jobId: message.releases
+          ? `${message.id}-r${message.releases}`
+          : message.id,
         delay: Math.max(0, Math.round(delaySeconds * 1000)),
-        attempts: tries,
+        attempts: Math.max(1, tries - (message.attempts ?? 0)),
         backoff: { type: 'haze' },
         removeOnComplete: config.keepCompleted ?? 1000,
         removeOnFail: false,
@@ -106,11 +115,16 @@ export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRe
     },
     async consume(options: ConsumeOptions) {
       const { Worker } = await loadBullMQ()
+      // 本次失败的重试等待（中间件可能覆盖了任务的 backoff），backoffStrategy 优先使用
+      const delays = new Map<string, number>()
       for (const queueName of options.queues) {
         const worker = new Worker(queueName, async (job) => {
-          const result = await options.process(job.data as JobMessage, job.attemptsMade + 1)
-          // 抛出后由 BullMQ 按 attempts / backoffStrategy 重试或移入失败集合
-          if (result.status !== 'ok') {
+          const message = job.data as JobMessage
+          const result = await options.process(message, (message.attempts ?? 0) + job.attemptsMade + 1)
+          // 抛出后由 BullMQ 按 attempts / backoffStrategy 重试或移入失败集合；released 时新消息已投递，原任务按完成处理
+          if (result.status === 'retry' || result.status === 'failed') {
+            if (result.status === 'retry')
+              delays.set(String(job.id), result.delay)
             throw result.error instanceof Error
               ? result.error
               : new Error(String(result.error))
@@ -119,9 +133,14 @@ export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRe
           ...await connectionOptions(),
           concurrency: options.concurrency,
           settings: {
-            backoffStrategy: (attemptsMade: number, _type: string | undefined, _error: Error | undefined, job: import('bullmq').Job | undefined) => job
-              ? options.backoff(job.data as JobMessage, attemptsMade) * 1000
-              : 0,
+            backoffStrategy: (attemptsMade: number, _type: string | undefined, _error: Error | undefined, job: import('bullmq').Job | undefined) => {
+              if (!job)
+                return 0
+              const delay = delays.get(String(job.id))
+              delays.delete(String(job.id))
+              const message = job.data as JobMessage
+              return (delay ?? options.backoff(message, (message.attempts ?? 0) + attemptsMade)) * 1000
+            },
           },
         } as never)
         worker.on('error', () => {})

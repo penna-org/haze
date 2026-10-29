@@ -4,11 +4,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
 import { loadHazeConfig } from '@hazejs/vite'
-import { defineCommand } from 'citty'
+import { defineCommand, runCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'
 import { resolveRoot, rootArg } from '../args'
-import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable } from '../make/generator'
+import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable, makeQueueTables } from '../make/generator'
+import { generateCommand } from './db'
 
 function makeCommand(kind: KindName): CommandDef<any> {
   return defineCommand({
@@ -185,6 +186,48 @@ export const makeAuthTablesCommand = defineCommand({
     })
     consola.success(`Created ${colors.cyan(relative(process.cwd(), result.schema))} ${colors.dim(`(${dialect})`)}`)
     consola.info(result.hint)
+  },
+})
+
+export const makeQueueTablesCommand = defineCommand({
+  meta: { name: 'make:queue-tables', description: '生成数据库队列的表结构（database/schema/queue.ts：jobs、failed_jobs），并运行 db:generate' },
+  args: {
+    ...rootArg,
+    dialect: { type: 'string', description: 'sqlite | postgres | mysql（默认按已安装的驱动推断）' },
+    force: { type: 'boolean', description: '文件已存在时覆盖', default: false },
+    generate: { type: 'boolean', description: '写入后运行 haze db:generate 生成迁移（--no-generate 跳过）', default: true },
+  },
+  async run({ args }) {
+    const root = resolveRoot(args.root)
+    const { srcDir } = await loadHazeConfig(root)
+    const dialect = args.dialect ?? detectDialect(root)
+    if (![
+      'sqlite',
+      'postgres',
+      'mysql',
+    ].includes(dialect)) {
+      throw new Error(`The queue tables need a SQL database (got "${dialect}")`)
+    }
+    const result = await makeQueueTables({
+      root,
+      srcDir,
+      dialect: dialect as 'sqlite' | 'postgres' | 'mysql',
+      force: args.force,
+    })
+    consola.success(`Created ${colors.cyan(relative(process.cwd(), result.schema))} ${colors.dim(`(${dialect})`)}`)
+    if (args.generate) {
+      await runCommand(generateCommand, {
+        rawArgs: [
+          '--root',
+          root,
+          '--name',
+          'queue_tables',
+        ],
+      })
+    }
+    consola.info(args.generate
+      ? result.hint
+      : `先运行 haze db:generate；${result.hint}`)
   },
 })
 

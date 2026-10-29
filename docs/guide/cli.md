@@ -168,6 +168,7 @@ Paths are relative to `srcDir` (except tests). Examples show the file generated 
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
 | `make:notifications-table` | — | `database/schema/notifications.ts`; see [below](#make-notifications-table) |
 | `make:auth-tables` | — | `database/schema/auth.ts`; see [below](#make-auth-tables) |
+| `make:queue-tables` | — | `database/schema/queue.ts`, then `db:generate`; see [below](#make-queue-tables) |
 | `make:module` | `blog` | `modules/blog/` with `module.ts`, a route, a controller, `config/blog.ts` and a test; see [Modules](./modules) |
 
 After generating, most commands print a hint — where to register the file, or how to use it.
@@ -223,12 +224,17 @@ Write `database/schema/notifications.ts`, the table used by the `database` chann
 
 Write `database/schema/auth.ts` with the tables for [API tokens](./api-tokens), password resets, [two-factor secrets and passkeys](./two-factor). Delete the tables you don't need, then run `haze db:generate` and `haze db:migrate`. The templates already contain a trimmed version (tokens and password resets).
 
-Both commands take no name and accept:
+### `make:queue-tables` {#make-queue-tables}
+
+Write `database/schema/queue.ts` with the `jobs` and `failed_jobs` tables used by the [database queue driver](./queues#database-driver), then run `haze db:generate` to create the migration (pass `--no-generate` to skip it). Apply it with `haze db:migrate` and add a `driver: 'database'` connection to `config/queue.ts`.
+
+These commands take no name and accept:
 
 | Option | Description |
 | --- | --- |
 | `--dialect` | `sqlite`, `postgres` or `mysql`. Inferred from the installed driver like `make:model`; MongoDB is not supported |
 | `--force` | Overwrite the schema file if it exists |
+| `--no-generate` | `make:queue-tables` only: don't run `db:generate` afterwards |
 
 ## Database
 

@@ -3,7 +3,7 @@ import process from 'node:process'
 import { defineCommand, runMain, showUsage } from 'citty'
 import { loadUserCommands } from './commands/console'
 import { generateCommand, migrateCommand, seedCommand } from './commands/db'
-import { makeAuthTablesCommand, makeCommands, makeModelCommand, makeModuleCommand, makeNotificationsTableCommand } from './commands/make'
+import { makeAuthTablesCommand, makeCommands, makeModelCommand, makeModuleCommand, makeNotificationsTableCommand, makeQueueTablesCommand } from './commands/make'
 import { searchFlushCommand, searchImportCommand, searchSyncSettingsCommand } from './commands/search'
 import { queueFailedCommand, queueFlushCommand, queueForgetCommand, queueRetryCommand, queueWorkCommand, scheduleListCommand, scheduleRunCommand, scheduleWorkCommand } from './commands/worker'
 
@@ -28,6 +28,7 @@ const builtin = {
   'make:module': makeModuleCommand,
   'make:notifications-table': makeNotificationsTableCommand,
   'make:auth-tables': makeAuthTablesCommand,
+  'make:queue-tables': makeQueueTablesCommand,
   'db:generate': generateCommand,
   'db:migrate': migrateCommand,
   'db:seed': seedCommand,

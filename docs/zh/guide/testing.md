@@ -206,7 +206,7 @@ describe('registration', () => {
 
 | Fake | 断言与辅助方法 |
 |------|----------------|
-| `Queue.fake()` | `assertDispatched(job, predicate?)`、`assertNotDispatched(job, predicate?)`、`assertCount(n)`；`drain()` 按投递顺序执行已记录的任务（忽略延迟）；`dispatched` |
+| `Queue.fake()` | `assertDispatched(job, predicate?)`、`assertNotDispatched(job, predicate?)`、`assertCount(n)`；任务链：`assertChained([JobA, JobB.with(payload)])`；批量：`assertBatched(batch => ...)`、`assertBatchCount(n)`、`assertNothingBatched()`；唯一任务：`assertPushedUnique(job, predicate?)`、`assertSkipped(job, predicate?)`；`drain()` 按投递顺序执行已记录的任务（忽略延迟；执行中投递的任务，例如任务链的下一个，会再次被记录）；`dispatched`、`chains`、`batches`、`skipped` |
 | `Events.fake(events?)` | `assertEmitted(event, predicate?)`、`assertNotEmitted(event, predicate?)`、`assertEmittedTimes(event, n)`；`emitted`。传入列表时只 fake 这些事件 |
 | `Mail.fake()` | `assertSent`、`assertNotSent`、`assertSentTimes`、`assertQueued`、`assertNotQueued`、`assertNothingSent`、`assertNothingQueued`；`MailFake.hasRecipient(mail, address)` |
 | `Storage.fake(disk?)` | `assertExists`、`assertMissing`、`assertCount`、`assertDirectoryEmpty`（均为异步）；上传示例见[文件存储](./storage#测试) |

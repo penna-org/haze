@@ -168,6 +168,7 @@ npx haze make:<type> <name> [options]
 | `make:resource` | `User` | `app/resource/UserResource.ts` |
 | `make:notifications-table` | — | `database/schema/notifications.ts`，见[下文](#make-notifications-table) |
 | `make:auth-tables` | — | `database/schema/auth.ts`，见[下文](#make-auth-tables) |
+| `make:queue-tables` | — | `database/schema/queue.ts`，随后运行 `db:generate`，见[下文](#make-queue-tables) |
 | `make:module` | `blog` | `modules/blog/`：`module.ts`、路由、控制器、`config/blog.ts` 与测试，见[模块](./modules) |
 
 生成后，大多数命令会打印一行提示：文件需要在哪里注册，或者怎么使用。
@@ -223,12 +224,17 @@ npx haze make:<type> <name> [options]
 
 生成 `database/schema/auth.ts`，包含 [API 令牌](./api-tokens)、找回密码、[两步验证与通行密钥](./two-factor)所需的表。删掉用不到的表，再运行 `haze db:generate` 与 `haze db:migrate`。模板中已经带有精简后的版本（只保留令牌与找回密码两张表）。
 
-这两个命令不需要名称，支持以下选项：
+### `make:queue-tables` {#make-queue-tables}
+
+生成 `database/schema/queue.ts`，包含[数据库队列驱动](./queues#database-driver)使用的 `jobs` 与 `failed_jobs` 两张表，随后运行 `haze db:generate` 生成迁移（`--no-generate` 跳过）。再用 `haze db:migrate` 执行迁移，并在 `config/queue.ts` 中添加 `driver: 'database'` 的连接。
+
+这几个命令不需要名称，支持以下选项：
 
 | 选项 | 说明 |
 | --- | --- |
 | `--dialect` | `sqlite`、`postgres` 或 `mysql`，默认与 `make:model` 一样按已安装的驱动推断；不支持 MongoDB |
 | `--force` | 表结构文件已存在时覆盖 |
+| `--no-generate` | 仅 `make:queue-tables`：写入后不运行 `db:generate` |
 
 ## 数据库
 

@@ -1,8 +1,9 @@
 import type { ConfigInput, ServiceProvider } from '@hazejs/core'
 import type { DatabaseConfig } from './config'
-import { Logger } from '@hazejs/core'
+import { Logger, registerQueueDriver } from '@hazejs/core'
 import { DatabaseManager } from './connection'
 import { setDatabaseManager } from './context'
+import { databaseQueue } from './queue'
 import { configureSnowflake } from './snowflake'
 
 export interface DatabaseProviderOptions {
@@ -17,7 +18,7 @@ export interface DatabaseProviderOptions {
  * export default databaseProvider()
  * ```
  *
- * 注册 DatabaseManager（可 inject），并让 Db / Model 使用该配置。连接在首次查询时建立，
+ * 注册 DatabaseManager（可 inject），并让 Db / Model 使用该配置；同时注册数据库队列驱动（`driver: 'database'`）。连接在首次查询时建立，
  * 开发时跨热更新复用，应用关闭时释放。
  */
 export function databaseProvider(options: DatabaseProviderOptions = {}): ServiceProvider {
@@ -42,6 +43,10 @@ export function databaseProvider(options: DatabaseProviderOptions = {}): Service
       })
       container.instance(DatabaseManager, manager)
       setDatabaseManager(manager)
+      // config/queue.ts 中 driver: 'database' 的队列连接
+      registerQueueDriver('database', (name, queueConfig) => databaseQueue(name, queueConfig, {
+        logger: container.make(Logger),
+      }))
       if (config.snowflake)
         configureSnowflake(config.snowflake)
     },

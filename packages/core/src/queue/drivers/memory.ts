@@ -6,6 +6,8 @@ interface MemoryState {
   ready: Map<string, JobMessage[]>
   delayed: Set<ReturnType<typeof setTimeout>>
   failed: FailedJob[]
+  /** 失败任务的完整消息（按 ID） */
+  messages: Map<string, JobMessage>
 }
 
 /**
@@ -17,6 +19,7 @@ export function memoryQueue(name: string): QueueDriver & { idle: () => Promise<v
     ready: new Map(),
     delayed: new Set(),
     failed: [],
+    messages: new Map(),
   }), {
     dispose: (value) => {
       value.delayed.forEach(timer => clearTimeout(timer))
@@ -79,7 +82,15 @@ export function memoryQueue(name: string): QueueDriver & { idle: () => Promise<v
         error: String((result.error as Error)?.stack ?? result.error),
         attempts: attempt,
         failedAt: Date.now(),
+        ...(message.batch && {
+          batch: message.batch,
+        }),
+        ...(message.chain && {
+          chain: message.chain.id,
+        }),
       })
+      // 保留完整消息：重试时带上任务链、批次与追踪上下文
+      state.messages.set(message.id, message)
     }
   }
 
@@ -121,24 +132,31 @@ export function memoryQueue(name: string): QueueDriver & { idle: () => Promise<v
     async retry(id) {
       const jobs = state.failed.filter(job => id === undefined || job.id === id)
       state.failed = state.failed.filter(job => !jobs.includes(job))
-      jobs.forEach(job => enqueue({
-        id: job.id,
-        job: job.job,
-        payload: job.payload,
-        queue: job.queue,
-        attempts: 0,
-        dispatchedAt: Date.now(),
-      }))
+      jobs.forEach((job) => {
+        const message = state.messages.get(job.id)
+        state.messages.delete(job.id)
+        enqueue({
+          ...message,
+          id: job.id,
+          job: job.job,
+          payload: job.payload,
+          queue: job.queue,
+          attempts: 0,
+          dispatchedAt: Date.now(),
+        })
+      })
       return jobs.length
     },
     async forget(id) {
       const before = state.failed.length
       state.failed = state.failed.filter(job => job.id !== id)
+      state.messages.delete(id)
       return state.failed.length < before
     },
     async flush() {
       const count = state.failed.length
       state.failed = []
+      state.messages.clear()
       return count
     },
     async counts() {

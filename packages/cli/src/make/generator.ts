@@ -486,3 +486,23 @@ export async function makeAuthTables(options: MakeAuthTablesOptions): Promise<{ 
     hint: '运行 haze db:generate && haze db:migrate，然后在 config/auth.ts 中使用 databaseTokenStore(personalAccessTokens) 等存储（见文档 API 令牌 / 两步验证）',
   }
 }
+
+export interface MakeQueueTablesOptions {
+  root: string
+  srcDir: string
+  dialect?: Exclude<Dialect, 'mongodb'>
+  force?: boolean
+}
+
+/** 数据库队列的表结构（database/schema/queue.ts）：任务表 jobs 与失败任务表 failed_jobs */
+export async function makeQueueTables(options: MakeQueueTablesOptions): Promise<{ schema: string, hint: string }> {
+  const schema = join(options.srcDir, 'database/schema', 'queue.ts')
+  if (existsSync(schema) && !options.force)
+    throw new Error(`${schema} already exists. Use --force to overwrite.`)
+  await mkdir(dirname(schema), { recursive: true })
+  await writeFile(schema, readStub(options.root, `queue-tables.${options.dialect ?? 'sqlite'}`).content)
+  return {
+    schema,
+    hint: '运行 haze db:migrate，然后在 config/queue.ts 中添加 connections.database: { driver: \'database\' }（需要 databaseProvider()），用 haze queue:work --connection database 消费',
+  }
+}

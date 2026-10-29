@@ -49,16 +49,23 @@ export interface TelemetryEvents {
     connection: string
     delay: number
     payload: unknown
+    /** 任务链 ID */
+    chain?: string
+    /** 批次 ID */
+    batch?: string
   }
   'job.processed': {
     id: string
     job: string
     queue: string
     attempt: number
-    status: 'ok' | 'retry' | 'failed'
+    /** released：job.release() 放回队列 */
+    status: 'ok' | 'retry' | 'failed' | 'released'
     startTime: number
     duration: number
     error?: string
+    chain?: string
+    batch?: string
   }
   'event': {
     event: string
