@@ -1,6 +1,7 @@
 import type { createProject as CreateProject } from './utils'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { createDevServer } from '@hazejs/vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { binOf, createProject, run, waitFor } from './utils'
@@ -32,8 +33,10 @@ describe('maintenance mode', () => {
       const down = await haze('down', '--secret', 'open-sesame', '--render', 'Maintenance', '--except', '/api/hello', '--retry', '15')
       expect(down.code, down.output).toBe(0)
       // 模板的缓存默认是进程内的 memory 存储：改用文件并给出提示
-      expect(down.output).toContain('in-process memory store')
-      expect(down.output).toContain('Bypass: visit /open-sesame')
+      // CI 中 consola 会输出颜色，去掉 ANSI 转义后再比较
+      const output = stripVTControlCharacters(down.output)
+      expect(output).toContain('in-process memory store')
+      expect(output).toContain('Bypass: visit /open-sesame')
       expect(existsSync(join(project.root, 'storage/framework/down'))).toBe(true)
 
       // 开发服务器在进程内缓存的时间（2 秒）内生效
@@ -61,11 +64,11 @@ describe('maintenance mode', () => {
       })).status).toBe(200)
 
       const status = await haze('maintenance:status')
-      expect(status.output).toContain('Application is down since')
-      expect(status.output).toContain('except /api/hello')
+      expect(stripVTControlCharacters(status.output)).toContain('Application is down since')
+      expect(stripVTControlCharacters(status.output)).toContain('except /api/hello')
 
       const up = await haze('up')
-      expect(up.output).toContain('Application is now live')
+      expect(stripVTControlCharacters(up.output)).toContain('Application is now live')
       await waitFor(async () => (await fetch(url('/'))).status === 200)
       // 没有重启或重载应用
       expect(dev.app).toBe(app)
