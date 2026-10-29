@@ -3,7 +3,7 @@
 This guide creates a new hazejs project, runs it, and walks through adding your first route and controller.
 
 ::: warning Pre-release
-hazejs is in `0.x` and the `@hazejs/*` packages are not on npm yet. Until the first release, follow the [contributing guide](https://github.com/penna-org/haze/blob/main/CONTRIBUTING.md) to run the templates from source. The commands below are what you will use once the packages are published.
+hazejs is in `0.x`. The `@hazejs/*` packages are published on npm, but APIs may still change between minor versions until `1.0` — check the [changelog](https://github.com/penna-org/haze/releases) when upgrading.
 :::
 
 ## Prerequisites

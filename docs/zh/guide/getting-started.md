@@ -3,7 +3,7 @@
 本文带你创建一个 hazejs 项目并运行起来，然后亲手添加第一个路由和控制器。
 
 ::: warning 预发布阶段
-hazejs 目前处于 `0.x` 版本，`@hazejs/*` 各包还没有发布到 npm。正式发布之前，请按照[贡献指南](https://github.com/penna-org/haze/blob/main/CONTRIBUTING.md)从源码运行模板。下面的命令是包发布之后的使用方式。
+hazejs 目前处于 `0.x` 版本，`@hazejs/*` 各包已发布到 npm，但在 `1.0` 之前，次版本之间的 API 仍可能调整，升级时请查看[更新日志](https://github.com/penna-org/haze/releases)。
 :::
 
 ## 环境要求
