@@ -3,6 +3,7 @@ import type { CacheRepository } from '../cache/repository'
 import type { ScheduleDefinition, ScheduledTask } from './schedule'
 import { CacheManager } from '../cache/manager'
 import { MaintenanceManager } from '../maintenance/manager'
+import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { QueueManager } from '../queue/manager'
 import { isScheduleDefinition, Schedule } from './schedule'
 
@@ -70,6 +71,27 @@ export class Scheduler {
 
   /** 执行一个任务（含 onOneServer / withoutOverlapping 检查） */
   async runTask(task: ScheduledTask, date: Date = new Date()): Promise<TaskRun> {
+    const startTime = Date.now()
+    const run = await this.#run(task, date)
+    if (telemetryActive()) {
+      recordTelemetry('schedule', {
+        name: run.name,
+        kind: task.kind,
+        status: run.status,
+        reason: run.reason,
+        startTime,
+        duration: run.duration,
+        ...(run.error !== undefined && {
+          error: run.error instanceof Error
+            ? run.error.message
+            : String(run.error),
+        }),
+      })
+    }
+    return run
+  }
+
+  async #run(task: ScheduledTask, date: Date): Promise<TaskRun> {
     const started = performance.now()
     const logger = this.app.logger.child({ task: task.name })
     if (!(await task.passesFilters())) {

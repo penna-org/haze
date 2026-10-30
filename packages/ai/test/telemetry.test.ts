@@ -5,13 +5,14 @@ import { embedMany, generateText, streamText } from '../src'
 /** 模拟 @hazejs/core 的遥测总线（只依赖 globalThis 上的约定结构） */
 const kHub = Symbol.for('hazejs.telemetry')
 const records: Array<{ kind: string, data: Record<string, unknown> }> = []
-function installHub() {
+function installHub(captureContent?: boolean) {
   const listeners = new Set([
     () => {},
   ])
   ;(globalThis as Record<symbol, unknown>)[kHub] = {
     listeners,
     record: (kind: string, data: Record<string, unknown>) => void records.push({ kind, data }),
+    captureContent,
   }
 }
 
@@ -105,6 +106,86 @@ describe('ai telemetry', () => {
       expect(typeof data.duration).toBe('number')
       expect(typeof data.startTime).toBe('number')
     }
+  })
+
+  it('leaves prompts and outputs out unless content capture is on', async () => {
+    installHub()
+    await generateText({
+      model: new PrivateModel(),
+      prompt: 'hi',
+    })
+    expect(records[0]!.data).not.toHaveProperty('messages')
+    expect(records[0]!.data).not.toHaveProperty('output')
+  })
+
+  it('captures messages, tools, output and tool calls for the dev dashboard', async () => {
+    installHub(true)
+    const model = new PrivateModel()
+    await generateText({ model, system: 'be brief', prompt: 'hi' })
+    expect(records[0]!.data).toMatchObject({
+      messages: [
+        { role: 'system', content: 'be brief' },
+        { role: 'user', content: 'hi' },
+      ],
+      output: 'hello',
+    })
+
+    records.length = 0
+    expect(await streamText({
+      model,
+      prompt: 'x'.repeat(5000),
+    }).text).toBe('hello')
+    const data = records[0]!.data as { messages: Array<{ content: string }>, output: string }
+    expect(data.output).toBe('hello')
+    expect(data.messages[0]!.content).toHaveLength(4001)
+
+    records.length = 0
+    const caller: LanguageModel = {
+      kind: 'language',
+      provider: 'mock',
+      modelId: 'tools-1',
+      generate: async () => ({
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: '1',
+            toolName: 'weather',
+            input: { city: 'Paris' },
+          },
+        ],
+        finishReason: 'tool-calls',
+        usage,
+      }),
+      stream: async () => new ReadableStream(),
+    }
+    await caller.generate({
+      messages: [
+        { role: 'user', content: 'weather?' },
+      ],
+      tools: [
+        { name: 'weather', parameters: {} },
+      ],
+    })
+    expect(records).toHaveLength(0)
+    const { instrumentModel } = await import('../src/telemetry')
+    await instrumentModel('language', caller).generate({
+      messages: [
+        { role: 'user', content: 'weather?' },
+      ],
+      tools: [
+        { name: 'weather', parameters: {} },
+      ],
+    })
+    expect(records[0]!.data).toMatchObject({
+      tools: ['weather'],
+      output: '',
+      toolCalls: [
+        {
+          name: 'weather',
+          input: { city: 'Paris' },
+        },
+      ],
+    })
   })
 
   it('reports errors and leaves models untouched without listeners', async () => {

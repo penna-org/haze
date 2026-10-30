@@ -23,6 +23,21 @@ export class MiddlewareRegistry {
     this.#groups = config.groups ?? {}
   }
 
+  /** 已注册的别名（含内置中间件） */
+  aliases(): string[] {
+    return Object.keys(this.#alias)
+  }
+
+  /** 中间件分组及其成员（函数成员显示为函数名） */
+  groups(): Record<string, string[]> {
+    return Object.fromEntries(Object.entries(this.#groups).map(([name, refs]) => [
+      name,
+      refs.map(ref => typeof ref === 'string'
+        ? ref
+        : ref.name || 'anonymous'),
+    ]))
+  }
+
   /** 展开别名与分组，返回扁平的中间件列表 */
   resolve(refs: MiddlewareRef[], expanding: string[] = []): ResolvedMiddleware[] {
     return refs.flatMap((ref) => {

@@ -4,7 +4,7 @@ import { getRequestStore } from '../../request'
 import { currentTelemetryScope } from '../scope'
 import { onTelemetry } from '../telemetry'
 
-export type DashboardEntryType = 'request' | 'query' | 'job' | 'mail' | 'event' | 'cache' | 'log' | 'exception' | 'ai' | 'http'
+export type DashboardEntryType = 'request' | 'query' | 'job' | 'mail' | 'event' | 'cache' | 'log' | 'exception' | 'ai' | 'http' | 'schedule'
 
 export const DASHBOARD_ENTRY_TYPES: readonly DashboardEntryType[] = [
   'request',
@@ -17,6 +17,7 @@ export const DASHBOARD_ENTRY_TYPES: readonly DashboardEntryType[] = [
   'exception',
   'ai',
   'http',
+  'schedule',
 ]
 
 export interface DashboardEntry {
@@ -53,6 +54,7 @@ const TELEMETRY_TYPES: Partial<Record<TelemetryKind, DashboardEntryType>> = {
   'exception': 'exception',
   'ai': 'ai',
   'http': 'http',
+  'schedule': 'schedule',
 }
 
 /** 单个记录内容的上限：超出的字符串截断，避免大载荷撑满内存 */

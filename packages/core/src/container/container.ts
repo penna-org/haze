@@ -29,8 +29,21 @@ interface Binding<T = unknown> {
   key: InjectionKey<T>
   factory: Factory<T>
   scope: Scope
+  kind: BindingKind
   /** 绑定所在的容器，单例缓存在这里 */
   owner: Container
+}
+
+/** 绑定的来源：类、工厂函数或 `instance()` 注入的现成实例 */
+export type BindingKind = 'class' | 'factory' | 'instance'
+
+/** 一条绑定的描述（开发工具 / 调试用） */
+export interface BindingInfo {
+  key: string
+  scope: Scope
+  kind: BindingKind
+  /** 单例是否已创建 */
+  resolved: boolean
 }
 
 interface Frame {
@@ -83,10 +96,12 @@ export class Container {
     const impl = provider ?? key
     let factory: Factory<T>
     let defaultScope: Scope = Scope.Singleton
+    let kind: BindingKind = 'factory'
 
     if (isClass(impl)) {
       factory = () => new (impl as Constructor<T>)()
       defaultScope = scopeOf(impl)
+      kind = 'class'
     }
     else if (typeof impl === 'function') {
       factory = impl as Factory<T>
@@ -99,6 +114,7 @@ export class Container {
       key,
       factory,
       scope: options.scope ?? defaultScope,
+      kind,
       owner: this,
     })
     this.#instances.delete(key)
@@ -124,10 +140,23 @@ export class Container {
       key,
       factory: () => value,
       scope,
+      kind: 'instance',
       owner: this,
     })
     this.#instances.set(key, value)
     return this
+  }
+
+  /** 本容器的绑定（不含父容器），按注册顺序 */
+  bindings(): BindingInfo[] {
+    return [
+      ...this.#bindings.values(),
+    ].map(binding => ({
+      key: keyName(binding.key),
+      scope: binding.scope,
+      kind: binding.kind,
+      resolved: this.#instances.has(binding.key),
+    }))
   }
 
   has(key: InjectionKey<any>): boolean {

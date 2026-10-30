@@ -97,6 +97,25 @@ export interface TelemetryEvents {
     startTime: number
     duration: number
     error?: string
+    /** 以下内容只在开启内容采集（开发面板）时上报，见 TelemetryHub.captureContent */
+    /** 输入消息（文本化，过长截断） */
+    messages?: Array<{ role: string, content: string }>
+    /** 可用的工具名 */
+    tools?: string[]
+    /** 输出文本 */
+    output?: string
+    /** 模型发起的工具调用 */
+    toolCalls?: Array<{ name: string, input: unknown }>
+  }
+  /** 定时任务的一次执行（`haze schedule:run` / `schedule:work` / 开发工具手动触发） */
+  'schedule': {
+    name: string
+    kind: 'call' | 'job'
+    status: 'ok' | 'skipped' | 'failed'
+    reason?: string
+    startTime: number
+    duration: number
+    error?: string
   }
   /** 出站 HTTP 请求（`Http` 客户端上报，每次尝试一条；URL 与敏感请求头已脱敏） */
   'http': {
@@ -131,6 +150,11 @@ export type TelemetryListener = <K extends TelemetryKind>(kind: K, data: Telemet
 export interface TelemetryHub {
   readonly listeners: Set<TelemetryListener>
   record: (kind: string, data: object) => void
+  /**
+   * 是否采集内容（AI 的提示词与输出等）：开发面板开启时为 true。
+   * 生产环境的 OpenTelemetry 不需要这些内容，也不应记录。
+   */
+  captureContent?: boolean
 }
 
 const kHub = Symbol.for('hazejs.telemetry')

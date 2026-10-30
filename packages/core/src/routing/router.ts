@@ -242,7 +242,8 @@ export class Router {
         : definition.method, definition.path, createHandler(definition), {
         middleware: resolved.map(item => middleware.toH3(item)),
         // 出站格式化时读取（例如 envelope: false）
-        meta: { ...definition.meta, name: definition.name },
+        // module：开发面板记录请求属于哪个模块
+        meta: { ...definition.meta, name: definition.name, module: definition.module },
       })
 
       return {
