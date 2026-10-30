@@ -2,7 +2,8 @@ import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
-import type { DevtoolsConfig, DevtoolsInstance } from './devtools'
+import type { DevtoolsConfig, DevtoolsInstance, DevtoolsModule } from './devtools'
+import type { AppHost, ReloadResult } from './host'
 import type { ModulePackage } from './modules'
 import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -14,7 +15,7 @@ import { toNodeHandler } from 'srvx/node'
 import { normalizePath, transformWithOxc } from 'vite'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
-import { loadDevtools } from './devtools'
+import { importDevtools, loadDevtools } from './devtools'
 import { createAppHost } from './host'
 import { findModulePackages, packagedMigrationFiles, rewriteMigrationUrls } from './modules'
 import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, externalPattern, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
@@ -148,10 +149,41 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
   let isDev = true
   /** 全栈开发服务器上运行的 DevTools */
   let devtools: DevtoolsInstance | undefined
+  /** Vite 配置开启了 `devtools`：hazejs 的面板注册进 Vite DevTools，不再单独启动 */
+  let viteDevtools = false
+  // 面板所需的应用来源：Vite DevTools 的 setup 可能早于 configureServer 中创建 AppHost，先绑定再转发
+  let appHost: AppHost | undefined
+  const reloadListeners = new Set<(result: ReloadResult) => void>()
+  const devtoolsSource = {
+    get app() {
+      return appHost?.app
+    },
+    onReload(listener: (result: ReloadResult) => void): () => void {
+      reloadListeners.add(listener)
+      return () => reloadListeners.delete(listener)
+    },
+    import<T = any>(id: string): Promise<T> {
+      return appHost
+        ? appHost.import<T>(id)
+        : Promise.reject(new Error('The app has not started yet'))
+    },
+  }
+  // Vite DevTools 的插件钩子（@vitejs/devtools-kit 的 Plugin.devtools），只在开启 Vite DevTools 时调用
+  const devtoolsHook = {
+    devtools: {
+      async setup(ctx: Parameters<DevtoolsModule['setupViteDevtools']>[0]) {
+        if (!settings.fullstack || settings.devtools === false)
+          return
+        const module = await importDevtools(settings.root)
+        await module?.setupViteDevtools(ctx, { source: devtoolsSource })
+      },
+    },
+  } as Partial<Plugin>
 
   return {
     name: PLUGIN_NAME,
     api,
+    ...devtoolsHook,
 
     async config(userConfig, env) {
       const base = normalizePath(resolve(userConfig.root ?? process.cwd()))
@@ -325,6 +357,7 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
     configResolved(config) {
       settings.root = normalizePath(config.root)
       isDev = config.command === 'serve'
+      viteDevtools = isDev && Boolean((config as { devtools?: unknown }).devtools)
     },
 
     async configureServer(server) {
@@ -332,11 +365,16 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
         return
 
       const host = createAppHost({ vite: server, api })
-      // DevTools 在 Vite 的 http 服务器上处理自己的 WebSocket（<base>__ws），中间件排在后端之前
-      devtools = await loadDevtools(settings.root, settings.devtools, {
-        source: host,
-        server: (server.httpServer ?? undefined) as never,
-      })
+      appHost = host
+      host.onReload(result => reloadListeners.forEach(listener => listener(result)))
+      // DevTools 在 Vite 的 http 服务器上处理自己的 WebSocket（<base>__ws），中间件排在后端之前；
+      // 开启了 Vite DevTools 时面板在其中显示（同样挂在 /__devtools/），不再重复启动
+      devtools = viteDevtools
+        ? undefined
+        : await loadDevtools(settings.root, settings.devtools, {
+            source: devtoolsSource,
+            server: (server.httpServer ?? undefined) as never,
+          })
       if (devtools) {
         server.middlewares.use(devtools.nodeMiddleware)
         const printUrls = server.printUrls.bind(server)
@@ -376,6 +414,7 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       server.close = async () => {
         await devtools?.close()
         devtools = undefined
+        appHost = undefined
         await host.close()
         return close()
       }

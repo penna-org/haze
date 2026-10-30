@@ -57,8 +57,8 @@ export function createHazeFrame({ source, entries }: FrameOptions): DevframeDefi
     ...PACKAGE,
     importMetaUrl: import.meta.url,
     clientAssets: fileURLToPath(new URL('./client', import.meta.url)),
-    // 页面数据都来自运行中的应用
-    capabilities: { build: false },
+    // 静态报告（buildReport）只烘焙应用结构：快照与联动图
+    capabilities: { build: true },
     async setup(ctx: DevframeNodeContext) {
       const rpc = ctx.rpc
 
@@ -84,6 +84,7 @@ export function createHazeFrame({ source, entries }: FrameOptions): DevframeDefi
         name: `${FRAME_ID}:snapshot`,
         type: 'query',
         jsonSerializable: true,
+        snapshot: true,
         agent: {
           title: 'Inspect the hazejs app',
           description: 'Structure of the running hazejs app: modules and what each contributes, sub-apps, routes with middleware, providers, container bindings, events and listeners, queue jobs, scheduled tasks. Call this first to understand the app before changing routes, modules, events or jobs.',
@@ -130,6 +131,7 @@ export function createHazeFrame({ source, entries }: FrameOptions): DevframeDefi
         name: `${FRAME_ID}:graph`,
         type: 'query',
         jsonSerializable: true,
+        snapshot: true,
         agent: {
           title: 'Module graph',
           description: 'How the modules of the hazejs app depend on each other: event ownership and listeners, jobs and schedules, middleware used across modules, and events / jobs actually emitted or dispatched at runtime (with counts). Use it before changing an event, job or module that others may rely on.',

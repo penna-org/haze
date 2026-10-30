@@ -1,9 +1,10 @@
 import type { DevServer } from '@hazejs/vite'
 import type { RouteRow } from '../src'
-import { cpSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { initHub } from '@devframes/hub/initiate'
 import { createDevServer } from '@hazejs/vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { filterRoutes, inspectApp } from '../src'
@@ -183,6 +184,60 @@ describe('devtools on the dev server', () => {
     expect(requests[0]).toMatchObject({ method: 'GET', path: '/hello', status: 200 })
     const detail = await call('hazejs_request', { requestId: requests[0].requestId })
     expect(detail.request.content.path).toBe('/hello')
+  })
+
+  it('builds a static report of the app structure', async () => {
+    const dev = await start({ devtools: false })
+    const outDir = join(root!, 'report')
+    // 从构建产物加载：面板 SPA 只存在于 dist/client
+    const { buildReport } = await import('../dist/index.mjs') as typeof import('../src')
+    await buildReport({ source: dev, outDir, root })
+
+    expect(JSON.parse(readFileSync(join(outDir, '__connection.json'), 'utf8'))).toMatchObject({ backend: 'static' })
+    expect(existsSync(join(outDir, 'index.html'))).toBe(true)
+    expect(readFileSync(join(outDir, 'hazejs', 'index.html'), 'utf8')).toContain('<div id="app">')
+    // 联动图与快照的 RPC 结果烘焙进了静态数据
+    const dump = readdirSync(join(outDir, '__rpc-dump'))
+    const graph = dump.find(file => file.startsWith('hazejs~graph.record.'))!
+    expect(JSON.parse(readFileSync(join(outDir, '__rpc-dump', graph), 'utf8'))).toMatchObject({
+      output: {
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ id: 'module:blog', type: 'module' }),
+        ]),
+      },
+    })
+    expect(dump.some(file => file.startsWith('hazejs~snapshot.record.'))).toBe(true)
+  })
+
+  it('registers its panels into another hub such as Vite DevTools', async () => {
+    const dev = await start({ devtools: false })
+    const { setupViteDevtools } = await import('../dist/index.mjs') as typeof import('../src')
+    // Vite DevTools 传给插件 devtools.setup(ctx) 的就是 devframe hub 的上下文
+    const hub = initHub({
+      base: '/__vite-devtools/',
+      auth: false,
+      mcp: false,
+      configure: ctx => setupViteDevtools(ctx, { source: dev }),
+    })
+    try {
+      await hub.ready
+      const docks = (await hub.context).docks.values() as Array<{ id: string, url?: string, groupId?: string }>
+      const frame = docks.find(dock => dock.id === 'hazejs')!
+      expect(frame.groupId).toBe('hazejs:group')
+      expect(docks.find(dock => dock.id === 'hazejs:requests')!.url).toBe(`${frame.url}#/requests`)
+      expect(docks.map(dock => dock.id)).toEqual(expect.arrayContaining([
+        'hazejs:overview',
+        'hazejs:routes',
+        'hazejs:internals',
+        'hazejs:ai',
+        'hazejs:tasks',
+      ]))
+      const spa = await hub.handler(new Request(new URL(frame.url!, 'http://localhost')))
+      expect(spa.status).toBe(200)
+    }
+    finally {
+      await hub.close()
+    }
   })
 
   it('can be turned off', async () => {

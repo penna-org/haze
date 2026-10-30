@@ -181,8 +181,8 @@ export function errorSummary(error: unknown, max = 160): string {
     : line
 }
 
-/** 路由面板：搜索框 + 路由表 */
-export function routesSpec(): DevframeJsonRenderSpec {
+/** 路由面板：搜索框 + 路由表（静态报告中没有服务端处理搜索，只显示路由表） */
+export function routesSpec(options: { search?: boolean } = {}): DevframeJsonRenderSpec {
   return {
     root: 'root',
     elements: {
@@ -194,7 +194,9 @@ export function routesSpec(): DevframeJsonRenderSpec {
       toolbar: {
         type: 'Stack',
         props: { direction: 'row', gap: 12, align: 'center' },
-        children: ['searchBox', 'summary'],
+        children: options.search === false
+          ? ['summary']
+          : ['searchBox', 'summary'],
       },
       searchBox: {
         type: 'Stack',

@@ -20,6 +20,8 @@ export interface DevtoolsConfig {
   terminals?: boolean
   /** 全栈项目：在前端页面中注入悬浮的 DevTools 入口，默认开启 */
   embedded?: boolean
+  /** 向编码代理暴露 MCP 端点 `<base>__mcp`（只接受本机连接），默认开启 */
+  mcp?: boolean
 }
 
 /** `@hazejs/devtools` 的 createDevtools 返回值（这里只声明用到的部分，避免依赖该包） */
@@ -33,8 +35,27 @@ export interface DevtoolsInstance {
   close: () => Promise<void>
 }
 
-interface DevtoolsModule {
-  createDevtools: (options: DevtoolsConfig & { source: AppHost, root: string, server?: Server }) => DevtoolsInstance
+/** `@hazejs/devtools` 模块中被用到的部分 */
+export interface DevtoolsModule {
+  createDevtools: (options: DevtoolsConfig & { source: DevtoolsAppSource, root: string, server?: Server }) => DevtoolsInstance
+  buildReport: (options: { source: DevtoolsAppSource, outDir: string, base?: string, root?: string }) => Promise<string>
+  /** 接入 Vite DevTools：ctx 为 Vite DevTools 传给插件 `devtools.setup` 的 hub 上下文 */
+  setupViteDevtools: (ctx: any, options: { source: DevtoolsAppSource }) => Promise<void>
+}
+
+/** DevTools 读取应用的接口（AppHost 满足） */
+export type DevtoolsAppSource = Pick<AppHost, 'app' | 'onReload' | 'import'>
+
+/** 从项目根解析并加载 `@hazejs/devtools`；未安装时为 undefined */
+export async function importDevtools(root: string): Promise<DevtoolsModule | undefined> {
+  let entry: string
+  try {
+    entry = createRequire(join(root, 'package.json')).resolve(DEVTOOLS_PACKAGE)
+  }
+  catch {
+    return undefined
+  }
+  return await import(pathToFileURL(entry).href) as DevtoolsModule
 }
 
 /**
@@ -44,20 +65,13 @@ interface DevtoolsModule {
 export async function loadDevtools(
   root: string,
   config: boolean | DevtoolsConfig | undefined,
-  options: { source: AppHost, server?: Server },
+  options: { source: DevtoolsAppSource, server?: Server },
 ): Promise<DevtoolsInstance | undefined> {
   if (config === false)
     return undefined
-  let entry: string
   try {
-    entry = createRequire(join(root, 'package.json')).resolve(DEVTOOLS_PACKAGE)
-  }
-  catch {
-    return undefined
-  }
-  try {
-    const { createDevtools } = await import(pathToFileURL(entry).href) as DevtoolsModule
-    return createDevtools({
+    const devtools = await importDevtools(root)
+    return devtools?.createDevtools({
       ...(typeof config === 'object'
         ? config
         : {}),
