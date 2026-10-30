@@ -126,7 +126,7 @@ function detectDialect(root: string): string {
     return 'mongodb'
   if (usesOnly(root, 'mysql2', '@libsql/client'))
     return 'mysql'
-  if (usesOnly(root, 'postgres', '@libsql/client') || usesOnly(root, '@electric-sql/pglite', '@libsql/client'))
+  if (usesOnly(root, 'postgres', '@libsql/client') || usesOnly(root, 'pg', '@libsql/client') || usesOnly(root, '@electric-sql/pglite', '@libsql/client'))
     return 'postgres'
   return 'sqlite'
 }

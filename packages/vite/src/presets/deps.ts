@@ -28,6 +28,7 @@ export const DRIVER_PACKAGES = [
   'mongodb',
   'mysql2',
   'nodemailer',
+  'pg',
   'postgres',
   // Socket.IO 服务端（engine.io / ws）：保持 external 并追踪进产物
   'socket.io',

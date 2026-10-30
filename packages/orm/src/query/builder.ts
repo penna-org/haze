@@ -1,7 +1,7 @@
 import type { CacheTtl } from '@hazejs/core'
 import type { Column, SQLWrapper, Table } from 'drizzle-orm'
 import type { Session } from '../context'
-import type { ColumnKey, Direction, Insert, Paginated, Row } from '../types'
+import type { AnyDatabase, ColumnKey, Direction, Insert, Paginated, Row } from '../types'
 import type { BuildContext, FieldPath, SubqueryLike } from './conditions'
 import { useCacheManager } from '@hazejs/core'
 import { aliasedTable, and, asc, avg, count, desc, getTableColumns, getTableName, inArray, is, max, min, sql, SQL, sum } from 'drizzle-orm'
@@ -707,13 +707,13 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     ].filter(key => key in columns && !target.includes(key))
     const query = session.db.insert(this.table).values(list)
     if (session.dialect === 'mysql') {
-      const set = Object.fromEntries((update.length ? update : target).map(key => [key, sql`values(${sql.identifier(columns[key].name)})`]))
+      const set = Object.fromEntries((update.length ? update : target).map(key => [key, sql`values(${sql.identifier(columnName(session.db, columns[key]))})`]))
       return affectedRows(await this.write(() => query.onDuplicateKeyUpdate({ set })))
     }
     const conflict = target.map(key => this.columnOf(key))
     if (!update.length)
       return affectedRows(await this.write(() => query.onConflictDoNothing({ target: conflict })))
-    const set = Object.fromEntries(update.map(key => [key, sql`excluded.${sql.identifier(columns[key].name)}`]))
+    const set = Object.fromEntries(update.map(key => [key, sql`excluded.${sql.identifier(columnName(session.db, columns[key]))}`]))
     return affectedRows(await this.write(() => query.onConflictDoUpdate({ target: conflict, set })))
   }
 
@@ -738,7 +738,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     const list = Object.keys(selection).map((key) => {
       if (!columns[key])
         throw new DatabaseError(`selectInsert(): "${key}" is not a column of "${getTableName(target)}"`)
-      return sql.identifier(columns[key].name)
+      return sql.identifier(columnName(ctx.db, columns[key]))
     })
     const query = sql`insert into ${target} (${sql.join(list, sql`, `)}) ${this.buildSelect(ctx, selection).getSQL()}`
     return affectedRows(await this.write(() => ctx.dialect === 'sqlite'
@@ -1118,4 +1118,10 @@ function hash(value: string): string {
     result = Math.imul(result, 0x01000193)
   }
   return (result >>> 0).toString(36) + value.length.toString(36)
+}
+
+/** 数据库中的列名：连接配置了 casing 时按它转换没有写列名的字段（与 drizzle 生成 SQL 时一致） */
+function columnName(db: AnyDatabase, column: Column): string {
+  const casing = (db as { dialect?: { casing?: { getColumnCasing?: (column: Column) => string } } }).dialect?.casing
+  return casing?.getColumnCasing?.(column) ?? column.name
 }

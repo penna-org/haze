@@ -1,23 +1,53 @@
+import type { Application } from '@hazejs/core'
 import type { Dialect, Driver } from './config'
 import type { Connection, DatabaseManager } from './connection'
 import type { AnyDatabase } from './types'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { getRequestStore } from '@hazejs/core'
 import { DatabaseError } from './errors'
 import { forcedWriter, hasWritten } from './routing'
 
 let manager: DatabaseManager | undefined
+
+/** 各应用自己的 DatabaseManager：同一进程中有多个应用（测试）时，请求内使用请求所属应用的连接 */
+const managers = new WeakMap<Application, DatabaseManager>()
 
 /** 由 databaseProvider() 在应用启动时设置；脚本 / 测试中可直接调用 */
 export function setDatabaseManager(value: DatabaseManager | undefined): void {
   manager = value
 }
 
-/** 当前的 DatabaseManager（未配置时为 undefined，不抛错） */
+/** 记录应用的 DatabaseManager（databaseProvider() 调用） */
+export function bindDatabaseManager(app: Application, value: DatabaseManager): void {
+  managers.set(app, value)
+}
+
+/** withDatabaseManager() 指定的 DatabaseManager（随异步上下文传递，包括其中创建的定时器与 Promise） */
+const scoped = new AsyncLocalStorage<DatabaseManager>()
+
+/**
+ * 在回调中使用指定的 DatabaseManager：其中的 Db / Model 查询、事务与 Db.drizzleSync()，以及回调中创建的定时器、
+ * Promise 都使用它，优先于请求所属的应用与最近启动的应用。同一进程中有多个应用（测试）时，
+ * 请求之外的代码（后台任务、脚本）可以借此固定使用自己应用的连接
+ */
+export function withDatabaseManager<R>(value: DatabaseManager, callback: () => R): R {
+  return scoped.run(value, callback)
+}
+
+/**
+ * 当前的 DatabaseManager（未配置时为 undefined，不抛错），依次为：withDatabaseManager() 指定的、
+ * 请求所属应用的、最近启动的应用的
+ */
 export function currentDatabaseManager(): DatabaseManager | undefined {
-  return manager
+  const explicit = scoped.getStore()
+  if (explicit)
+    return explicit
+  const app = getRequestStore()?.app
+  return (app && managers.get(app)) ?? manager
 }
 
 export function useDatabaseManager(): DatabaseManager {
+  const manager = currentDatabaseManager()
   if (!manager)
     throw new DatabaseError('Database is not configured. Add databaseProvider() in app/provider and create config/database.ts')
   return manager
@@ -53,8 +83,18 @@ interface TxState {
   }
 }
 
-/** 事务上下文：连接名 → 当前事务 */
+/** 事务上下文：`<DatabaseManager>:<连接名>` → 当前事务（同一进程中多个应用的同名连接互不影响） */
 const transactions = new AsyncLocalStorage<Map<string, TxState>>()
+
+const managerIds = new WeakMap<DatabaseManager, number>()
+let nextManagerId = 0
+
+function txKey(databases: DatabaseManager, name: string): string {
+  let id = managerIds.get(databases)
+  if (id === undefined)
+    managerIds.set(databases, id = ++nextManagerId)
+  return `${id}:${name}`
+}
 
 /** 跳过已结束的事务，取仍在进行的最内层事务 */
 function active(state: TxState | undefined): TxState | undefined {
@@ -88,10 +128,11 @@ export interface SessionOptions {
  * `{ read: true }` 时按读写分离规则选择副本或写库。
  */
 export async function resolveSession(connection?: string, options: SessionOptions = {}): Promise<Session> {
-  const resolved: Connection = await useDatabaseManager().connection(connection)
+  const databases = useDatabaseManager()
+  const resolved: Connection = await databases.connection(connection)
   if (resolved.dialect === 'mongodb')
     throw new DatabaseError(`Connection "${resolved.name}" is MongoDB; use Mongo / MongoModel from @hazejs/orm/mongo`)
-  const state = active(transactions.getStore()?.get(resolved.name))
+  const state = active(transactions.getStore()?.get(txKey(databases, resolved.name)))
   const session = {
     name: resolved.name,
     driver: resolved.driver,
@@ -111,6 +152,42 @@ export async function resolveSession(connection?: string, options: SessionOption
   }
 }
 
+/**
+ * 同步取得连接当前可用的 drizzle 实例（处于事务中时为事务对象），给不能 await 的代码使用（如 Repository 的 `db` 属性）。
+ * 需先建立连接（`await Db.connect()` 或任意一次查询）；配置了读写分离时总是写库
+ */
+export function resolveSessionSync(connection?: string): Session {
+  const databases = useDatabaseManager()
+  const resolved = databases.connectionSync(connection)
+  if (resolved.dialect === 'mongodb')
+    throw new DatabaseError(`Connection "${resolved.name}" is MongoDB; use Mongo / MongoModel from @hazejs/orm/mongo`)
+  const session = {
+    name: resolved.name,
+    driver: resolved.driver,
+    dialect: resolved.dialect,
+    replica: false,
+  }
+  const state = active(transactions.getStore()?.get(txKey(databases, resolved.name)))
+  if (!state)
+    return { ...session, db: resolved.db }
+  if (state.db instanceof Promise)
+    throw new DatabaseError(`The transaction on connection "${resolved.name}" has not started yet; await Db.startTrans() before using it synchronously`)
+  return { ...session, db: state.db }
+}
+
+/**
+ * 让外部开启的事务加入事务上下文（第三方库自己调用 drizzle 的 `db.transaction(tx => …)` 时）：
+ * 回调中的 Db / Model 查询与 Db.drizzleSync() 都使用这个事务对象，其中再开启的事务为保存点。
+ * 事务的提交与回滚仍由外部负责
+ */
+export function joinTransaction<R>(tx: AnyDatabase, callback: () => R, connection?: string): R {
+  const databases = useDatabaseManager()
+  const key = txKey(databases, databases.resolveName(connection))
+  const store = transactions.getStore()
+  const parent = active(store?.get(key))
+  return transactions.run(new Map(store).set(key, { db: tx, parent, closed: false }), callback)
+}
+
 function assertTransactional(name: string, driver: Driver): void {
   // D1 拒绝 BEGIN / SAVEPOINT：原子写入使用 batch
   if (driver === 'd1')
@@ -124,12 +201,14 @@ function assertTransactional(name: string, driver: Driver): void {
  * 嵌套调用使用保存点。回调抛错时回滚。
  */
 export async function transaction<R>(callback: (tx: AnyDatabase) => Promise<R>, connection?: string, config?: TransactionConfig): Promise<R> {
+  const databases = useDatabaseManager()
   const session = await resolveSession(connection)
   assertTransactional(session.name, session.driver)
+  const key = txKey(databases, session.name)
   const store = transactions.getStore()
-  const parent = active(store?.get(session.name))
+  const parent = active(store?.get(key))
   const run = (tx: AnyDatabase): Promise<R> =>
-    transactions.run(new Map(store).set(session.name, { db: tx, parent, closed: false }), () => callback(tx))
+    transactions.run(new Map(store).set(key, { db: tx, parent, closed: false }), () => callback(tx))
   return parent
     ? session.db.transaction(run)
     : session.db.transaction(run, config)
@@ -155,15 +234,16 @@ export function startTrans(connection?: string, config?: TransactionConfig): Pro
     return Promise.reject(error)
   }
 
+  const key = txKey(databases, name)
   const store = new Map(transactions.getStore())
-  const parent = active(store.get(name))
+  const parent = active(store.get(key))
   let ready!: { resolve: (tx: AnyDatabase) => void, reject: (error: unknown) => void }
   let end!: (commit: boolean) => void
   const db = new Promise<AnyDatabase>((resolve, reject) => ready = { resolve, reject })
   const ended = new Promise<boolean>(resolve => end = resolve)
   const state: TxState = { db, parent, closed: false }
   // 必须同步进入：之后调用方的异步延续才能继承这个上下文
-  store.set(name, state)
+  store.set(key, state)
   transactions.enterWith(store)
 
   const finished = (async () => {
@@ -171,6 +251,8 @@ export function startTrans(connection?: string, config?: TransactionConfig): Pro
       ? await parent.db
       : (await databases.connection(name)).db
     const body = async (tx: AnyDatabase): Promise<void> => {
+      // 同步取用（Db.drizzleSync()）需要已解析的事务对象
+      state.db = tx
       ready.resolve(tx)
       if (!await ended)
         throw ROLLBACK
@@ -191,9 +273,11 @@ export function startTrans(connection?: string, config?: TransactionConfig): Pro
 }
 
 async function finish(commit: boolean, connection?: string): Promise<void> {
-  const name = useDatabaseManager().resolveName(connection)
+  const databases = useDatabaseManager()
+  const name = databases.resolveName(connection)
+  const key = txKey(databases, name)
   const store = transactions.getStore()
-  const state = active(store?.get(name))
+  const state = active(store?.get(key))
   if (!state?.manual)
     throw new DatabaseError(`No transaction started with startTrans() on connection "${name}"`)
   state.manual.end(commit)
@@ -203,9 +287,9 @@ async function finish(commit: boolean, connection?: string): Promise<void> {
   finally {
     state.closed = true
     if (state.parent)
-      store!.set(name, state.parent)
+      store!.set(key, state.parent)
     else
-      store!.delete(name)
+      store!.delete(key)
   }
 }
 
@@ -221,8 +305,8 @@ export function rollback(connection?: string): Promise<void> {
 
 /** 当前上下文是否处于该连接的事务中 */
 export function inTransaction(connection?: string): boolean {
-  const name = useDatabaseManager().resolveName(connection)
-  return active(transactions.getStore()?.get(name)) !== undefined
+  const databases = useDatabaseManager()
+  return active(transactions.getStore()?.get(txKey(databases, databases.resolveName(connection)))) !== undefined
 }
 
 /**

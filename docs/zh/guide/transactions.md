@@ -90,6 +90,19 @@ await Db.connection('analytics').startTrans()
 await Db.connection('analytics').commit()
 ```
 
+## 加入外部开启的事务
+
+有的库会自己开启 drizzle 事务（`db.transaction(tx => …)`）并回调你的代码。用 `Db.joinTransaction(tx, fn)` 包住回调，其中的 `Db`、`Model` 与 `Db.drizzleSync()` 都使用这个事务，其中再开启的事务为保存点；提交与回滚仍由那个库负责：
+
+```ts
+await engine.run({
+  // 由库在它自己的 db.transaction() 中调用
+  onCommit: (tx, changes) => Db.joinTransaction(tx, async () => {
+    await Order.where('id', changes.orderId).update({ status: 'approved' })
+  }),
+})
+```
+
 ## 行锁
 
 在事务中用 `lock()` 加上 `FOR UPDATE`，并发的事务会等待当前事务结束：

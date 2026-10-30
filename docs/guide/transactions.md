@@ -90,6 +90,19 @@ await Db.connection('analytics').startTrans()
 await Db.connection('analytics').commit()
 ```
 
+## Joining transactions started elsewhere
+
+Some libraries open their own drizzle transaction (`db.transaction(tx => …)`) and call back into your code. Wrap the callback in `Db.joinTransaction(tx, fn)` so `Db`, `Model` and `Db.drizzleSync()` inside it use that transaction; transactions opened inside become savepoints. The library still commits or rolls back:
+
+```ts
+await engine.run({
+  // the library calls this inside its own db.transaction()
+  onCommit: (tx, changes) => Db.joinTransaction(tx, async () => {
+    await Order.where('id', changes.orderId).update({ status: 'approved' })
+  }),
+})
+```
+
 ## Row locks
 
 Inside a transaction, `lock()` adds `FOR UPDATE` so concurrent transactions wait for yours:

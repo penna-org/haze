@@ -33,7 +33,7 @@ Connections open lazily on the first query, survive dev hot reloads, and close o
 
 | Connection option | Description |
 |---|---|
-| `driver` | `sqlite`, `turso`, `d1`, `postgres`, `pglite`, `mysql`, `mongodb` |
+| `driver` | `sqlite`, `turso`, `d1`, `postgres`, `node-postgres`, `pglite`, `mysql`, `mongodb` |
 | `url` | Connection URL. SQLite: `file:./data/app.db` (relative to project root, dir auto-created), `:memory:`, `libsql://…` |
 | `authToken` | libSQL / Turso token |
 | `binding` | D1 only: Workers binding name (default `DB`) or a `D1Database` |
@@ -43,6 +43,9 @@ Connections open lazily on the first query, survive dev hot reloads, and close o
 | `schema` | Drizzle schema dir relative to srcDir (default `database/schema`) |
 | `migrations` | Migrations dir (default `database/migrations`, or `database/migrations/<name>` for non-default connections) |
 | `read` / `write` / `sticky` | Read/write splitting (below) |
+| `casing` | `'snake_case'` / `'camelCase'` for columns declared without a name; must match migration generation (`haze db:generate` passes it) |
+| `timezone` | PostgreSQL session time zone (`postgres`, `node-postgres`, `pglite`) |
+| `client` | An existing `PGlite` / `pg.Pool` / postgres-js instance; the app never closes it (share one in-memory DB between test apps) |
 
 | Driver | Package to install | Notes |
 |---|---|---|
@@ -50,6 +53,7 @@ Connections open lazily on the first query, survive dev hot reloads, and close o
 | `turso` | `@libsql/client` | pure HTTP, edge/serverless friendly, SQLite dialect |
 | `d1` | none | Cloudflare Workers binding, SQLite dialect |
 | `postgres` | `postgres` | postgres-js |
+| `node-postgres` | `pg` | node-postgres (drizzle's default PG driver) |
 | `pglite` | `@electric-sql/pglite` | embedded WASM Postgres; `url` is a data dir, omit for in-memory |
 | `mysql` | `mysql2` | |
 | `mongodb` | `mongodb` | used via `@hazejs/orm/mongo`, no SQL migrations |
@@ -231,6 +235,8 @@ await Db.table(users).where('status', 0).delete()
 await Db.table(logs).delete({ all: true })                                // unconditional writes need { all: true }
 const rows = await Db.execute(sql`select count(*) as n from users`)       // always an array (alias Db.query)
 const db = await Db.drizzle()                                             // raw drizzle (tx-aware)
+await Db.connect(); Db.drizzleSync()                                      // sync access once connected (e.g. repository `get db()`)
+await Db.withManager(app.make(DatabaseManager), () => work())            // pin code outside requests to one app (several apps per process, e.g. tests)
 await Db.connection('analytics').table(events).count()
 ```
 
@@ -304,6 +310,9 @@ try { /* ... */ await Db.commit() } catch (e) { await Db.rollback(); throw e }
 await User.transaction(async () => { /* model's connection */ })
 await Db.connection('analytics').transaction(async () => {})
 Db.inTransaction()
+
+// a library that opens its own drizzle transaction: make Db / Model calls inside it join that tx
+await db.transaction(tx => Db.joinTransaction(tx, () => Order.create({ total })))
 ```
 
 Nested calls (either style, mixable) use savepoints: an inner failure only undoes inner work. Options (outermost only): `isolationLevel`, `accessMode` (PG/MySQL), `deferrable` (PG), `withConsistentSnapshot` (MySQL), `behavior: 'deferred' | 'immediate' | 'exclusive'` (SQLite).

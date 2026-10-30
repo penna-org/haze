@@ -47,12 +47,15 @@ export default defineDatabaseConfig(() => ({
 | `url` | 连接地址。`sqlite` 的 `file:` 相对路径按项目根目录解析，目录不存在时自动创建 |
 | `authToken` | libSQL / Turso 的认证令牌 |
 | `binding` | 仅 D1：Workers 绑定名（默认 `DB`），也可以直接传入 `D1Database` 对象 |
-| `pool` | `postgres` / `mysql` / `mongodb` 的连接池大小（默认 `10`），或 `{ max, idleTimeout, connectTimeout }` |
+| `pool` | `postgres` / `node-postgres` / `mysql` / `mongodb` 的连接池大小（默认 `10`），或 `{ max, idleTimeout, connectTimeout }` |
 | `database` | 仅 MongoDB：数据库名（默认取 `url` 中的路径） |
 | `logging` | 以 debug 级别输出每条 SQL |
 | `schema` | drizzle 表结构目录，相对源码目录（默认 `database/schema`） |
 | `migrations` | 迁移目录（默认连接为 `database/migrations`，其他连接为 `database/migrations/<name>`） |
 | `read` / `write` / `sticky` | 读取走只读副本，见[读写分离](#读写分离) |
+| `casing` | `'snake_case'` 或 `'camelCase'`：表定义中没有写列名的字段按它生成列名（`createdAt` → `created_at`）。需与生成迁移时的 casing 一致，`haze db:generate` 会传给 drizzle-kit |
+| `timezone` | PostgreSQL 的会话时区（`postgres`、`node-postgres`、`pglite`），如 `'Asia/Shanghai'`；影响 `::date`、`date_trunc` 与不带时区的时间戳的输出 |
+| `client` | 使用自己创建的客户端：`PGlite` 实例（`pglite`）、`pg.Pool` / `pg.Client`（`node-postgres`）或 postgres-js 实例（`postgres`）。由你负责关闭，应用关闭时不会关闭它 |
 
 ### 驱动
 
@@ -62,6 +65,7 @@ export default defineDatabaseConfig(() => ({
 | `turso` | 纯 HTTP 访问 Turso / sqld（`libsql://`、`https://`），不含原生二进制，可运行在 Edge 和 Serverless | `@libsql/client` |
 | `d1` | 通过 Workers 绑定访问 Cloudflare D1 | 无 |
 | `postgres` | PostgreSQL（postgres-js） | `postgres` |
+| `node-postgres` | PostgreSQL（node-postgres，即 `pg`，drizzle 默认的 PostgreSQL 驱动） | `pg` |
 | `pglite` | 嵌入式 PostgreSQL（WASM），适合本地开发和测试；`url` 为数据目录，省略时为内存库 | `@electric-sql/pglite` |
 | `mysql` | MySQL（mysql2） | `mysql2` |
 | `mongodb` | MongoDB，通过 `@hazejs/orm/mongo` 使用（见[模型](./models#mongodb)） | `mongodb` |
@@ -75,7 +79,7 @@ pnpm add @libsql/client
 ```
 
 ```bash [PostgreSQL]
-pnpm add postgres
+pnpm add postgres   # 或 pnpm add pg（driver: 'node-postgres'）
 ```
 
 ```bash [PGlite]
@@ -296,6 +300,22 @@ const rows = await Db.execute(sql`select count(*) as n from users`)
 const db = await Db.drizzle()
 ```
 
+不能 `await` 的代码（例如在 Repository 类里用 `db` 属性写 drizzle 查询）可以在连接建立后同步取得当前的实例，处于事务中时返回事务对象：
+
+```ts
+await Db.connect()      // 如在服务提供者的 boot() 中
+
+export class OrderRepository {
+  protected get db() {
+    return Db.drizzleSync()   // 连接还没建立时抛错
+  }
+
+  findByNo(orderNo: string) {
+    return this.db.select().from(orders).where(eq(orders.orderNo, orderNo))
+  }
+}
+```
+
 `Db.table()` 返回的查询构造器与模型使用的是同一个，支持 `where`、`order`、`paginate`、`count`、`insert`、`update`、`delete` 等，连接查询、子查询、分组、JSON 字段、upsert 以及完整的方法列表见[查询构造器](./query-builder)。
 
 ::: tip 防误操作
@@ -343,6 +363,16 @@ export class Event extends Model.define(events) {
 
 非默认连接的迁移默认放在 `database/migrations/<name>`（可用 `migrations` 修改）。生成和执行时指定连接：`haze db:generate --connection analytics`、`haze db:migrate --connection analytics`（或 `--all`）。
 
+### 同一进程中的多个应用
+
+每个应用由 `databaseProvider()` 创建自己的 `DatabaseManager`。请求内的 `Db` 与模型使用处理该请求的应用的连接；请求之外（队列任务、定时器、脚本）使用最近启动的应用，应用关闭后恢复为之前的应用。多个应用同时运行时（通常是测试），用 `Db.withManager()` 把请求之外的代码固定到某个应用：回调中的一切（包括其中创建的定时器与 Promise）都使用这个 DatabaseManager，事务也按 DatabaseManager 区分，两个应用的同名连接不会共用一个事务：
+
+```ts
+import { DatabaseManager, Db } from '@hazejs/orm'
+
+await Db.withManager(app.make(DatabaseManager), () => startBackgroundWork())
+```
+
 ## 读写分离
 
 在连接上加 `write` 与 `read`，读取走只读副本，其余走主库。未写的字段继承连接本身的配置，因此副本通常只需写 `url`：
@@ -353,7 +383,7 @@ export default defineDatabaseConfig(() => ({
   default: 'main',
   connections: {
     main: {
-      driver: 'postgres', // mysql、sqlite、turso、pglite 同样支持
+      driver: 'postgres', // node-postgres、mysql、sqlite、turso、pglite 同样支持
       url: env('DATABASE_URL'),
       write: { url: env('DB_WRITE_URL') },
       read: [

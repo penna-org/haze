@@ -1832,10 +1832,34 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 6. OpenAPI 不能写规范扩展字段：`RouteDoc.extensions`（`x-*`）。
 
 **未修改、记录待定的问题**
-- ORM：`ConnectionConfig` 不能传 drizzle 的 `casing`（ai-admin 依赖 `snake_case`）、不能设置 PostgreSQL 会话时区、不能接管已创建的 PGlite / pg 连接——因此 ai-admin 仍直接使用 drizzle 与自己的 `TransactionManager`，没有换成 `@hazejs/orm`。
+- ~~ORM：`ConnectionConfig` 不能传 drizzle 的 `casing`、不能设置 PostgreSQL 会话时区、不能接管已创建的连接~~（已在下一条记录中解决，ai-admin 已切换到 `@hazejs/orm`）。
 - `memoryRateLimitStore()` 与 `throttle` 的默认存储是进程级的（为热更新保留），同一进程中的多个应用实例（测试）共享计数；ai-admin 通过 `throttle.store` 为每个应用传入独立存储。
 - `throttle:max,window` 的计数按“规格 + 用户 / IP”共享，使用同一规格的不同路由共用一个桶（与 Laravel 一致，但从 Fastify 迁来容易误解）；需要每条路由单独计数时用命名规则加自定义 `key`。
 - 校验失败固定为 422，文档里的错误响应也固定为 422；项目约定 400 时只能在异常处理器中转换，OpenAPI 中仍显示 422。
 - `@hazejs/testing` 与 `app.request()` 不能指定客户端 IP；目前只能自己构造 `Request` 并设置 `ip`。
 - 服务器扩展（`registerServerExtension`）是给 socket.io 包用的底层接口，没有文档；需要挂其他协议的应用直接用它。
 - `new Application(options)` 的 `routes` / `providers` 需要引用之后才创建的对象（业务容器依赖应用的根容器）时，只能先声明变量再赋值。
+
+### ai-admin 切换到 @hazejs/orm 记录（2026-10-29）
+
+目标：ai-admin 的连接、事务与迁移全部由 `@hazejs/orm` 管理（第一阶段），40 个 Repository、约 4600 行 drizzle 查询保持不变。
+
+**框架补齐（@hazejs/orm、cli、vite）**
+- `casing`：连接配置传给每个 drizzle 实例；查询构造器中直接拼列名的 `upsert()`（`excluded.<列>` / `values(<列>)`）与 `selectInsert()` 改用 drizzle 的 `CasingCache` 计算列名；`haze db:generate` 把它作为 `--casing` 传给 drizzle-kit。
+- `node-postgres` 驱动（`pg`，drizzle 默认的 PostgreSQL 驱动），连接池选项与 postgres-js 一致；`pg` 加入可选 peer、`DRIVER_PACKAGES` 与 `make:model` 的方言识别。
+- `timezone`：postgres-js 用启动参数 `TimeZone`，node-postgres 用 `options=-c TimeZone=…`，PGlite 在建立后 `set_config`。PgBouncer 等忽略启动参数的连接池前需要在库级别设置。
+- `client`：接管调用方创建的 PGlite / pg.Pool / postgres-js 实例，应用关闭时不关闭；连接指纹中按对象身份区分客户端。
+- `Db.connect()` 与 `Db.drizzleSync()`：DatabaseManager 记录已建立的连接，供 Repository 的 `get db()` 同步取用；处于事务中时返回事务对象（手动事务开始后把解析出的事务对象写回状态）。
+- `Db.joinTransaction(tx, fn)`：外部库（ai-admin 的审批引擎存储）自己开启的 drizzle 事务加入事务上下文，其中再开启的事务为保存点。
+- 同一进程多个应用：请求内按请求所属应用取 DatabaseManager；应用关闭时（根容器释放，晚于队列与邮件的关闭）恢复为之前的；事务状态按“DatabaseManager + 连接名”区分；`Db.withManager(manager, fn)` 把请求之外的代码（含其中的定时器与 Promise）固定到某个应用。这一项是在 ai-admin 的全量测试中发现的：同一个测试文件中有两个应用同时存在时，前一个应用的后台定时任务通过全局的“当前管理器”访问了后一个应用的 PGlite，与那个应用持有事务锁的请求互相等待，偶发超时。
+
+**ai-admin 第一阶段**
+- `core/database.ts`：`databaseConfig(env)` 生成连接配置（PostgreSQL 为 node-postgres 连接池，`memory://` 为 pglite；`casing: 'snake_case'`、`timezone`）；`TransactionManager` 改为 `Db.transaction` / `Db.drizzleSync` / `Db.joinTransaction`，并用 `Db.withManager` 绑定本应用的 DatabaseManager；`Repository` 不变。
+- `app.ts`：`databaseProvider()`，启动时等数据库可用、需要时执行迁移，后台服务在 `Db.withManager` 中启动；健康检查用 `Db.execute`。容器新增 `databaseManager`，`db` 为本应用的连接池（审批引擎使用）。
+- 迁移：`runMigrations()` 与 drizzle 迁移器使用同一张 `drizzle.__drizzle_migrations`。验证：先用旧的 drizzle 迁移器执行 65 个迁移，再执行新的 `migrate.mjs`，执行 0 个。迁移文件仍由 drizzle-kit 生成（ai-admin 不是 hazejs 的目录结构，没有使用 `haze db:generate`）。
+- 测试：每个文件一个 PGlite，以 `client` 交给 ORM；同一文件中的第二个应用共用同一个客户端。
+
+**验证**：ai-admin 403 个用例全部通过（连续 4 轮，约 48–55s，原 Fastify + 自管连接为 59s）；`pg` 驱动经 PGlite 的 socket 服务走真实 PostgreSQL 协议：迁移兼容、种子、登录、读写、唯一约束 409、操作日志、优雅退出；内存库模式启动、演示数据、待办与统计。@hazejs/orm 全部测试通过（新增 `connections.test.ts`：casing、时区、外部客户端、同步取用、加入外部事务、多应用；真实 PostgreSQL 的用例在设置 `HAZE_TEST_PG_URL` 时运行）。
+
+**已知限制**：连接池按连接名在进程内共享，两个应用对同一连接名使用不同的“自有”配置时会互相替换连接（外部传入的客户端不受影响）；`Db.drizzleSync()` 在读写分离时总是写库；时区依赖启动参数，经过不转发启动参数的连接池时无效。验证过程中机器多次休眠，测试用时出现数十分钟的跳变，判断代码问题时以单独复跑的结果为准。
+

@@ -48,6 +48,7 @@ catalog:
   '@socket.io/redis-adapter': ^8.3.0
   '@standard-schema/spec': ^1.0.0
   '@types/node': ^24.0.0
+  '@types/pg': ^8.23.1
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
   '@upstash/redis': ^1.40.0
@@ -73,6 +74,7 @@ catalog:
   mysql2: ^3.24.6
   nf3: ^0.4.2
   nodemailer: ^10.2.1
+  pg: ^8.23.1
   postgres: ^3.4.9
   react: ^19.3.1
   react-dom: ^19.3.1

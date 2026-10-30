@@ -61,6 +61,7 @@
     "drizzle-orm": "^0.45.0",
     "mongodb": "^7.0.0",
     "mysql2": "^3.0.0",
+    "pg": "^8.0.0",
     "postgres": "^3.4.0"
   },
   "peerDependenciesMeta": {
@@ -79,6 +80,9 @@
     "mysql2": {
       "optional": true
     },
+    "pg": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     }
@@ -88,11 +92,13 @@
     "@faker-js/faker": "catalog:",
     "@hazejs/core": "workspace:*",
     "@libsql/client": "catalog:",
+    "@types/pg": "catalog:",
     "drizzle-orm": "catalog:",
     "miniflare": "catalog:",
     "mongodb": "catalog:",
     "mongodb-memory-server-core": "catalog:",
     "mysql2": "catalog:",
+    "pg": "catalog:",
     "postgres": "catalog:"
   }
 }
