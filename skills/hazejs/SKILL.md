@@ -1,6 +1,6 @@
 ---
 name: hazejs
-description: Build backends and full-stack apps with hazejs (@hazejs/core, @hazejs/orm, @hazejs/vite, @hazejs/testing, the `haze` CLI) — a batteries-included TypeScript framework on h3 v2 in the style of Laravel / ThinkPHP. Use whenever the code imports `@hazejs/*`, the project has `haze.config.ts`, `route/*.ts`, `app/controller`, `config/*.ts` with hazejs helpers, or the user asks to add routes, controllers, middleware, validation, models, migrations, auth, policies, jobs, events, schedules, mail, notifications, broadcasting, WebSocket / Socket.IO, cache, storage, i18n, OpenAPI, tests, or to deploy a hazejs app — even if they do not name the framework. For porting an existing Fastify/Express/Nest backend use `hazejs-migration`; for changing the framework itself use `hazejs-contributing`.
+description: Build backends and full-stack apps with hazejs (@hazejs/core, @hazejs/orm, @hazejs/vite, @hazejs/testing, the `haze` CLI) — a batteries-included TypeScript framework on h3 v2 in the style of Laravel / ThinkPHP. Use whenever the code imports `@hazejs/*`, the project has `haze.config.ts`, `route/*.ts`, `app/controller`, `config/*.ts` with hazejs helpers, or the user asks to add routes, controllers, middleware, validation, models, migrations, auth, policies, jobs, events, schedules, mail, notifications, broadcasting, WebSocket / Socket.IO, cache, storage, i18n, search, AI, GraphQL, microservices, providers / dependency injection, local modules, multi-app, OpenAPI, observability, tests, or to deploy a hazejs app — even if they do not name the framework. For porting an existing Fastify/Express/Nest backend use `hazejs-migration`; for changing the framework itself use `hazejs-contributing`.
 ---
 
 # hazejs
@@ -15,7 +15,10 @@ Read the reference that matches the task before writing code:
 | Database: config, schemas, migrations, models, query builder, relations, transactions, factories, seeders | [references/database.md](references/database.md) |
 | Authentication, guards, policies / gates, API tokens, email verification, password reset, 2FA, passkeys, OAuth | [references/auth.md](references/auth.md) |
 | Queues, events, scheduling, mail, notifications, broadcasting, WebSocket, Socket.IO, console commands | [references/async-and-realtime.md](references/async-and-realtime.md) |
-| Cache, Redis, storage, HTTP client, i18n, encryption, search, tenancy, TSX views, AI, GraphQL, microservices | [references/services.md](references/services.md) |
+| Service container, providers & boot order, local / packaged modules, multi-app | [references/container-and-modules.md](references/container-and-modules.md) |
+| Cache, Redis, storage, HTTP client, i18n, encryption, search, tenancy, TSX views, AI | [references/services.md](references/services.md) |
+| GraphQL (`@hazejs/graphql`): schema-first / code-first, loaders, subscriptions | [references/graphql.md](references/graphql.md) |
+| Microservices (`@hazejs/microservices`): message handlers, transports, clients | [references/microservices.md](references/microservices.md) |
 | Tests: test app & client, fakes, database in tests | [references/testing.md](references/testing.md) |
 | CLI, configuration & env, project layout, full-stack Vite, deployment presets, maintenance, health & observability | [references/operations.md](references/operations.md) |
 
@@ -28,10 +31,11 @@ The full documentation lives in the framework repo under `docs/guide/*.md` (Engl
 | `@hazejs/core` | Container, routing, middleware, validation, exceptions, auth, cache, queue, events, schedule, mail, notifications, broadcasting, WebSocket, storage, i18n, OpenAPI, observability, maintenance, TSX views |
 | `@hazejs/orm` | Drizzle-based models, query builder, migrations, factories (MySQL, PostgreSQL, SQLite, PGlite, Turso, D1, MongoDB) |
 | `@hazejs/vite` | Vite plugin: dev server with hot reload, full-stack integration, build presets (node, bun, deno, docker, aws-lambda, vercel, netlify, cloudflare) |
+| `@hazejs/auto-import` | Optional, `autoImport: true` in `haze.config.ts`: compile-time imports for `app/<kind>/**` exports and curated `@hazejs/core`/`@hazejs/orm` APIs, types in `.haze/types/auto-imports.d.ts` (see operations.md) |
 | `@hazejs/cli` | The `haze` command (`dev`, `build`, `start`, `test`, `make:*`, `db:*`, `queue:work`, …) |
 | `@hazejs/testing` | Vitest integration, in-process HTTP client, fakes |
 | `@hazejs/ai`, `@hazejs/oauth`, `@hazejs/search`, `@hazejs/socket.io`, `@hazejs/graphql`, `@hazejs/microservices` | Optional feature packages |
-| `create-hazejs` | Scaffolder: `pnpm create hazejs my-app -t api|vue|react` |
+| `create-hazejs` | Scaffolder: `pnpm create hazejs my-app -t api|vue|react [--auto-import]` |
 
 ## Project layout (API template)
 
@@ -124,7 +128,7 @@ export default defineRoutes((r) => {
 - A singleton must not depend on a request-scoped class (the container throws a `ScopeError`).
 - `await ctx.body()` parses lazily and enforces `ctx.bodyLimit` (default `app.bodyLimit`, 1mb); use the `bodyLimit:10mb` middleware or set `ctx.bodyLimit` for bigger payloads.
 - Route parameters are URL-decoded strings; convert types with a schema.
-- `ctx.ip`, `ctx.origin` and `ctx.secure` trust `X-Forwarded-*` only when `app.trustProxy` is `true`.
+- `ctx.ip`, `ctx.origin` and `ctx.secure` trust `X-Forwarded-*` only when `app.trustProxy` is truthy (`true` = 1 trusted hop, `n` = n hops; `ctx.ip` = nth `X-Forwarded-For` entry from the right).
 - `throttle:60,1m`-style limits share one bucket per user/IP across every route that uses the same spec; use named limiters for per-route buckets.
 - Static frontend files are served after global middleware, so `secureHeaders` / `cors` apply to them; SPA fallback only answers `Accept: text/html` requests.
 - OpenAPI docs (`/docs`) and the dev dashboard (`/__haze`) are off in production by default; `/health` is always on.

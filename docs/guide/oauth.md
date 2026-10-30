@@ -274,7 +274,7 @@ keycloak: {
 },
 ```
 
-Endpoints come from `<issuer>/.well-known/openid-configuration` (cached; the document's `issuer` must match). The `id_token` signature is checked against `jwks_uri` (RS / PS / ES / EdDSA; the key set is cached and refetched when a new `kid` appears), together with `iss`, `aud`, expiry and the `nonce`. The userinfo response is then merged in, and its `sub` must match. `verifyIdToken(token, { jwksUri, issuer, audience, nonce })` is exported for your own use, for example to verify tokens from a mobile SDK.
+Endpoints come from `<issuer>/.well-known/openid-configuration` (cached; the document's `issuer` must match). The `id_token` signature is checked against `jwks_uri` (RS / PS / ES / EdDSA; the key set is cached and refetched when a new `kid` appears), together with `iss`, `aud`, expiry and the `nonce`. The userinfo response is then merged in, and its `sub` must match. `verifyIdToken(token, { jwksUri, issuer, audience, nonce })` is exported for your own use, for example to verify tokens from a mobile SDK. It also accepts `algorithms`, `clockTolerance` (seconds, default `60`) and `fetch`.
 
 ## Tokens from mobile apps
 
@@ -316,7 +316,7 @@ export default defineProvider({
 })
 ```
 
-Then use `driver: 'gitea'` in `config/oauth.ts`, or pass `driver: Gitea` directly without registering. For non-standard flows, extend `OAuthProvider` (or `OidcProvider`) and override `authorizeParams()`, `exchangeCode()`, `fetchUser()` and `mapUser()`; `registerOAuthProvider()` also accepts the class. `OAuth.build(driver, config)` creates a driver from a config object at runtime, for example per tenant.
+Then use `driver: 'gitea'` in `config/oauth.ts`, or pass `driver: Gitea` directly without registering. For non-standard flows, extend `OAuthProvider` (or `OidcProvider`) and override `authorizeParams()`, `exchangeCode()`, `fetchUser()` and `mapUser()`; `registerOAuthProvider()` also accepts the class. `OAuth.build(driver, config, options?)` creates a driver from a config object at runtime, for example per tenant; it skips `config/oauth.ts`, so pass the global options it needs (`stateStore`, `cookie`, `stateTtl`, `fetch`) as the third argument.
 
 ## Errors
 

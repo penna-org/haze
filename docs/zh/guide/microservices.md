@@ -28,6 +28,8 @@ import { microservicesProvider } from '@hazejs/microservices'
 export default microservicesProvider()
 ```
 
+`microservicesProvider({ handlers })` 可以额外注册不在 `app/message` 中的处理器，例如来自共享包或在测试中定义的处理器。
+
 ## 配置
 
 ```ts
@@ -239,7 +241,7 @@ transports: {
 
 处理器的错误映射为 gRPC 状态码（404 → `NOT_FOUND`、422 → `INVALID_ARGUMENT`、401 → `UNAUTHENTICATED` …），完整的错误放在 `x-haze-error-bin` 元数据中，hazejs 客户端得到的 `RemoteError` 与其它传输一致。
 
-限制：只支持一元调用（流式方法返回 `UNIMPLEMENTED`）；载荷按 proto 定义编解码，未声明的字段会丢失；`emit()` 是忽略结果的一元调用；不能在 Bun、Deno 或边缘运行时使用。
+限制：只支持一元调用（流式方法返回 `UNIMPLEMENTED`）；载荷按 proto 定义编解码，未声明的字段会丢失；`emit()` 是忽略结果的一元调用，因此处理器中的 `ctx.kind` 为 `'request'`；不能在 Bun、Deno 或边缘运行时使用。
 
 ### 内存
 

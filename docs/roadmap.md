@@ -71,6 +71,7 @@ The comparison reflects official packages as of October 2026, to the best of our
 | M29 | **Unified Redis connections**: `config/redis.ts` with named connections (single node, TLS, Cluster, Sentinel, custom factories) referenced by cache, queues, WebSocket, broadcasting, Socket.IO and microservices; shared command connections, a `Redis` facade, `redisCheck()` on a connection |
 | M30 | **Cache API, ThinkPHP style**: `delete` / `clear` / `inc` / `dec` / PSR-16 aliases, atomic `push`, `ttl()` / `touch()`, `handler()`, tags on every driver, typed Redis hashes / lists / sets / sorted sets (emulated on memory for tests), the `cache()` helper, JSON serialization that restores `Date`, `BigInt`, `Map` and `Set` |
 | M31 | **Developer essentials**: model factories (`defineFactory`, states, sequences, `for` / `has` / `hasAttached`, faker), read/write splitting with sticky reads and pool options, an outgoing `Http` client with retries, timeouts, pools, named clients and `Http.fake()`, queue database driver, chains, batches, unique jobs and job middleware, maintenance mode (`haze down` / `up`, secret bypass, paused workers) and zero-dependency TSX server views |
+| M33 | **Auto imports** (`@hazejs/auto-import`): controllers, services, models, middleware and the other `app/<kind>` folders plus curated framework APIs usable without import statements in the dev server, builds, tests and CLI, with generated global declarations so types are kept; `autoImport` in `haze.config.ts`, per-package presets, `create-hazejs --auto-import` |
 | M32 | **Whole-framework validation on a real backend**: ai-admin rebuilt on hazejs conventions (local modules, `inject()`, route files, JWT guard hooks and Gate fallback, `@hazejs/socket.io`, `@hazejs/orm`, queue / schedule / events) and verified end to end in Docker; framework fixes include `AuthorizationException`, `ctx.route`, `app.onBooted()`, `runInServer`, graceful shutdown with `shutdownTimeout`, 25 ORM gaps and 14 queue / schedule / event gaps |
 
 ## Next
@@ -79,6 +80,6 @@ Priorities may shift with community feedback. Each milestone ships with tests, t
 
 | Milestone | Scope |
 | --- | --- |
-| 1.0 | API freeze, benchmarks, upgrade guides, long-term support policy |
+| 1.x | Benchmarks, upgrade guides between majors, a long-term support policy, and features requested by the community — all without breaking changes within `1.x` |
 
 Have an idea or need something sooner? Open a [feature request](https://github.com/penna-org/haze/issues/new/choose).

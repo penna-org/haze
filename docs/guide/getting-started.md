@@ -2,8 +2,8 @@
 
 This guide creates a new hazejs project, runs it, and walks through adding your first route and controller.
 
-::: warning Pre-release
-hazejs is in `0.x`. The `@hazejs/*` packages are published on npm, but APIs may still change between minor versions until `1.0` — check the [changelog](https://github.com/penna-org/haze/releases) when upgrading.
+::: tip Versioning
+All `@hazejs/*` packages and `create-hazejs` share one version number and follow semantic versioning. Upgrade them together, and check the [changelog](https://github.com/penna-org/haze/releases) for what changed.
 :::
 
 ## Prerequisites

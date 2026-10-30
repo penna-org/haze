@@ -102,7 +102,7 @@ The function may be async and returns:
 | `headers` | Extra headers. |
 | `tags` | Provider tags (Resend, Postmark, Mailgun, SES). |
 
-The second argument of `defineMail()` is `{ name?, mailer? }`: `name` is used in logs and fake assertions, `mailer` pins the mail to a specific mailer.
+The second argument of `defineMail()` is `{ name?, mailer?, locale? }`: `name` is used in logs and fake assertions, `mailer` pins the mail to a specific mailer, and `locale` renders the mail in that language (see [Localization](./localization#mail)).
 
 ## Sending
 
@@ -122,6 +122,8 @@ await Mail.to({ address: user.email, name: user.name })
 ```
 
 `send()` resolves to `{ mailer, messageId? }`. Values set on the chain win over those returned by the mail, which win over the defaults in `config/mail.ts`. A mail with no recipients throws.
+
+`.locale('zh-CN')` renders the mail in that locale, so `t()` inside the render function translates into it. It takes precedence over the `locale` option of `defineMail()`, which takes precedence over the current (request) locale; queued mail keeps it. See [Localization](./localization#mail).
 
 You can also send a raw message without defining a mail:
 

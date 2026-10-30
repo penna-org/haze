@@ -27,6 +27,8 @@ const recent = await user.posts().query().order('id', 'desc').limit(5).select()
 | `morphOne` / `morphMany` | `this.morphMany(Comment, 'commentable')` | 使用关联模型的 `commentableType` / `commentableId` |
 | `morphTo` | `this.morphTo('commentable', { Post, Video })` | 类型字段的值 → 模型类 |
 
+`hasManyThrough` 和 `hasOneThrough` 还可以再传两个可选的键：当前模型上被中间模型的列所指向的键，以及中间模型上被关联模型的列所指向的键，默认都是主键（`this.hasManyThrough(Post, User, 'countryId', 'userId', 'code', 'uuid')`）。
+
 `belongsToMany`、`hasManyThrough` 和 `hasOneThrough` 只用于 SQL 模型，其余也可以用于 MongoDB 模型。
 
 关联可以带上自己的条件，作用于该关联的所有查询：

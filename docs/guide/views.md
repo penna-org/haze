@@ -59,7 +59,7 @@ The `api` template ships this setup: `GET /` renders `app/view/Welcome.tsx`.
 | --- | --- |
 | `ctx.view(<Home />, init?)` | Render a JSX node |
 | `ctx.view(Home, props, init?)` | Render a component with props |
-| `ctx.view('admin/Dashboard', props, init?)` | Render `app/view/admin/Dashboard.tsx` by name (default export) |
+| `ctx.view('admin/Dashboard', props, init?)` | Render `app/view/admin/Dashboard.tsx` by name (default export, or a named export matching the file name: `export function Dashboard`) |
 | `view(...)` | Same as `ctx.view()`, for code without `ctx` |
 | `return <Home />` | A JSX node returned from a handler or middleware is rendered as HTML too |
 | `renderToString(node)` | Render to a string, for example for mail bodies |
@@ -151,11 +151,11 @@ export default function Nav() {
 }
 ```
 
-`useView()` returns `{ ctx, locale, t, old, csrfToken }`. `t()` translates with the request locale; see [Localization](./localization).
+`useView()` returns `{ ctx, locale, t, old, csrfToken }`; `csrfToken` is a function returning a promise (`await csrfToken()`). `t()` translates with the request locale; see [Localization](./localization).
 
 ## Forms
 
-`csrfField()` writes the hidden `_token` input that the [`csrf` middleware](./security) checks. `old(field, fallback?)` reads the input flashed by `flashInput()`, so a form can be filled again after a failed submission:
+`csrfField()` writes the hidden `_token` input that the [`csrf` middleware](./security) checks. It is async, which is fine as a JSX child (promises are awaited); outside JSX, `await` it. `old(field, fallback?)` reads the input flashed by `flashInput()`, so a form can be filled again after a failed submission:
 
 ```tsx
 // app/view/PostForm.tsx

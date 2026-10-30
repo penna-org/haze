@@ -176,7 +176,7 @@ await SearchablePost.search('haze').get()
 | `constrain(q => ...)` | 约束加载模型的 ORM 查询（预加载关联、附加条件）；database 引擎直接作用于搜索查询 |
 | `within(index)` | 搜索同一模型的其它索引 |
 | `get()` / `first()` | 按相关度返回模型 |
-| `paginate(page, perPage)` | 一页模型，以及引擎统计的 `total` |
+| `paginate(page?, perPage?)` | 一页模型，以及引擎统计的 `total`。默认 `page = 1`、`perPage = 15` |
 | `keys()` | 只返回主键（不查数据库） |
 | `count()` | 匹配数量 |
 | `raw()` | 引擎的原始响应 |
@@ -296,7 +296,7 @@ database 引擎始终立即同步：它的索引就在同一个数据库中。
 | `haze search:flush Post` | 清空模型索引中的全部文档 |
 | `haze search:sync-settings [Post]` | 创建索引并同步设置；不指定模型时处理全部可搜索的模型 |
 
-模型名可以是类名或索引名。命令会加载 `app/model`（以及 `app/<应用>/model`）下的文件，因此 `searchable()` 需要写在模型文件中。代码中也可以直接调用：`importSearchable(Post)`、`flushSearchable(Post)`、`syncSearchSettings()`。
+模型名可以是类名或索引名。命令会加载 `app/model`（以及 `app/<应用>/model`）下的文件，因此 `searchable()` 需要写在模型文件中。代码中也可以直接调用：`importSearchable(Post)`、`flushSearchable(Post)`、`syncSearchSettings()`。`Search.engine(name?)` 返回配置中的引擎实例（默认为 `default`），例如自行调用 `deleteIndex()`。
 
 ## 多租户
 

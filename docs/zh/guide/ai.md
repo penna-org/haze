@@ -194,6 +194,8 @@ const { text } = await support.generate({ prompt, conversationId: user.id, conte
 
 - 配置了 `memory` 并传入 `conversationId` 时，调用前读取历史，调用后保存本轮对话（包括工具调用）；`stream()` 在流结束后保存。
 - `memoryConversationStore()` 把历史保存在进程内；`cacheConversationStore()` 可用于任意 hazejs 缓存存储（Redis、Upstash、KV）。截断历史时以用户消息为界，工具调用不会与结果分开。
+- Agent 的 `maxSteps` 默认为 10，与工具是否带 `execute` 无关。
+- 与 `AI.streamText()` 不同，`agent.stream()` 返回 Promise，需要先 `await`：`return (await support.stream({ prompt, conversationId })).toResponse()`。
 - `agent.asTool()` 把一个 Agent 变成另一个 Agent 的工具（多 Agent 协作）。
 
 ## 图像与语音

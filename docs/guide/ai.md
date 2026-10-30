@@ -194,6 +194,8 @@ const { text } = await support.generate({ prompt, conversationId: user.id, conte
 
 - With `memory` and a `conversationId`, history is loaded before the call and the new turn (including tool calls) is saved after it — for `stream()` too, once the stream finishes.
 - `memoryConversationStore()` keeps history in process; `cacheConversationStore()` works with any hazejs cache store (Redis, Upstash, KV). History is trimmed at user-message boundaries so tool calls never lose their results.
+- Agents default to `maxSteps: 10`, whether or not their tools have `execute`.
+- `agent.stream()` returns a promise, unlike `AI.streamText()`: `return (await support.stream({ prompt, conversationId })).toResponse()`.
 - `agent.asTool()` turns an agent into a tool for another agent (multi-agent delegation).
 
 ## Images and speech

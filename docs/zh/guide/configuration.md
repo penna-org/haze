@@ -170,7 +170,7 @@ config('app.nmae')   // 类型错误
 | `key` | `APP_KEY` | 应用密钥，见下文 |
 | `previousKeys` | `APP_PREVIOUS_KEYS` | 轮换前使用过的旧密钥，见下文 |
 | `bodyLimit` | `'1mb'` | 请求体上限；单个路由可以用 `bodyLimit:10mb` 中间件调整 |
-| `trustProxy` | `false` | 从 `X-Forwarded-For` / `X-Forwarded-Proto` 读取客户端 IP 与协议 |
+| `trustProxy` | `false` | 位于可信反向代理之后：`true` 表示一层代理，也可以填可信代理的层数。协议与主机取自 `X-Forwarded-Proto` / `X-Forwarded-Host`；`ctx.ip` 取 `X-Forwarded-For` 中最近的可信代理追加的那一项（从右数第 n 项），而不是客户端自己可以伪造的最左项。见[反向代理](./security#反向代理) |
 | `cookie` | — | 默认 Cookie 选项（默认 httpOnly、`SameSite=Lax`，非 debug 时加 `Secure`） |
 | `requestIdHeader` | `'x-request-id'` | 读取与回写请求 ID 的请求头，`false` 关闭 |
 | `response` | `{ envelope: true, successCode: 0, successMessage: 'ok' }` | 成功响应的包装结构 |
@@ -229,6 +229,7 @@ export default defineHazeConfig({
 | `cloudflare` | — | `wrangler`（合并进生成的 `wrangler.json`：绑定、vars、routes 等）与 `websocket`（生成 WebSocket 的 Durable Object，路由中使用了 `r.ws()` 时默认开启） |
 | `vercel` | — | `cron`：触发定时任务的 Vercel Cron 表达式（默认每分钟） |
 | `externals` | — | 依赖处理：`trace`（把 external 依赖追踪复制进产物，默认 `true`）、`traceDeps`（额外保持 external 并追踪的包，`pkg*` 表示整包复制）、`inline`（强制打包的包） |
+| `devtools` | 安装了 `@hazejs/devtools` 时开启 | [DevTools](./devtools) 的选项（`base`、`auth`、`terminals`、`embedded`、`mcp`）；`false` 关闭 DevTools |
 | `vite` | — | 纯后端项目透传给 Vite 的配置（插件、别名等）；全栈项目请直接写在 `vite.config.ts` 中 |
 
 全栈项目的开发服务器使用 Vite 的端口，`port` 只决定生产环境的默认端口。与部署预设相关的选项见 [Vite 全栈](./fullstack)与[部署](./deployment)。

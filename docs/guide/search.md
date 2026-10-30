@@ -176,7 +176,7 @@ await SearchablePost.search('haze').get()
 | `constrain(q => ...)` | Constrain the ORM query that loads the models (eager loading, extra conditions). With the database engine it applies to the search query itself |
 | `within(index)` | Search another index of the same model |
 | `get()` / `first()` | Models in relevance order |
-| `paginate(page, perPage)` | Page of models plus `total` from the engine |
+| `paginate(page?, perPage?)` | Page of models plus `total` from the engine. Defaults: `page = 1`, `perPage = 15` |
 | `keys()` | Primary keys only (no database query) |
 | `count()` | Number of matches |
 | `raw()` | The engine's raw response |
@@ -296,7 +296,7 @@ The database engine always syncs immediately: its index lives in the same databa
 | `haze search:flush Post` | Remove every document from the model's index |
 | `haze search:sync-settings [Post]` | Create indexes and apply settings; without a model, every searchable model |
 
-The model name is the class name or the index name. The commands load the files in `app/model` (and `app/<app>/model`), so `searchable()` must be called in the model's file. The same operations are available in code: `importSearchable(Post)`, `flushSearchable(Post)` and `syncSearchSettings()`.
+The model name is the class name or the index name. The commands load the files in `app/model` (and `app/<app>/model`), so `searchable()` must be called in the model's file. The same operations are available in code: `importSearchable(Post)`, `flushSearchable(Post)` and `syncSearchSettings()`. `Search.engine(name?)` returns a configured engine instance (default: `default`), for example to call `deleteIndex()` yourself.
 
 ## Multi-tenancy
 

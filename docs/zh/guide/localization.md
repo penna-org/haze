@@ -113,6 +113,7 @@ I18n.locale()                  // 当前语言
 I18n.setLocale('zh-CN')        // 请求内只影响本次请求
 I18n.has('messages.welcome')
 I18n.locales()                 // 支持的语言
+I18n.load('zh-CN', { billing: { due: '{date} 到期' } }) // 运行时合并翻译，如在扩展包的提供者中注册
 ```
 
 ### 请求之外

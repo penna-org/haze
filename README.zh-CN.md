@@ -13,7 +13,6 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933" alt="Node >= 22.12">
   <a href="https://www.npmjs.com/package/@hazejs/core"><img src="https://img.shields.io/npm/v/@hazejs/core?label=npm" alt="npm version"></a>
-  <img src="https://img.shields.io/badge/status-pre--release-orange" alt="pre-release">
 </p>
 
 <p align="center">
@@ -24,7 +23,7 @@
 
 hazejs 把 Laravel / ThinkPHP 式的开发效率和现代 Vite 工具链放进同一个 TypeScript 框架。它基于 [h3 v2](https://h3.dev)，同一个应用可以运行在 Node、Bun、Deno、Docker、Cloudflare Workers、Vercel、Netlify 和 AWS Lambda 上，还能与 Vue / React 等任意 Vite 前端共用一个端口、一次构建。
 
-> **状态：** 预发布（`0.x`）。`@hazejs/*` 各包与 `create-hazejs` 已发布到 npm，但在 `1.0` 之前，次版本之间的 API 仍可能调整。
+> **状态：** 正式版（`1.x`）。`@hazejs/*` 各包与 `create-hazejs` 共用一个版本号，遵循语义化版本：破坏性变更只会出现在新的大版本中，并附带升级指南。升级时请查看[更新日志](https://github.com/penna-org/haze/releases)。
 >
 > 📖 **[阅读文档](https://haze.yanyu.me/zh/)**
 

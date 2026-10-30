@@ -59,7 +59,7 @@ export default defineRoutes((r) => {
 | --- | --- |
 | `ctx.view(<Home />, init?)` | 渲染 JSX 节点 |
 | `ctx.view(Home, props, init?)` | 渲染组件并传入属性 |
-| `ctx.view('admin/Dashboard', props, init?)` | 按名称渲染 `app/view/admin/Dashboard.tsx`（默认导出） |
+| `ctx.view('admin/Dashboard', props, init?)` | 按名称渲染 `app/view/admin/Dashboard.tsx`（默认导出，或与文件同名的具名导出：`export function Dashboard`） |
 | `view(...)` | 与 `ctx.view()` 相同，用于拿不到 `ctx` 的代码 |
 | `return <Home />` | 处理器或中间件返回的 JSX 节点同样渲染为 HTML |
 | `renderToString(node)` | 渲染为字符串，例如邮件正文 |
@@ -151,11 +151,11 @@ export default function Nav() {
 }
 ```
 
-`useView()` 返回 `{ ctx, locale, t, old, csrfToken }`。`t()` 按请求的语言翻译，详见 [多语言](./localization)。
+`useView()` 返回 `{ ctx, locale, t, old, csrfToken }`，其中 `csrfToken` 是返回 Promise 的函数（`await csrfToken()`）。`t()` 按请求的语言翻译，详见 [多语言](./localization)。
 
 ## 表单
 
-`csrfField()` 输出 [`csrf` 中间件](./security) 校验的隐藏字段 `_token`。`old(field, fallback?)` 读取 `flashInput()` 闪存的输入，提交失败后可以回填表单：
+`csrfField()` 输出 [`csrf` 中间件](./security) 校验的隐藏字段 `_token`。它是异步的，作为 JSX 子节点直接使用即可（Promise 会被等待）；在 JSX 之外使用时需要 `await`。`old(field, fallback?)` 读取 `flashInput()` 闪存的输入，提交失败后可以回填表单：
 
 ```tsx
 // app/view/PostForm.tsx

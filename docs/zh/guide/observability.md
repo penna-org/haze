@@ -55,7 +55,7 @@ export default defineHealthConfig({
 - 检查函数没有返回值、返回 `true` 或字符串（作为 `message`）时为正常；返回 `false` 或抛错时为故障；也可以返回 `{ status: 'degraded', message }`。
 - **关键**检查（默认）故障时整体状态为 `down`；非关键检查（`critical: false`）故障，或有检查返回 `degraded` 时，整体为 `degraded`。
 - 每项检查都有超时（`timeout`，默认 5000 毫秒；单项用 `{ check, timeout }` 设置），超时后检查函数收到的 `signal` 会被中止。
-- 非生产环境的响应中会显示错误原因。生产环境只写入日志，响应中为 `check failed`，避免泄露主机名、连接串等信息；需要时可设置 `verbose: true`。
+- 非生产环境的响应中会显示错误原因。生产环境下检查抛出的错误只写入日志，响应中为 `check failed`，避免泄露主机名、连接串等信息；需要时可设置 `verbose: true`。超时信息（`timed out after 3000ms`）始终显示。
 - `cache: 5000` 在 5 秒内复用就绪检查的结果，避免探针频繁访问数据库。
 
 这些路径在全局中间件之前处理：不受鉴权、CSRF、限流影响，也不套用统一响应格式。项目中定义了 `GET /health` 路由时以项目路由为准。`enabled: false` 关闭，`path` 修改路径。
@@ -150,7 +150,7 @@ node --import ./instrumentation.mjs dist/worker.mjs queue # 队列 worker
 | `cache.get`、`cache.set` 等（需开启） | CLIENT | `haze.cache.store`、`haze.cache.key`、`haze.cache.hit` |
 | `GET`（`tracedFetch`、[`Http`](./http-client)） | CLIENT | `http.request.method`、`url.full`、`server.address`、`http.response.status_code` |
 
-5xx 响应会把 span 标记为错误，异常处理器渲染的异常作为 span 事件记录。用 `traces: { db: false, ai: false, … }` 关闭某类 span。健康检查与开发面板的路径默认忽略。
+5xx 响应会把 span 标记为错误，异常处理器渲染的异常作为 span 事件记录。用 `traces: { db: false, ai: false, … }` 关闭某类 span。健康检查与开发面板的路径默认忽略。设置 `ignorePaths` 会替换这份默认列表而不是追加，所以要像上面的示例那样重新写上 `/health` 与 `/__haze`。
 
 你自己创建的 span 会自动挂在请求 span 之下：
 
@@ -238,12 +238,15 @@ export default defineObservabilityConfig({
 
 | 路径 | 说明 |
 |------|------|
-| `GET /__haze/api/entries?type=query&requestId=&limit=&after=` | 记录列表，最新的在前（`type`：`request`、`query`、`job`、`mail`、`event`、`cache`、`log`、`exception`、`ai`） |
+| `GET /__haze/api/entries?type=query&requestId=&jobId=&limit=&after=` | 记录列表，最新的在前（`type`：`request`、`query`、`job`、`mail`、`event`、`cache`、`log`、`exception`、`ai`、`http`、`schedule`；`limit` 默认 100，最大 1000） |
 | `GET /__haze/api/entries/:id` | 单条记录 |
+| `GET /__haze/api/requests` | 已记录的请求，最新的在前 |
 | `GET /__haze/api/requests/:requestId` | 某个请求及其关联的全部记录 |
 | `GET /__haze/api/stats` | 各类记录的数量 |
 | `GET /__haze/api/stream` | Server-Sent Events：每条新记录对应一个 `event: entry` |
+| `GET /__haze/api/mail/:id/preview` | 邮件记录渲染后的 HTML，通过内容安全策略（CSP）在沙箱中显示 |
 | `POST /__haze/api/clear` | 清空记录 |
+| `GET /__haze/api/queues`、`POST /__haze/api/queues/:connection/{retry,forget,flush}` | [队列面板](#队列面板)的 API：各连接的数量统计与失败任务；重试、删除（请求体 `{ id }`）或清空 |
 
 ### 记录方式
 
@@ -287,4 +290,4 @@ export default defineAbilities({
 
 这会注册 `GET /admin/queues`（页面）与 `/admin/queues/api`（JSON API），这些路由不会出现在 OpenAPI 文档中。重试、删除与清空要求带上 `x-haze-dashboard: 1` 请求头，页面发送请求时会带上它以及 `XSRF-TOKEN` Cookie 的值，因此可以和 CSRF 保护一起使用，也无法从其它站点发起。`path` 默认为 `/__haze/queues`；开发环境中开发面板会先处理这个路径。
 
-只有 `memory` 与 `redis` 驱动提供数量统计。Cloudflare Queues 由 Worker 消费，失败任务进入 wrangler 中配置的死信队列。
+`memory`、`redis` 驱动以及 `@hazejs/orm` 的 `database` 驱动提供数量统计。Cloudflare Queues 由 Worker 消费，失败任务进入 wrangler 中配置的死信队列。

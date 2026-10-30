@@ -43,7 +43,8 @@ export default defineAuthConfig(() => ({
 | `window` | `1` | 允许的时钟偏差（时间步数，即 ±30 秒） |
 | `recoveryCodes` | `8` | 恢复码数量 |
 | `challengeTtl` | `'5m'` | 登录后等待输入验证码的时长 |
-| `maxAttempts` | `5` | 一次登录挑战允许输错的次数，超过后需重新输入密码 |
+| `maxAttempts` | `5` | 每个用户允许输错的次数。次数记在缓存中并保留 `challengeTtl`（不在客户端持有的会话 Cookie 里），超过后在这段时间内无法完成挑战，重新输入密码也不行 |
+| `cacheStore` | 默认缓存存储 | 记录失败次数的缓存存储（`config/cache.ts` 中的名称） |
 
 保存的内容：
 
@@ -97,7 +98,7 @@ export class TwoFactorController {
 | `enabled(user)` | 是否已启用（已确认） |
 | `verify(user, code)` | 校验已启用用户的验证码，每个时间步只接受一次 |
 | `useRecoveryCode(user, code)` | 使用一个恢复码（不区分大小写，用后作废） |
-| `regenerateRecoveryCodes(user)` | 生成新的明文恢复码，旧的全部失效 |
+| `regenerateRecoveryCodes(user)` | 生成新的明文恢复码，旧的全部失效。用户没有两步验证记录时抛出 `Error`（需先调用 `enable()`） |
 | `remainingRecoveryCodes(user)` | 剩余的恢复码数量 |
 | `uri(user)` | 再次取得 `otpauth://` 地址（如设置过程中重新显示二维码） |
 | `disable(user)` | 删除密钥与恢复码，触发 `TwoFactorDisabled` |
@@ -139,7 +140,7 @@ r.post('/login', [SessionController, 'store']).middleware('throttle:10,60')
 r.post('/two-factor-challenge', [SessionController, 'challenge']).middleware('throttle:10,60')
 ```
 
-`TwoFactor.challenge(ctx, input)` 接受 `{ code }` 或 `{ recoveryCode }`。成功时通过 Session Guard 登录（会重新生成会话 ID）并返回用户，否则返回 `undefined`。挑战在 `challengeTtl` 后过期；输错 `maxAttempts` 次后挑战被清除，需要重新输入密码。`TwoFactor.hasPendingChallenge(ctx)` 可以告诉前端是否要显示验证码表单。`attempt()` 与 `challenge()` 都接受 `{ guard }`，用于指定默认 Guard 之外的 Session Guard。
+`TwoFactor.challenge(ctx, input)` 接受 `{ code }` 或 `{ recoveryCode }`。成功时通过 Session Guard 登录（会重新生成会话 ID）并返回用户，否则返回 `undefined`。挑战在 `challengeTtl` 后过期。失败次数按用户记在缓存中，而不是会话里（默认的 `cookie` 驱动把会话存在客户端，可以被重放）；输错 `maxAttempts` 次后挑战被清除，并且在 `challengeTtl` 过去之前无法再完成挑战，重新输入密码也不行。`TwoFactor.hasPendingChallenge(ctx)` 可以告诉前端是否要显示验证码表单。`attempt()` 接受 `{ guard }`，用于指定默认 Guard 之外的 Session Guard；它会把该 Guard 记在会话中，`challenge()` 通过它登录（`challenge()` 本身没有 `guard` 选项）。
 
 ### JWT 与令牌接口
 
@@ -214,7 +215,7 @@ export default defineAuthConfig(() => ({
 | `residentKey` | `'preferred'` | 可发现凭据（无需输入用户名即可登录） |
 | `userName` / `displayName` | `'email'` / `'name'` | 认证器中显示的用户字段 |
 
-挑战只能使用一次。`cache` 模式下以挑战值本身为键，不需要 Cookie。
+挑战只能使用一次。`cache` 模式下以挑战值本身为键，不需要 Cookie。`session` 模式下用过的挑战还会记在缓存存储中，因此用旧的会话 Cookie 重放同一个响应也会被拒绝。
 
 ::: tip 本地开发与代理
 `rpID` 必须与用户所在页面的主机名一致。`localhost` 可以使用普通 HTTP，其它主机需要 HTTPS。经过代理或使用独立的前端开发服务器时，把 `APP_URL`（或 `rpID` 与 `origin`）设为浏览器地址栏中的地址。

@@ -244,7 +244,7 @@ The bucket key is `throttle:<spec>:<key>`, where `<spec>` is the argument string
 | `await ctx.file(name)` / `await ctx.files(name)` | First / all `UploadedFile`s of a field; empty inputs ignored |
 | `ctx.header(name)` | Header or `undefined` |
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookie; signed returns `undefined` if tampered |
-| `ctx.ip` | Client IP; `X-Forwarded-For` only when `app.trustProxy` |
+| `ctx.ip` | Client IP; with `app.trustProxy: true` the rightmost `X-Forwarded-For` entry (`n` → nth from the right). Workers/Lambda entries pass the platform client IP without it |
 | `ctx.origin` / `ctx.secure` | e.g. `https://admin.example.com` / is https; `X-Forwarded-Proto`/`-Host` only when `app.trustProxy` |
 | `ctx.method`, `ctx.path`, `ctx.url` (URL), `ctx.req` (Web Request), `ctx.event` (H3Event) | Request info |
 | `ctx.route` | Matched route: `{ method, path, name, meta }` (`path` is the pattern, `/api/users/:id`); `undefined` when no route matched. Use it in route middleware |
@@ -508,7 +508,7 @@ await createApplication({
 
 Static serving runs **after** global middleware (so `secureHeaders`/`cors` apply to pages and assets) and before routes. HTML responses and the SPA fallback get `Cache-Control: no-cache`. Keep `auth`-style middleware on route groups, not global. See [full-stack guide](../../../docs/guide/fullstack.md).
 
-**Multi-app** — `apps: { admin: { prefix: '/admin' }, api: { domain: 'api.example.com' } }` in `config/app.ts`; code in `app/<name>/{route,config,provider,exception,response}`. Prefix is stripped before matching, route names get the app prefix (`admin.users.show`), and each app can have its own config, global middleware, `Handler.ts`, `Formatter.ts`. [Guide](../../../docs/guide/multi-app.md). **Modules** (`modules/<name>/` or packages in `config/modules.ts`) merge routes/middleware into the shared app without isolation. [Guide](../../../docs/guide/modules.md).
+**Multi-app** (per-prefix/domain apps in `app/<name>/`) and **modules** (`modules/<name>/`, `config/modules.ts`): see [container-and-modules.md](container-and-modules.md).
 
 ## Gotchas
 
@@ -525,7 +525,7 @@ Static serving runs **after** global middleware (so `secureHeaders`/`cors` apply
 - Route params and query values are **strings** (URL-decoded). Use `v.transform(Number)` in `.validate({ params })` and read `ctx.validated.params`.
 - `throttle:10,60` on two routes shares **one** bucket per user/IP (key = spec + user/IP). Use distinct named limiters (optionally with `key`) for per-route budgets. Memory store is per process; use a shared store with multiple instances.
 - `cors` must be global; route-level `cors` never sees preflights.
-- `ctx.ip`, `ctx.origin`, `ctx.secure` and HSTS/COOP ignore `X-Forwarded-*` unless `app.trustProxy: true`. Only enable it behind a trusted proxy.
+- `ctx.ip`, `ctx.origin`, `ctx.secure` and HSTS/COOP ignore `X-Forwarded-*` unless `app.trustProxy` is truthy (`true` = 1 trusted hop, `n` = n hops; `ctx.ip` is read from the right of `X-Forwarded-For`, never the leftmost). Only enable it behind a trusted proxy: Vercel/Netlify → `true`; Cloudflare Workers / AWS Lambda not needed (the entry passes `cf-connecting-ip` / `sourceIp`; custom entries call `setClientAddress(request, ip)` from `@hazejs/core`).
 - `secureHeaders` never sends COOP/`Origin-Agent-Cluster` over plain http, and HSTS only on https with debug off — don't expect them in local http tests.
 - SPA fallback only triggers for `Accept: text/html` and unmatched GET/HEAD; `fetch` calls to unknown paths still get JSON 404. Put the API prefix in `exclude`.
 - OpenAPI/docs endpoints run before global middleware (no auth/CSP) and are off in production unless `enabled: true`.

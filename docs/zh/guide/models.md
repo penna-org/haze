@@ -79,7 +79,7 @@ const page = await User.where('role', 'member').order('id', 'desc').paginate(1, 
 
 ## 构造查询
 
-`Model.where()`、`Model.query()` 和 `Db.table()` 返回的是同一个链式查询构造器；连接查询、子查询、分组、JSON 字段、时间条件、查询缓存等见[查询构造器](./query-builder)。基础写法：
+`Model.query()` 返回的与 `Db.table()` 是同一个链式查询构造器（结果为模型）；连接查询、子查询、分组、JSON 字段、时间条件、查询缓存等见[查询构造器](./query-builder)。`Model.where()` 等静态快捷方法会开始这样一个查询。基础写法：
 
 ```ts
 User.where('role', 'admin')                        // 等于
@@ -111,6 +111,8 @@ User.where(eq(users.id, 1))                        // 任意 drizzle 表达式
 | `update(values)` / `delete()` | 批量写入，返回影响行数 |
 | `increment(column, step)` / `decrement(column, step)` | 原子自增 / 自减 |
 | `toSQL()` | 生成的 SQL 与参数，调试用 |
+
+静态快捷方法比它开始的查询更受限：`Model.where()` 只接受模型自身的列（`'posts.views'` 这类点号路径或 `'meta->city'` 这类 JSON 路径需要用 `Model.query().where(...)`），`Model.order()` 只接受单个列，`Model.count()` 不接受列参数。关联相关的方法中，`withCount()`、`has()` 和 `hasWhere()` 有静态版本；`withSum()` / `withAvg()` / `withMax()` / `withMin()`、`hasNot()` 和 `hasWhereOr()` 只能在查询上调用（`User.query().withSum('posts', 'views')`），[查询构造器](./query-builder)的大多数方法（`field()`、`whereLike()`、`lock()`、`max()` 等）也是如此。
 
 完整列表见[查询构造器](./query-builder)。`insert()` / `upsert()`（不经过模型事件的插入）通常配合 `Db.table()` 使用。
 
@@ -247,7 +249,13 @@ await Post.whereIn('id', [1, 2]).restore()   // 批量恢复
 await Post.onlyTrashed().restore({ all: true })   // 恢复全部已删除的数据
 await post.forceDelete()               // 物理删除
 post.trashed()                         // boolean
+
+await Post.query().delete([1, 2])                       // 批量软删除（一条语句）
+await Post.withTrashed().forceDelete([1, 2])            // 批量物理删除；也可 forceDelete({ all: true })
+await Post.onlyTrashed().delete({ all: true })          // 清理已软删除的数据
 ```
+
+查询上的 `delete()` 执行软删除，但在 `onlyTrashed()` 之后会物理删除这些行。查询上的 `forceDelete()` 总是物理删除；和其他模型查询一样，它默认跳过已软删除的行，需要包含它们时加上 `withTrashed()`。
 
 `make:model` 生成的表结构已经带有 `deletedAt` 列。
 

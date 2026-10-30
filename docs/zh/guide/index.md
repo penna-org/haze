@@ -4,10 +4,6 @@ hazejs 是一个开箱即用的 TypeScript 后端框架。它把 Laravel、Think
 
 同一份应用可以运行在 Node.js、Bun、Deno、Docker、Cloudflare Workers、Vercel、Netlify 和 AWS Lambda 上；还可以与 Vue、React 或任意 Vite 前端共用一个端口，一次构建同时产出前后端。
 
-::: warning 预发布阶段
-hazejs 目前处于 `0.x` 版本，1.0 之前 API 仍可能调整，各个包也还没有发布到 npm。想提前体验，请参考[贡献指南](https://github.com/penna-org/haze/blob/main/CONTRIBUTING.md)从源码运行。
-:::
-
 ## 设计理念
 
 **约定优于配置。** 控制器放在 `app/controller`，配置放在 `config/`，路由放在 `route/`，队列任务放在 `app/job`。大部分目录在编译期自动发现，不需要手写注册代码；文件本身也可以用 `haze make:*` 一键生成。详见[目录结构](./directory-structure)。
@@ -110,7 +106,7 @@ hazejs 介于 Express、Fastify、Hono 这类轻量路由库与 NestJS、AdonisJ
 - 希望同一份代码既能部署到云服务器、容器，也能部署到 Serverless 函数或 Cloudflare Workers；
 - 有 Laravel 或 ThinkPHP 背景，希望沿用熟悉的项目结构。
 
-以下情况可能不太合适：只需要寥寥几个接口（轻量路由库更简单）；现在就需要稳定的 1.0 API；或者需要像 Express 那样庞大的第三方插件生态。
+以下情况可能不太合适：只需要寥寥几个接口（轻量路由库更简单），或者需要像 Express 那样庞大的第三方插件生态。
 
 ## 下一步
 

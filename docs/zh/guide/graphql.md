@@ -142,10 +142,10 @@ export default defineGraphQLConfig({
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `path` | `/graphql` | 接口路径 |
-| `graphiql` | 非生产环境开启 | 浏览器访问时的 GraphiQL 页面；可传 `{ title, defaultQuery, defaultHeaders }` |
+| `graphiql` | 非生产环境开启 | 浏览器访问时的 GraphiQL 页面；可传 `{ title, defaultQuery, defaultHeaders }`（`defaultHeaders` 为 JSON 字符串） |
 | `introspection` | 非生产环境开启 | 是否允许 `__schema` / `__type` 内省查询 |
 | `maxDepth` | `15` | 最大查询深度；`false` 关闭检查 |
-| `maxComplexity` | 不限制 | 最大查询复杂度 |
+| `maxComplexity` | 不限制 | 最大查询复杂度；`false` 或 `0` 关闭检查 |
 | `subscriptions` | `false` | 同一路径上的 WebSocket 订阅；可传 `{ connectionInitWaitTimeout, onConnect }` |
 
 服务提供者的选项除上表外，还有 `context`、`formatError`、`rootValue`、`validationRules` 与 `middleware`（路由中间件，如 `'throttle:60,1'`）。传给服务提供者的选项优先于配置文件。schema 也可以是返回 schema（或动态 `import()`）的函数，第一次请求时加载。
@@ -168,6 +168,8 @@ export default defineRoutes((r) => {
 })
 ```
 
+`graphqlHandler()` 不读取 `config/graphql.ts`，需要的选项都要直接传入。
+
 ### GraphQL over HTTP
 
 处理器遵循 [GraphQL over HTTP](https://graphql.github.io/graphql-over-http/) 规范：
@@ -182,7 +184,7 @@ export default defineRoutes((r) => {
 | `application/json`、`*/*` 或未提供 | `application/json` | 格式正确的请求一律 `200`，与旧客户端的预期一致 |
 | 其它 | | `406` |
 
-格式错误的请求（JSON 无效、缺少 `query`、`variables` 不是对象）在两种类型下都返回 `400`。不支持经 HTTP 执行订阅，请使用 WebSocket。
+请求体不是合法 JSON 或不是 JSON 对象、GET 的 `variables` / `extensions` 不是合法 JSON 时，两种类型下都返回 `400`。缺少 `query` 或 `variables` 不是对象则按上表处理：`application/graphql-response+json` 返回 `400`，`application/json` 返回 `200` 与 `errors`。不支持经 HTTP 执行订阅，请使用 WebSocket。
 
 ## 上下文
 
@@ -265,6 +267,7 @@ Post: {
 | `UnauthorizedException` | `{ code: 'UNAUTHENTICATED', status: 401 }` |
 | `ForbiddenException`、`ctx.authorize()` 不通过 | `{ code: 'FORBIDDEN', status: 403 }` |
 | `NotFoundException` | `{ code: 'NOT_FOUND', status: 404 }` |
+| 状态码为 409 / 419（CSRF 校验失败）的 `HttpException` | `{ code: 'CONFLICT', status: 409 }` / `{ code: 'CSRF_TOKEN_MISMATCH', status: 419 }` |
 | `ValidationException`、`validate()` 失败 | `{ code: 'BAD_USER_INPUT', status: 422, issues: [{ path, message }] }` |
 | `TooManyRequestsException` | `{ code: 'TOO_MANY_REQUESTS', status: 429 }` |
 | `BusinessException(10001, '…')` | `{ code: 'BUSINESS_ERROR', status: 200, errorCode: 10001 }` |
@@ -272,7 +275,7 @@ Post: {
 | `GraphQLError` | 原样保留，包括它的 `extensions` |
 | 其它异常 | `{ code: 'INTERNAL_SERVER_ERROR' }`；未开启 `app.debug` 时消息替换为 `Internal Server Error` |
 
-解析与校验错误的 code 为 `GRAPHQL_PARSE_FAILED` / `GRAPHQL_VALIDATION_FAILED`；下文的限制会产生 `DEPTH_LIMIT_EXCEEDED` 与 `COMPLEXITY_LIMIT_EXCEEDED`。未知错误与 5xx 异常会交给 [`ExceptionHandler`](./errors) 的 `report()`。
+解析与校验错误的 code 为 `GRAPHQL_PARSE_FAILED` / `GRAPHQL_VALIDATION_FAILED`，`operationName` 不存在（或有多个操作却未指定）时为 `OPERATION_RESOLUTION_FAILURE`；下文的限制会产生 `DEPTH_LIMIT_EXCEEDED` 与 `COMPLEXITY_LIMIT_EXCEEDED`。未知错误与 5xx 异常会交给 [`ExceptionHandler`](./errors) 的 `report()`。
 
 ```ts
 import { validate } from '@hazejs/core'
@@ -371,6 +374,8 @@ export default defineGraphQLConfig({
   },
 })
 ```
+
+`onConnect` 也可以返回一个对象，作为 `connection_ack` 的 payload 发送。其它关闭码遵循协议：`4400` 消息格式错误，`4401` 连接确认前发送 `subscribe`，`4408` 在 `connectionInitWaitTimeout`（默认 3000 毫秒）内未收到 `connection_init`，`4409` 操作 id 重复，`4429` 重复发送 `connection_init`，`4500` 服务器内部错误。
 
 经 WebSocket 发送的查询与 mutation 同样会执行。订阅中请用 `ctx.inject()` 而不是全局的 `inject()`：订阅不在 HTTP 请求之内。
 

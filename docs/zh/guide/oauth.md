@@ -274,7 +274,7 @@ keycloak: {
 },
 ```
 
-接口地址来自 `<issuer>/.well-known/openid-configuration`（会缓存，文档中的 `issuer` 必须一致）。`id_token` 用 `jwks_uri` 中的公钥校验签名（RS / PS / ES / EdDSA；公钥集合会缓存，遇到新的 `kid` 时重新拉取），同时校验 `iss`、`aud`、有效期与 `nonce`；随后合并 userinfo 的结果，其 `sub` 必须与令牌一致。`verifyIdToken(token, { jwksUri, issuer, audience, nonce })` 也可以单独使用，例如校验移动端 SDK 交来的令牌。
+接口地址来自 `<issuer>/.well-known/openid-configuration`（会缓存，文档中的 `issuer` 必须一致）。`id_token` 用 `jwks_uri` 中的公钥校验签名（RS / PS / ES / EdDSA；公钥集合会缓存，遇到新的 `kid` 时重新拉取），同时校验 `iss`、`aud`、有效期与 `nonce`；随后合并 userinfo 的结果，其 `sub` 必须与令牌一致。`verifyIdToken(token, { jwksUri, issuer, audience, nonce })` 也可以单独使用，例如校验移动端 SDK 交来的令牌；它还接受 `algorithms`、`clockTolerance`（允许的时钟偏差，单位秒，默认 `60`）与 `fetch`。
 
 ## 移动端交来的令牌
 
@@ -316,7 +316,7 @@ export default defineProvider({
 })
 ```
 
-之后在 `config/oauth.ts` 中写 `driver: 'gitea'`，也可以不注册，直接写 `driver: Gitea`。流程不标准的平台，继承 `OAuthProvider`（或 `OidcProvider`）并覆盖 `authorizeParams()`、`exchangeCode()`、`fetchUser()`、`mapUser()`；`registerOAuthProvider()` 也接受这个类。`OAuth.build(driver, config)` 可以在运行时用一份配置构造驱动，例如每个租户各自的 client。
+之后在 `config/oauth.ts` 中写 `driver: 'gitea'`，也可以不注册，直接写 `driver: Gitea`。流程不标准的平台，继承 `OAuthProvider`（或 `OidcProvider`）并覆盖 `authorizeParams()`、`exchangeCode()`、`fetchUser()`、`mapUser()`；`registerOAuthProvider()` 也接受这个类。`OAuth.build(driver, config, options?)` 可以在运行时用一份配置构造驱动，例如每个租户各自的 client；它不读取 `config/oauth.ts`，需要的全局选项（`stateStore`、`cookie`、`stateTtl`、`fetch`）通过第三个参数传入。
 
 ## 错误
 

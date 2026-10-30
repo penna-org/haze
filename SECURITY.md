@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-hazejs is pre-release. Security fixes are made on the latest `0.x` release.
+Security fixes are released as patch versions of the latest minor of the current major (`1.x`). Pre-release `0.x` versions are not supported; please upgrade to `1.x`.
 
 ## Reporting a vulnerability
 

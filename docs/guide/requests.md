@@ -30,7 +30,7 @@ export class SearchController {
 | `await ctx.body<T>()` | Parsed body |
 | `ctx.header(name)` | Header value or `undefined` |
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookie value. Signed cookies return `undefined` if tampered with |
-| `ctx.ip` | Client IP. Read from `X-Forwarded-For` only when `app.trustProxy` is `true` |
+| `ctx.ip` | Client IP: the connection address (on Cloudflare Workers `cf-connecting-ip`, on AWS Lambda the event's `sourceIp`). With `app.trustProxy` it is the `X-Forwarded-For` entry appended by the nearest trusted proxy |
 | `ctx.origin` / `ctx.secure` | The address the client used (`https://admin.example.com`) and whether it is https. `X-Forwarded-Proto` / `X-Forwarded-Host` are honoured only when `app.trustProxy` is `true` |
 | `ctx.method`, `ctx.path`, `ctx.url` | Method, pathname, full `URL` |
 | `ctx.req` | The Web `Request` |

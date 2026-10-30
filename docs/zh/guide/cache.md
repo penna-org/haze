@@ -128,6 +128,8 @@ await Cache.clear() // 清空当前存储前缀下的全部键
 | `lock(name, ttl?, owner?)` / `restoreLock(name, owner)` | | [原子锁](#原子锁) |
 | `store(name?)` | | 切换存储，返回拥有相同方法的仓库对象 |
 | `redis(name?)` | | 带 [Redis 数据结构](#redis-数据结构) 的存储，其它驱动会报错 |
+| `command(key, command, ...args)` / `commandBatch(key, [[command, ...args], ...])` | | 在加了前缀的键上执行一条原始数据结构命令，或依次执行多条（Redis 上为 `MULTI` 事务）。在 `Cache.redis()` / redis 存储上可用 |
+| `key(name)` | | 存储中的实际键：缓存前缀加租户前缀。在仓库对象上（`Cache.store().key(name)`），门面上没有 |
 
 别名就是同一个方法，按团队习惯选用即可。
 

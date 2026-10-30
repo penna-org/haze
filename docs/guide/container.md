@@ -71,9 +71,10 @@ export class RequestInfo {
 }
 ```
 
-The container enforces two safety rules and gives you the full dependency chain when one fails:
+The container enforces these safety rules and gives you the full dependency chain when one fails:
 
 - A singleton cannot depend on a request-scoped object. It would capture the first request's data, so a `ScopeError` is thrown.
+- A request-scoped object can only be resolved within a request. `app.make(RequestInfo)` at boot, in a job or in a command throws a `ScopeError`.
 - Circular dependencies throw `CircularDependencyError`.
 
 ## Tokens
@@ -117,6 +118,9 @@ Register bindings in a provider's `register()` hook. The container API:
 | `instance(key, value)` | Register an existing value |
 | `has(key)` / `make(key)` | Check / resolve |
 | `call(fn)` | Run `fn` in this container's injection context |
+| `createChild()` | Create a child container, as the framework does for each request |
+| `bindings()` | List this container's bindings (`key`, `scope`, `kind`, `resolved`), for debugging |
+| `dispose()` | Dispose the instances this container created (see [Disposal](#disposal)) |
 
 ```ts
 // app/provider/AppProvider.ts
@@ -166,7 +170,7 @@ export default defineProvider({
 })
 ```
 
-A provider can also be a class with these methods. Generate one with `npx haze make:provider Redis`.
+A provider can also be a class with these methods. The framework creates it with `new`, not through the container, so calling `inject()` in its fields or constructor throws; resolve services in `boot(app)` with `app.make()` instead. Generate one with `npx haze make:provider Redis`.
 
 Providers boot in order: [module](./modules) providers first, then the app's. Work that needs something an app provider prepares in its `boot` (an open database connection, say) can wait for all providers with `app.onBooted(callback)`; it runs right away once the application has booted:
 
@@ -176,6 +180,8 @@ export default defineProvider({
   boot: app => app.onBooted(() => app.make(OrderBinding).register()),
 })
 ```
+
+`onBooted` callbacks run in the order they were added, after every `boot()` and **before** the routes are compiled. Neither `boot()` nor an `onBooted` callback can use `app.router.url()` or `app.request()` yet.
 
 ### Resolving from the application
 
@@ -196,23 +202,28 @@ export class Reporter {
 }
 ```
 
-Values registered with `instance()` are not disposed by the container.
+Request-scoped instances are disposed at the end of every request. Transient instances are not tracked and never disposed, and values registered with `instance()` are not disposed by the container.
 
 ## Persistent resources across HMR
 
 In development, every code change rebuilds the container in milliseconds. That is fine for services, but database pools or Redis clients should not reconnect on every save. `definePersistent()` creates a value once per process and keeps it across reloads:
 
 ```ts
-// app/redis.ts
-import { definePersistent, env } from '@hazejs/core'
+// app/provider/RedisProvider.ts
+import { definePersistent, defineProvider, env } from '@hazejs/core'
 import Redis from 'ioredis'
+import { RedisClient } from '~/app/tokens'
 
-export const redis = definePersistent('redis', () => new Redis(env('REDIS_URL', 'redis://127.0.0.1:6379')), {
-  dispose: client => client.quit(),
+export default defineProvider({
+  register(container) {
+    container.instance(RedisClient, definePersistent('redis', () => new Redis(env('REDIS_URL', 'redis://127.0.0.1:6379')), {
+      dispose: client => client.quit(),
+    }))
+  },
 })
 ```
 
-The `dispose` callback runs only on real shutdown, never on an HMR reload.
+The `dispose` callback runs whenever the application is really disposed, never on an HMR reload. That covers process shutdown, and also the end of every test with `useTestApp()`. Afterwards the value is forgotten, and the next `definePersistent()` call creates a new one. So call it on each boot, as above, rather than storing it in a module-level `const`. A constant would keep the disposed client for the next application in the same process, such as the next test. Register the value with `instance()`, not with a `singleton()` factory. The container never disposes `instance()` values. It does dispose factory results that implement `Symbol.asyncDispose` / `Symbol.dispose`, and it would do that on every reload.
 
 ## Overriding bindings in tests
 

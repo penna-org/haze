@@ -142,10 +142,10 @@ export default defineGraphQLConfig({
 | Option | Default | Description |
 | --- | --- | --- |
 | `path` | `/graphql` | Endpoint path |
-| `graphiql` | on outside production | GraphiQL page for browsers; `{ title, defaultQuery, defaultHeaders }` to customise |
+| `graphiql` | on outside production | GraphiQL page for browsers; `{ title, defaultQuery, defaultHeaders }` to customise (`defaultHeaders` is a JSON string) |
 | `introspection` | on outside production | Allow `__schema` / `__type` queries |
 | `maxDepth` | `15` | Maximum query depth; `false` disables the check |
-| `maxComplexity` | off | Maximum query complexity |
+| `maxComplexity` | off | Maximum query complexity; `false` or `0` disables the check |
 | `subscriptions` | `false` | Subscriptions over WebSocket on the same path; `{ connectionInitWaitTimeout, onConnect }` |
 
 The provider options take everything above plus `context`, `formatError`, `rootValue`, `validationRules`, and `middleware` (route middleware such as `'throttle:60,1'`). Options passed to the provider override the config file. The schema can be a function that returns it (or a dynamic `import()`); it is loaded on the first request.
@@ -168,6 +168,8 @@ export default defineRoutes((r) => {
 })
 ```
 
+`graphqlHandler()` does not read `config/graphql.ts`; pass every option it needs directly.
+
 ### GraphQL over HTTP
 
 The handler follows the [GraphQL over HTTP](https://graphql.github.io/graphql-over-http/) specification:
@@ -182,7 +184,7 @@ The handler follows the [GraphQL over HTTP](https://graphql.github.io/graphql-ov
 | `application/json`, `*/*` or missing | `application/json` | `200` for every well-formed request, as legacy clients expect |
 | anything else | | `406` |
 
-Malformed requests (invalid JSON, missing `query`, non-object `variables`) get `400` either way. Subscriptions over HTTP are rejected; use WebSocket.
+A body that is not valid JSON or not a JSON object, and invalid JSON in the GET `variables` / `extensions`, get `400` either way. A missing `query` or non-object `variables` follows the table: `400` with `application/graphql-response+json`, `200` with an `errors` body for `application/json`. Subscriptions over HTTP are rejected; use WebSocket.
 
 ## Context
 
@@ -265,6 +267,7 @@ Throw hazejs exceptions in resolvers as you would in controllers. They are conve
 | `UnauthorizedException` | `{ code: 'UNAUTHENTICATED', status: 401 }` |
 | `ForbiddenException`, failed `ctx.authorize()` | `{ code: 'FORBIDDEN', status: 403 }` |
 | `NotFoundException` | `{ code: 'NOT_FOUND', status: 404 }` |
+| `HttpException` with status 409 / 419 (CSRF mismatch) | `{ code: 'CONFLICT', status: 409 }` / `{ code: 'CSRF_TOKEN_MISMATCH', status: 419 }` |
 | `ValidationException`, `validate()` failure | `{ code: 'BAD_USER_INPUT', status: 422, issues: [{ path, message }] }` |
 | `TooManyRequestsException` | `{ code: 'TOO_MANY_REQUESTS', status: 429 }` |
 | `BusinessException(10001, '…')` | `{ code: 'BUSINESS_ERROR', status: 200, errorCode: 10001 }` |
@@ -272,7 +275,7 @@ Throw hazejs exceptions in resolvers as you would in controllers. They are conve
 | `GraphQLError` | kept as is, including its `extensions` |
 | anything else | `{ code: 'INTERNAL_SERVER_ERROR' }`; the message is replaced with `Internal Server Error` unless `app.debug` is on |
 
-Parse and validation errors have `GRAPHQL_PARSE_FAILED` / `GRAPHQL_VALIDATION_FAILED`; the limits below add `DEPTH_LIMIT_EXCEEDED` and `COMPLEXITY_LIMIT_EXCEEDED`. Unexpected errors and 5xx exceptions are passed to the [`ExceptionHandler`](./errors)'s `report()`.
+Parse and validation errors have `GRAPHQL_PARSE_FAILED` / `GRAPHQL_VALIDATION_FAILED`, and an unknown `operationName` (or several operations without one) has `OPERATION_RESOLUTION_FAILURE`; the limits below add `DEPTH_LIMIT_EXCEEDED` and `COMPLEXITY_LIMIT_EXCEEDED`. Unexpected errors and 5xx exceptions are passed to the [`ExceptionHandler`](./errors)'s `report()`.
 
 ```ts
 import { validate } from '@hazejs/core'
@@ -371,6 +374,8 @@ export default defineGraphQLConfig({
   },
 })
 ```
+
+`onConnect` may also return an object, which is sent as the `connection_ack` payload. Other close codes follow the protocol: `4400` invalid message, `4401` `subscribe` before the connection is acknowledged, `4408` no `connection_init` within `connectionInitWaitTimeout` (default 3000 ms), `4409` duplicate operation id, `4429` a second `connection_init`, `4500` internal error.
 
 Queries and mutations sent over the socket are executed too. Inside subscriptions, use `ctx.inject()` rather than the global `inject()`: there is no HTTP request around them.
 

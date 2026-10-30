@@ -128,6 +128,8 @@ await Cache.clear() // everything under this store's prefix
 | `lock(name, ttl?, owner?)` / `restoreLock(name, owner)` | | [Atomic locks](#atomic-locks) |
 | `store(name?)` | | Switch to another store; returns a repository with the same methods |
 | `redis(name?)` | | A store with [Redis data structures](#redis-data-structures); throws for other drivers |
+| `command(key, command, ...args)` / `commandBatch(key, [[command, ...args], ...])` | | Run one raw data-structure command, or several in order (a `MULTI` transaction on Redis), on a prefixed key. On `Cache.redis()` / redis stores |
+| `key(name)` | | The key as stored: the cache prefix plus the tenant prefix. On repositories (`Cache.store().key(name)`), not on the facade |
 
 The aliases are the same methods, so use whichever style your team prefers.
 

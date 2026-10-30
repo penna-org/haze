@@ -103,7 +103,10 @@ r.get('/me', (ctx) => {
   currentTenant() // 当前租户，没有时为 undefined
   Tenancy.key() // "acme"
   Tenancy.check() // 是否处于租户上下文
+  Tenancy.current() // 当前租户，没有时为 undefined（同 currentTenant()）
 })
+
+await Tenancy.find('acme') // 按标识经 find() 查找租户（遵循 `remember` 缓存），找不到时为 undefined
 ```
 
 通过声明合并为 `Tenant` 类型补充字段：

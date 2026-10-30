@@ -134,7 +134,7 @@ Modules are enabled in this order: modules passed to `createApplication({ module
 | Middleware aliases and groups | Merged into the registry. A name defined by two modules — or by a module and a built-in middleware — throws an error naming both, unless the project's `config/middleware.ts` defines it too (an explicit override) |
 | Global middleware | Run after the project's global middleware, in enable order |
 | Routes | Loaded after the app's routes and compiled the same way. Duplicate route names throw with their sources: `Duplicate route name "blog.index" (the app and module "blog")` |
-| Jobs, events, listeners, schedules, policies, commands | Registered before the app's. A job with the same name as one of the app's is replaced by the app's; duplicate command names throw |
+| Jobs, events, listeners, schedules, policies, commands | Registered before the app's. Two different jobs, listeners or commands with the same name throw (`Duplicate job name "SendDigest": defined in … and …`); registering the same job or listener definition twice is ignored |
 
 ## Writing a module package
 
@@ -218,7 +218,7 @@ For local modules, typegen adds every `modules/<name>/config/*.ts` key that the 
 
 ### Typed options
 
-`options` receives whatever was passed when enabling (besides the mount options) and returns definition fields to merge:
+`options` receives the whole object passed when enabling (the mount options `prefix`, `as`, … included) and returns definition fields to merge:
 
 ```ts
 export default defineModule({

@@ -30,7 +30,7 @@ export class SearchController {
 | `await ctx.body<T>()` | 解析后的请求体 |
 | `ctx.header(name)` | 请求头的值或 `undefined` |
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookie 的值；签名 Cookie 被篡改时返回 `undefined` |
-| `ctx.ip` | 客户端 IP；仅当 `app.trustProxy` 为 `true` 时读取 `X-Forwarded-For` |
+| `ctx.ip` | 客户端 IP：连接地址（Cloudflare Workers 上为 `cf-connecting-ip`，AWS Lambda 上为事件的 `sourceIp`）；开启 `app.trustProxy` 时取 `X-Forwarded-For` 中最近的可信代理追加的那一项 |
 | `ctx.origin` / `ctx.secure` | 客户端访问的地址（`https://admin.example.com`）与是否为 https；仅当 `app.trustProxy` 为 `true` 时读取 `X-Forwarded-Proto` / `X-Forwarded-Host` |
 | `ctx.method`、`ctx.path`、`ctx.url` | 请求方法、路径、完整的 `URL` |
 | `ctx.req` | 原生的 Web `Request` |

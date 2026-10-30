@@ -58,7 +58,7 @@ export default defineFactory(User, ({ faker, sequence }) => ({
 除了普通值，属性还可以是：
 
 - **函数**：在普通值确定后调用，参数为这些值，可以是异步函数。
-- **另一个工厂**：创建该模型并替换为它的主键。覆盖值、`for()` 或 `has()` 提供了该属性时不会创建。
+- **另一个工厂**：创建该模型并替换为它的主键。覆盖值、`for()` 或 `has()` 提供了该属性时不会创建。`make()` 和 `raw()` 同样会创建它（外键需要真实的 id），因此这种情况下也会写入数据库。
 
 ```ts
 export default defineFactory(Post, ({ faker }) => ({
@@ -96,6 +96,7 @@ await UserFactory.state((attributes, { n }) => ({ email: `${attributes.name}.${n
 
 // 同一次调用中轮流应用状态
 await UserFactory.count(4).sequence({ role: 'admin' }, { role: 'member' }).create()
+await UserFactory.count(3).sequence(({ index }) => ({ name: `User ${index}` })).create() // 每一项也可以是 (ctx) => 属性
 ```
 
 命名状态在 `defineFactory()` 之后用 `.state(name, value)` 定义，用 `.state(name)` 应用；值为对象，或函数 `(attributes, ctx) => 对象`。

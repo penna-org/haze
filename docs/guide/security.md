@@ -203,7 +203,7 @@ export default defineSecureHeadersConfig({
 })
 ```
 
-Every option (`contentSecurityPolicy`, `strictTransportSecurity`, `frameOptions`, `referrerPolicy`, `crossOriginOpenerPolicy`, `crossOriginResourcePolicy`, `permissionsPolicy`) takes a string to override the value or `false` to drop the header.
+Every option (`contentSecurityPolicy`, `strictTransportSecurity`, `frameOptions`, `referrerPolicy`, `crossOriginOpenerPolicy`, `crossOriginResourcePolicy`, `permissionsPolicy`) takes a string to override the value or `false` to drop the header; `frameOptions` only accepts `'DENY'` or `'SAMEORIGIN'`. `headers` is applied last, so it can also override the fixed headers (`X-Content-Type-Options`, `X-XSS-Protection`, …); an empty string drops one.
 
 ## Rate limiting
 
@@ -258,7 +258,9 @@ const plain = await Crypt.decryptString(secret)
 
 ### Key rotation
 
-Rotating `APP_KEY` would make existing payloads unreadable. Keep the old keys in `APP_PREVIOUS_KEYS` (comma-separated) or `previousKeys` in `config/app.ts`: decryption tries the current key first, then each previous key, while new data is always encrypted with the current key. Previous keys also keep [signed URLs](./routing#signed-urls) valid.
+Rotating `APP_KEY` would make existing payloads unreadable. Keep the old keys in `APP_PREVIOUS_KEYS` (comma-separated) or `previousKeys` in `config/app.ts`: decryption tries the current key first, then each previous key, while new data is always encrypted with the current key. Previous keys also keep [signed URLs](./routing#signed-urls) (including email verification links) valid, and two-factor secrets stay readable because they are encrypted with `Crypt`.
+
+Previous keys cover nothing else: sessions, signed cookies, OAuth state cookies and JWTs signed with the old key (`HS*` guards without their own `secret`) stop working, so rotating logs everyone out.
 
 ```bash
 APP_KEY=new-key...
@@ -279,4 +281,8 @@ r.post('/auth/avatar', [AuthController, 'avatar']).middleware(['auth', 'bodyLimi
 
 ## Behind a proxy
 
-When the app runs behind a trusted reverse proxy or load balancer, set `trustProxy: true` in `config/app.ts`. `ctx.ip` then comes from `X-Forwarded-For` (which affects rate limiting) and the protocol from `X-Forwarded-Proto` (which decides whether HSTS is sent). Leave it off when clients can reach the app directly, or they could spoof these headers.
+When the app runs behind a trusted reverse proxy or load balancer, set `trustProxy: true` in `config/app.ts`. `ctx.ip` then comes from `X-Forwarded-For` (which keys rate limiting) and the protocol from `X-Forwarded-Proto` (which decides whether HSTS is sent). Leave it off when clients can reach the app directly, or they could spoof these headers.
+
+Proxies *append* the address they see to `X-Forwarded-For`, so the leftmost entry is whatever the client sent. hazejs therefore uses the entry the nearest trusted proxy appended, the rightmost one. With more than one trusted layer (a CDN in front of your own load balancer, say) set the number of hops instead: `trustProxy: 2` takes the second entry from the right. A client cannot escape rate limiting by sending its own `X-Forwarded-For`.
+
+Platforms that terminate connections themselves need no `trustProxy`: the Cloudflare Workers entry passes `cf-connecting-ip` as the client address and the AWS Lambda adapter passes the event's `sourceIp` (API Gateway and Function URLs; behind an ALB set `trustProxy: true`). On Vercel and Netlify, which rewrite `X-Forwarded-For`, set `trustProxy: true`. A custom entry can pass the address it knows with `setClientAddress(request, ip)` from `@hazejs/core`. When no address is known at all, `throttle` counts every anonymous request under one key and logs a warning once outside debug mode.
