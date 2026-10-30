@@ -1,4 +1,5 @@
 import type { DevframeJsonRenderSpec } from '@devframes/json-render'
+import type { AppIntrospection } from '@hazejs/core'
 import type { AppSnapshot, RouteRow } from './inspect'
 
 /** 最近一次（重新）加载应用的结果 */
@@ -180,8 +181,8 @@ export function errorSummary(error: unknown, max = 160): string {
     : line
 }
 
-/** 路由面板：搜索框 + 路由表 */
-export function routesSpec(): DevframeJsonRenderSpec {
+/** 路由面板：搜索框 + 路由表（静态报告中没有服务端处理搜索，只显示路由表） */
+export function routesSpec(options: { search?: boolean } = {}): DevframeJsonRenderSpec {
   return {
     root: 'root',
     elements: {
@@ -193,7 +194,9 @@ export function routesSpec(): DevframeJsonRenderSpec {
       toolbar: {
         type: 'Stack',
         props: { direction: 'row', gap: 12, align: 'center' },
-        children: ['searchBox', 'summary'],
+        children: options.search === false
+          ? ['summary']
+          : ['searchBox', 'summary'],
       },
       searchBox: {
         type: 'Stack',
@@ -245,5 +248,157 @@ export function routesState(all: readonly RouteRow[], rows: readonly RouteRow[])
       ? `${all.length} routes`
       : `${rows.length} / ${all.length} routes`,
     rows,
+  }
+}
+
+const INTERNALS_TABLES = [
+  [
+    'providers',
+    'Providers',
+    [
+      { key: 'name', label: 'Provider' },
+      { key: 'module', label: 'Module' },
+      { key: 'app', label: 'App' },
+    ],
+  ],
+  [
+    'bindings',
+    'Container bindings',
+    [
+      { key: 'key', label: 'Key' },
+      { key: 'scope', label: 'Scope' },
+      { key: 'kind', label: 'Kind' },
+      { key: 'resolved', label: 'Resolved' },
+    ],
+  ],
+  [
+    'events',
+    'Events',
+    [
+      { key: 'name', label: 'Event' },
+      { key: 'module', label: 'Module' },
+      { key: 'listeners', label: 'Listeners' },
+    ],
+  ],
+  [
+    'jobs',
+    'Queue jobs',
+    [
+      { key: 'name', label: 'Job' },
+      { key: 'module', label: 'Module' },
+      { key: 'queue', label: 'Queue' },
+      { key: 'connection', label: 'Connection' },
+      { key: 'tries', label: 'Tries' },
+    ],
+  ],
+  [
+    'aliases',
+    'Middleware aliases',
+    [
+      { key: 'name', label: 'Alias' },
+      { key: 'module', label: 'Module' },
+    ],
+  ],
+  [
+    'groups',
+    'Middleware groups',
+    [
+      { key: 'name', label: 'Group' },
+      { key: 'members', label: 'Members' },
+      { key: 'module', label: 'Module' },
+    ],
+  ],
+] as const
+
+/** 容器与事件面板：提供者、容器绑定、事件与监听器、队列任务、中间件 */
+export function internalsSpec(): DevframeJsonRenderSpec {
+  const elements: Record<string, unknown> = {
+    root: {
+      type: 'Stack',
+      props: { direction: 'column', gap: 16, padding: 16 },
+      children: [
+        'global',
+        ...INTERNALS_TABLES.map(([key]) => key),
+      ],
+    },
+    global: {
+      type: 'Card',
+      props: { title: 'Global middleware' },
+      children: ['globalText'],
+    },
+    globalText: {
+      type: 'Text',
+      props: {
+        text: { $state: '/global' },
+        variant: 'code',
+      },
+      children: [],
+    },
+  }
+  for (const [key, , columns] of INTERNALS_TABLES) {
+    elements[key] = {
+      type: 'Card',
+      props: {
+        title: { $state: `/titles/${key}` },
+        collapsible: true,
+      },
+      children: [`${key}Table`],
+    }
+    elements[`${key}Table`] = {
+      type: 'DataTable',
+      props: {
+        columns: [...columns],
+        rows: { $state: `/${key}` },
+      },
+      children: [],
+    }
+  }
+  return {
+    root: 'root',
+    elements: elements as DevframeJsonRenderSpec['elements'],
+    state: internalsState(undefined),
+  }
+}
+
+export function internalsState(info: AppIntrospection | undefined): Record<string, unknown> {
+  const dash = (value: unknown): unknown => value ?? '-'
+  const rows: Record<string, Array<Record<string, unknown>>> = {
+    providers: (info?.providers ?? []).map(provider => ({
+      name: provider.name,
+      module: dash(provider.module),
+      app: dash(provider.app),
+    })),
+    bindings: (info?.bindings ?? []).map(binding => ({
+      ...binding,
+      resolved: binding.resolved ? 'yes' : 'no',
+    })),
+    events: (info?.events ?? []).map(event => ({
+      name: event.name,
+      module: dash(event.module),
+      listeners: event.listeners.map(listener => `${listener.name}${listener.module
+        ? ` [${listener.module}]`
+        : ''}${listener.queued ? ' (queued)' : ''}`).join(', ') || '-',
+    })),
+    jobs: (info?.jobs ?? []).map(job => ({
+      name: job.name,
+      module: dash(job.module),
+      queue: dash(job.queue),
+      connection: dash(job.connection),
+      tries: dash(job.tries),
+    })),
+    aliases: (info?.middleware.aliases ?? []).map(alias => ({
+      name: alias.name,
+      module: dash(alias.module),
+    })),
+    groups: (info?.middleware.groups ?? []).map(group => ({
+      name: group.name,
+      members: group.members.join(', '),
+      module: dash(group.module),
+    })),
+  }
+  return {
+    global: info?.middleware.global.join(' → ') || '(none)',
+    titles: Object.fromEntries(INTERNALS_TABLES.map(([key, title]) => [key, `${title} (${rows[key]!.length})`])),
+    ...rows,
   }
 }

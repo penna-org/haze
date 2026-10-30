@@ -8,7 +8,7 @@ import { dashboardMiddleware } from './dashboard/handler'
 import { useDashboardStore } from './dashboard/store'
 import { healthMiddleware, healthPaths, resolveHealthConfig } from './health'
 import { recordSpanException, setupOpenTelemetry, startHttpSpan } from './otel'
-import { recordTelemetry, telemetryActive } from './telemetry'
+import { recordTelemetry, telemetryActive, telemetryHub } from './telemetry'
 
 const kSpan = Symbol.for('hazejs.observability.span')
 
@@ -120,6 +120,8 @@ export class Observability {
     const config = app.config.get<ObservabilityConfig>('observability', {})
     const otel = await setupOpenTelemetry(config.otel, app.logger)
     const observability = new Observability(app, otel)
+    // 只有开发面板会展示 AI 提示词等内容
+    telemetryHub().captureContent = observability.dashboard.enabled
     if (observability.dashboard.enabled) {
       const store = useDashboardStore().listen()
       store.limit = observability.dashboard.limit
@@ -150,10 +152,10 @@ export class Observability {
   /** h3 onResponse：结束请求 span（状态码为异常渲染后的最终值），开发面板记录请求 */
   onResponse(response: Response, event: H3Event): void {
     const handle = (event.context as Record<symbol, HttpSpanHandle | undefined>)[kSpan]
-    const route = (event.context.matchedRoute as { route?: string } | undefined)?.route
-    handle?.end(response.status, route)
+    const matched = event.context.matchedRoute as { route?: string, meta?: { name?: string, module?: string } } | undefined
+    handle?.end(response.status, matched?.route)
     if (this.dashboard.enabled)
-      this.#recordRequest(response, event, route)
+      this.#recordRequest(response, event, matched)
   }
 
   /** 是否为健康检查或开发面板的请求（探针频繁，不写访问日志） */
@@ -170,7 +172,7 @@ export class Observability {
     return (event, next) => health(event, () => dashboard(event, next))
   }
 
-  #recordRequest(response: Response, event: H3Event, route: string | undefined): void {
+  #recordRequest(response: Response, event: H3Event, matched: { route?: string, meta?: { name?: string, module?: string } } | undefined): void {
     const pathname = event.url.pathname
     if (matchesPath(pathname, this.dashboard.ignorePaths))
       return
@@ -183,7 +185,9 @@ export class Observability {
       method: event.req.method,
       path: pathname,
       query: event.url.search.slice(1) || undefined,
-      route,
+      route: matched?.route,
+      name: matched?.meta?.name,
+      module: matched?.meta?.module,
       status: response.status,
       duration,
       ip: ctx?.ip,

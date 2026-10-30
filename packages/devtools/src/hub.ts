@@ -3,7 +3,6 @@ import type { Application } from '@hazejs/core'
 import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { AppSnapshot, RouteRow } from './inspect'
 import type { ReloadStatus } from './views'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -11,12 +10,10 @@ import process from 'node:process'
 import { createUi } from '@devframes/hub-ui'
 import { initHub } from '@devframes/hub/initiate'
 import { jsonRenderUiRenderer } from '@devframes/json-render-ui/hub'
-import { toJsonRenderDockEntry } from '@devframes/json-render/hub'
-import { createJsonRenderView } from '@devframes/json-render/node'
 import { createTerminalsDevframe } from '@devframes/plugin-terminals'
-import { DASHBOARD_ICON, LOGO, OVERVIEW_ICON, ROUTES_ICON } from './icons'
-import { filterRoutes, inspectApp } from './inspect'
-import { errorSummary, errorText, overviewSpec, overviewState, ROUTES_FILTER_ACTION, routesSpec, routesState } from './views'
+import { createHazeFrame } from './frame'
+import { LOGO } from './icons'
+import { FRAME_DOCK, registerPanels } from './panels'
 
 /** 默认挂载路径 */
 export const DEVTOOLS_BASE = '/__devtools/'
@@ -27,6 +24,11 @@ export interface DevtoolsSource {
   readonly app: Application | undefined
   /** 每次（重新）加载应用后通知，加载失败时 ok 为 false */
   onReload: (listener: (result: ReloadStatus) => void) => () => void
+  /**
+   * 在应用的模块图中加载模块（与应用共用同一份 @hazejs/core 等）。
+   * 执行定时任务、AI Playground 等需要应用内部类的操作依赖它；不提供时这些操作不可用。
+   */
+  import?: <T = any>(id: string) => Promise<T>
 }
 
 export interface DevtoolsOptions {
@@ -44,6 +46,11 @@ export interface DevtoolsOptions {
   auth?: boolean
   /** 终端面板，默认开启；传对象覆盖 devframe 终端插件的选项 */
   terminals?: boolean | TerminalsOptions
+  /**
+   * 向编码代理（Claude Code、Cursor 等）暴露 MCP 端点 `<base>__mcp`，默认开启。
+   * 只接受本机连接；工具包括应用结构、路由、模块联动、请求时间线、AI 调用与 OpenAPI 文档。
+   */
+  mcp?: boolean
 }
 
 export interface Devtools {
@@ -60,9 +67,6 @@ export interface Devtools {
   close: () => Promise<void>
 }
 
-const GROUP_ID = 'hazejs'
-const RELOAD_MESSAGE = 'hazejs:reload'
-
 /**
  * 创建 hazejs DevTools：基于 devframe hub，所有面板共用一个处理器、一条 WebSocket 与一次验证。
  * Hub 运行在开发服务器进程中，应用热替换时连接与面板状态保持不变，只刷新数据。
@@ -73,14 +77,7 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
   const terminals = options.terminals ?? true
 
   const base = normalizeBase(options.base ?? DEVTOOLS_BASE)
-  const ui = createUi({
-    branding: {
-      productName: 'hazejs DevTools',
-      logo: LOGO,
-      favicon: LOGO,
-      primaryColor: '#6c5ce7',
-    },
-  })
+  const ui = createHazeUi()
   // hub 用应用的根地址生成验证链接；后端项目的根路径不是 DevTools，改为挂载路径
   const banner = ui.authBanner
   if (banner) {
@@ -97,142 +94,37 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
     cwd: root,
     server: options.server,
     auth: options.auth ?? true,
-    // 面板暂不向编码代理暴露（MCP 需要额外安装 @devframes/agentic）
-    mcp: false,
-    devframes: terminals
-      ? [
-          {
-            devframe: createTerminalsDevframe({
-              cwd: root,
-              presets: hazePresets(root),
-              ...(typeof terminals === 'object'
-                ? terminals
-                : {}),
-            }),
-            dock: { category: 'advanced' },
-          },
-        ]
-      : [],
+    mcp: options.mcp === false
+      ? false
+      : {
+          instructions: 'Tools for the running hazejs app in development. Call hazejs_snapshot first to learn its modules, routes, events and jobs; use hazejs_requests / hazejs_request to debug what a request did (queries, cache, events, jobs, AI calls).',
+        },
+    devframes: [
+      {
+        devframe: createHazeFrame({ source }),
+        // SPA 的默认页面是模块联动图；其它页面在 configure 中以 iframe 面板注册
+        dock: FRAME_DOCK,
+      },
+      ...(terminals
+        ? [
+            {
+              devframe: createTerminalsDevframe({
+                cwd: root,
+                presets: hazePresets(root),
+                ...(typeof terminals === 'object'
+                  ? terminals
+                  : {}),
+              }),
+              dock: { category: 'advanced' },
+            },
+          ]
+        : []),
+    ],
     renderers: [
       jsonRenderUiRenderer(),
     ],
     ui,
-    configure(ctx) {
-      let snapshot: AppSnapshot | undefined
-      let reload: ReloadStatus | undefined
-      let query = ''
-
-      const overview = createJsonRenderView(ctx, {
-        id: 'hazejs-overview',
-        title: 'Overview',
-        spec: overviewSpec(),
-      })
-      const routes = createJsonRenderView(ctx, {
-        id: 'hazejs-routes',
-        title: 'Routes',
-        spec: routesSpec(),
-      })
-
-      ctx.docks.register({
-        type: 'group',
-        id: GROUP_ID,
-        title: 'hazejs',
-        icon: LOGO,
-        category: 'framework',
-        defaultChildId: 'hazejs:overview',
-      })
-      ctx.docks.register(toJsonRenderDockEntry(overview, {
-        id: 'hazejs:overview',
-        title: 'Overview',
-        titleLocales: { 'zh-CN': '概览' },
-        icon: OVERVIEW_ICON,
-        groupId: GROUP_ID,
-        defaultOrder: 10,
-      }))
-      const routesDock = ctx.docks.register(toJsonRenderDockEntry(routes, {
-        id: 'hazejs:routes',
-        title: 'Routes',
-        titleLocales: { 'zh-CN': '路由' },
-        icon: ROUTES_ICON,
-        groupId: GROUP_ID,
-        defaultOrder: 20,
-      }))
-      // /__haze 开发面板（请求、查询、队列、邮件……）由应用自己提供，这里以 iframe 嵌入
-      const dashboardDock = ctx.docks.register({
-        type: 'iframe',
-        id: 'hazejs:dashboard',
-        title: 'Dashboard',
-        titleLocales: { 'zh-CN': '开发面板' },
-        icon: DASHBOARD_ICON,
-        groupId: GROUP_ID,
-        defaultOrder: 30,
-        url: '/__haze/',
-        when: 'false',
-      })
-
-      ctx.rpc.register({
-        name: ROUTES_FILTER_ACTION,
-        type: 'action',
-        jsonSerializable: true,
-        handler: (params?: { query?: unknown }) => {
-          query = typeof params?.query === 'string'
-            ? params.query
-            : ''
-          renderRoutes()
-        },
-      })
-
-      function patch(view: { patchState: (ops: any[]) => void }, state: Record<string, unknown>): void {
-        view.patchState(Object.entries(state).map(([key, value]) => ({ op: 'replace', path: `/${key}`, value })))
-      }
-
-      function renderRoutes(): void {
-        const all: RouteRow[] = snapshot?.routes ?? []
-        patch(routes, routesState(all, filterRoutes(all, query)))
-      }
-
-      function refresh(): void {
-        const app = source.app
-        if (app) {
-          try {
-            snapshot = inspectApp(app)
-          }
-          catch (error) {
-            void ctx.messages.add({ message: 'Failed to inspect the app', description: (error as Error).message, level: 'error' })
-          }
-        }
-        patch(overview, overviewState(snapshot, reload))
-        renderRoutes()
-        routesDock.update({
-          badge: snapshot
-            ? String(snapshot.routes.length)
-            : undefined,
-        })
-        dashboardDock.update(snapshot?.dashboard
-          ? { url: `${snapshot.dashboard.path}/`, when: undefined }
-          : { when: 'false' })
-      }
-
-      source.onReload((result) => {
-        reload = result
-        refresh()
-        // 同一条消息：失败时出现 / 更新，恢复后移除
-        if (result.ok) {
-          void ctx.messages.remove(RELOAD_MESSAGE)
-          return
-        }
-        void ctx.messages.add({
-          id: RELOAD_MESSAGE,
-          message: `Failed to reload the app${result.file
-            ? ` (${result.file})`
-            : ''}`,
-          description: errorSummary(result.error),
-          stacktrace: errorText(result.error),
-          level: 'error',
-        })
-      })
-      refresh()
-    },
+    configure: ctx => registerPanels(ctx, { source, live: true }),
   })
 
   return {
@@ -247,7 +139,19 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
   }
 }
 
-function normalizeBase(base: string): string {
+/** 带 hazejs 品牌的 hub 界面（实时 hub 与静态报告共用） */
+export function createHazeUi(): ReturnType<typeof createUi> {
+  return createUi({
+    branding: {
+      productName: 'hazejs DevTools',
+      logo: LOGO,
+      favicon: LOGO,
+      primaryColor: '#6c5ce7',
+    },
+  })
+}
+
+export function normalizeBase(base: string): string {
   return `/${base.replace(/^\/+|\/+$/g, '')}/`
 }
 

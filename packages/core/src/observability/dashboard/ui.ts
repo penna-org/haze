@@ -65,7 +65,7 @@ const $ = (sel, root = document) => root.querySelector(sel)
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => '&#' + ch.charCodeAt(0) + ';')
 const TABS = C.mode === 'queues'
   ? [['queues', 'Queues']]
-  : [['requests', 'Requests'], ['query', 'Queries'], ['job', 'Jobs'], ['mail', 'Mail'], ['event', 'Events'], ['cache', 'Cache'], ['log', 'Logs'], ['exception', 'Exceptions'], ['ai', 'AI'], ['http', 'HTTP Client'], ['queues', 'Queues']]
+  : [['requests', 'Requests'], ['query', 'Queries'], ['job', 'Jobs'], ['mail', 'Mail'], ['event', 'Events'], ['cache', 'Cache'], ['log', 'Logs'], ['exception', 'Exceptions'], ['ai', 'AI'], ['http', 'HTTP Client'], ['schedule', 'Schedule'], ['queues', 'Queues']]
 const TYPE_OF_TAB = { requests: 'request' }
 let counts = {}
 let filter = ''
@@ -125,6 +125,7 @@ const COLUMNS = {
   log: [['Level', e => levelBadge(e.content.level)], ['Message', e => esc(e.content.msg)], ['Request', reqLink], ['Time', e => '<span class="num muted">' + time(e.time) + '</span>']],
   exception: [['Exception', e => '<b>' + esc(e.content.name) + '</b>'], ['Message', e => esc(e.content.message)], ['Status', e => statusBadge(e.content.status)], ['Request', reqLink], ['Time', e => '<span class="num muted">' + time(e.time) + '</span>']],
   ai: [['Model', e => '<b>' + esc(e.content.model) + '</b> <span class="muted">' + esc(e.content.provider) + '</span>' + (e.content.error ? ' <span class="badge b-err">error</span>' : '')], ['Operation', e => '<span class="badge">' + esc(e.content.operation) + '</span>'], ['Tokens', e => '<span class="num">' + esc(e.content.inputTokens ?? '–') + ' → ' + esc(e.content.outputTokens ?? '–') + '</span>'], ['Latency', e => '<span class="num">' + duration(e.content.duration) + '</span>'], ['Request', reqLink]],
+  schedule: [['Task', e => '<b>' + esc(e.content.name) + '</b>' + (e.content.kind === 'job' ? ' <span class="badge">job</span>' : '')], ['Status', e => e.content.status === 'ok' ? '<span class="badge b-ok">ok</span>' : e.content.status === 'failed' ? '<span class="badge b-err" title="' + esc(e.content.error) + '">failed</span>' : '<span class="badge b-warn">skipped' + (e.content.reason ? ' (' + esc(e.content.reason) + ')' : '') + '</span>'], ['Duration', e => '<span class="num">' + duration(e.content.duration) + '</span>'], ['Time', e => '<span class="num muted">' + time(e.time) + '</span>']],
   http: [['Method', e => '<span class="method">' + esc(e.content.method) + '</span>'], ['URL', e => '<div class="sql mono" title="' + esc(e.content.url) + '">' + esc(e.content.url) + '</div>' + (e.content.client ? ' <span class="badge">' + esc(e.content.client) + '</span>' : '') + (e.content.faked ? ' <span class="badge b-info">fake</span>' : '') + (e.content.attempt > 1 ? ' <span class="badge b-warn">retry ' + esc(e.content.attempt - 1) + '</span>' : '')], ['Status', e => e.content.status ? statusBadge(e.content.status) : '<span class="badge b-err">failed</span>'], ['Duration', e => '<span class="num">' + duration(e.content.duration) + '</span>'], ['Request', reqLink], ['Time', e => '<span class="num muted">' + time(e.time) + '</span>']],
 }
 

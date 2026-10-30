@@ -6,6 +6,7 @@ import type { InjectionKey } from './container/token'
 import type { Interceptor } from './http/interceptor'
 import type { StaticOptions } from './http/static'
 import type { LangInput } from './i18n/manager'
+import type { AppIntrospection, OwnedItem, ProviderInfo } from './introspection'
 import type { MiddlewareConfig, MiddlewareRef } from './middleware/types'
 import type { ModuleInput, ModulesConfig, ResolvedModule } from './modules'
 import type { ProviderInput, ServiceProvider } from './provider'
@@ -35,6 +36,7 @@ import { ResponseFormatter } from './http/formatter'
 import { isRaw } from './http/response'
 import { createStaticMiddleware } from './http/static'
 import { I18nManager, setI18nManager } from './i18n/manager'
+import { introspectApplication } from './introspection'
 import { Logger } from './logger'
 import { MailManager, setMailManager } from './mail/manager'
 import { MaintenanceManager, setMaintenanceManager } from './maintenance/manager'
@@ -145,6 +147,9 @@ export class Application {
   /** 模块的全局中间件（追加在项目的全局中间件之后） */
   #moduleGlobal: MiddlewareRef[] = []
   #appModules = new Map<string, EnabledApp>()
+  /** 提供者的名称与来源（introspect 使用） */
+  readonly #providerInfo: ProviderInfo[] = []
+  #middleware: MiddlewareRegistry | undefined
   #h3: H3 | undefined
   #booted = false
   readonly #bootedCallbacks: Array<(app: Application) => unknown> = []
@@ -283,17 +288,26 @@ export class Application {
 
     // 4. 提供者 register → setup → boot（模块的提供者在前，项目可覆盖其绑定；已启用应用目录下的提供者同样全局生效）
     this.#appModules = this.#enabledApps()
-    const providers = [
-      ...this.#items<ProviderInput>('providers', options.providers).map(([, provider]) => provider),
+    const providers: Array<{ input: ProviderInput, name?: string, module?: string, app?: string }> = [
+      ...this.#owned('providers', options.providers).map(item => ({
+        input: item.value as ProviderInput,
+        name: item.name,
+        module: item.module,
+      })),
       ...[
-        ...this.#appModules.values(),
-      ].flatMap(({ modules }) => modules.providers),
+        ...this.#appModules,
+      ].flatMap(([app, { modules }]) => modules.providers.map(input => ({ input, app }))),
     ]
-    for (const Provider of providers) {
+    for (const { input: Provider, name, module, app } of providers) {
       const provider = isClass(Provider)
         ? new Provider()
         : Provider
       this.#providers.push(provider)
+      this.#providerInfo.push({
+        name: (isClass(Provider) && Provider.name) || name || 'anonymous',
+        ...(module && { module }),
+        ...(app && { app }),
+      })
       await provider.register?.(this.container, this)
     }
     await options.setup?.(this)
@@ -397,6 +411,41 @@ export class Application {
       seen.set(item.name, item)
     }
     return found.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /**
+   * 应用结构的快照（只含可序列化数据）：模块、子应用、路由、中间件、提供者、容器绑定、
+   * 事件与监听器、队列任务与定时任务。开发工具与调试命令使用。
+   */
+  introspect(): AppIntrospection {
+    const options = this.#options
+    return introspectApplication(this, {
+      owned: field => this.#owned(field, options[field]),
+      providers: [...this.#providerInfo],
+      middleware: this.#middleware,
+      globalMiddleware: [
+        ...((this.config.get('middleware.global') ?? []) as MiddlewareRef[]),
+        ...this.#moduleGlobal,
+      ].map(ref => typeof ref === 'string'
+        ? ref
+        : ref.name || 'anonymous'),
+    })
+  }
+
+  /** 同 #items，并标注每一项所属的模块 */
+  #owned(field: 'jobs' | 'schedules' | 'events' | 'listeners' | 'providers', own: unknown[] | ModuleRecord | undefined): OwnedItem[] {
+    return [
+      ...this.#modules.flatMap(module => moduleEntries(module.definition[field]).map(([name, value]) => ({
+        name,
+        value,
+        module: module.name,
+      }))),
+      ...normalizeModules(own as unknown[] | ModuleRecord | undefined).map(([name, value]) => ({
+        name,
+        value,
+        module: undefined,
+      })),
+    ]
   }
 
   /** 模块与项目的同类定义：模块在前（按启用顺序），项目在后 */
@@ -623,6 +672,7 @@ export class Application {
     h3.use(tenancyMiddleware(this))
 
     const registry = new MiddlewareRegistry(this.config.get('middleware') as MiddlewareConfig)
+    this.#middleware = registry
     for (const item of registry.resolve([
       ...(this.config.get('middleware.global') ?? []),
       ...this.#moduleGlobal,

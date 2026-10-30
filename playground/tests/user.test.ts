@@ -21,12 +21,16 @@ describe('playground app', () => {
     expect(t.app.router.list().map(r => `${r.method} ${r.path} ${r.name ?? '-'} [${r.middleware}]`)).toEqual([
       'GET / home []',
       'GET /api/me api.me [auth]',
+      'POST /api/register api.register []',
+      'GET /api/ask api.ask []',
       'GET /api/users api.users.index []',
       'POST /api/users api.users.store [auth]',
       'GET /api/users/:id api.users.show []',
       'PUT /api/users/:id api.users.update [auth]',
       'PATCH /api/users/:id - [auth]',
       'DELETE /api/users/:id api.users.destroy [auth]',
+      'GET /api/shop/orders shop.orders.index []',
+      'POST /api/shop/orders shop.orders.store []',
     ])
     expect(t.app.router.url('api.users.show', { id: 1 })).toBe('/api/users/1')
   })

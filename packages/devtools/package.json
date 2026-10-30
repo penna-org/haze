@@ -35,22 +35,27 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown && vite build --config client/vite.config.ts"
   },
   "peerDependencies": {
     "@hazejs/core": "workspace:^"
   },
   "dependencies": {
+    "@devframes/agentic": "catalog:",
     "@devframes/hub": "catalog:",
     "@devframes/hub-ui": "catalog:",
     "@devframes/json-render": "catalog:",
     "@devframes/json-render-ui": "catalog:",
     "@devframes/plugin-terminals": "catalog:",
     "@devframes/plugin-terminals--assets": "catalog:",
-    "devframe": "catalog:"
+    "devframe": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@hazejs/core": "workspace:*",
-    "@hazejs/vite": "workspace:*"
+    "@hazejs/vite": "workspace:*",
+    "@vitejs/plugin-vue": "catalog:",
+    "vite": "catalog:",
+    "vue": "catalog:"
   }
 }

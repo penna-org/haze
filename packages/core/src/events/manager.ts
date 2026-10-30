@@ -52,10 +52,18 @@ export class EventFake {
   }
 }
 
+export interface EventInfo {
+  name: string
+  definition: EventDefinition<any>
+  listeners: Array<{ name: string, queued: boolean, definition: ListenerDefinition<any> }>
+}
+
 /** 事件管理（应用单例，`inject(EventManager)`）：事件与监听器注册、触发 */
 export class EventManager {
   readonly #names = new WeakMap<EventDefinition<any>, string>()
   readonly #listeners = new Map<EventDefinition<any>, RegisteredListener[]>()
+  /** 注册过的事件（含没有监听器的），按注册顺序 */
+  readonly #events = new Set<EventDefinition<any>>()
   #fake: EventFake | undefined
 
   constructor(readonly app: Application) {}
@@ -67,6 +75,7 @@ export class EventManager {
     const eventName = event.name ?? name
     if (eventName)
       this.#names.set(event, eventName)
+    this.#events.add(event)
     return this
   }
 
@@ -88,6 +97,7 @@ export class EventManager {
       throw new Error(`Duplicate listener name "${listenerName}": defined in ${sources[0]} and ${sources[1]}. Rename one of the files or set defineListener(..., { name })`)
     }
     for (const event of listener.events) {
+      this.#events.add(event)
       const list = this.#listeners.get(event) ?? []
       list.push({ name: listenerName, definition: listener, source })
       this.#listeners.set(event, list)
@@ -129,6 +139,7 @@ export class EventManager {
     const list = this.#listeners.get(event) ?? []
     list.push(entry)
     this.#listeners.set(event, list)
+    this.#events.add(event)
     return () => {
       const current = this.#listeners.get(event) ?? []
       this.#listeners.set(event, current.filter(item => item !== entry))
@@ -141,6 +152,19 @@ export class EventManager {
 
   listeners(event: EventDefinition<any>): string[] {
     return (this.#listeners.get(event) ?? []).map(item => item.name)
+  }
+
+  /** 全部事件及其监听器（开发工具 / 调试用） */
+  events(): EventInfo[] {
+    return [...this.#events].map(event => ({
+      name: this.nameOf(event),
+      definition: event,
+      listeners: (this.#listeners.get(event) ?? []).map(item => ({
+        name: item.name,
+        queued: Boolean(item.definition.options.queue),
+        definition: item.definition,
+      })),
+    }))
   }
 
   /**

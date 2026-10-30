@@ -3,6 +3,7 @@ import type { CacheRepository } from '../cache/repository'
 import type { ScheduleDefinition, ScheduledTask } from './schedule'
 import { CacheManager } from '../cache/manager'
 import { MaintenanceManager } from '../maintenance/manager'
+import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { QueueManager } from '../queue/manager'
 import { runInApp } from '../request'
 import { isScheduleDefinition, Schedule } from './schedule'
@@ -76,7 +77,29 @@ export class Scheduler {
    * 条件、任务函数与钩子中的门面（Queue、Events、Db、useApp()、config()、inject()）解析到这个应用
    */
   runTask(task: ScheduledTask, date: Date = new Date()): Promise<TaskRun> {
-    return runInApp(this.app, () => this.#runTask(task, date))
+    return runInApp(this.app, () => this.#recordRun(task, date))
+  }
+
+  /** 执行并记录定时任务遥测 */
+  async #recordRun(task: ScheduledTask, date: Date): Promise<TaskRun> {
+    const startTime = Date.now()
+    const run = await this.#runTask(task, date)
+    if (telemetryActive()) {
+      recordTelemetry('schedule', {
+        name: run.name,
+        kind: task.kind,
+        status: run.status,
+        reason: run.reason,
+        startTime,
+        duration: run.duration,
+        ...(run.error !== undefined && {
+          error: run.error instanceof Error
+            ? run.error.message
+            : String(run.error),
+        }),
+      })
+    }
+    return run
   }
 
   async #runTask(task: ScheduledTask, date: Date): Promise<TaskRun> {
