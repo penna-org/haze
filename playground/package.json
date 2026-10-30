@@ -10,6 +10,7 @@
     "test": "haze test"
   },
   "dependencies": {
+    "@hazejs/ai": "workspace:*",
     "@hazejs/core": "workspace:*",
     "valibot": "catalog:"
   },

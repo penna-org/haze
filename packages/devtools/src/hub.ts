@@ -1,5 +1,5 @@
 import type { TerminalPreset, TerminalsOptions } from '@devframes/plugin-terminals'
-import type { Application } from '@hazejs/core'
+import type { AppIntrospection, Application } from '@hazejs/core'
 import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -14,9 +14,10 @@ import { jsonRenderUiRenderer } from '@devframes/json-render-ui/hub'
 import { toJsonRenderDockEntry } from '@devframes/json-render/hub'
 import { createJsonRenderView } from '@devframes/json-render/node'
 import { createTerminalsDevframe } from '@devframes/plugin-terminals'
-import { DASHBOARD_ICON, LOGO, OVERVIEW_ICON, ROUTES_ICON } from './icons'
+import { createHazeFrame, FRAME_ID } from './frame'
+import { AI_ICON, API_ICON, DASHBOARD_ICON, GRAPH_ICON, INTERNALS_ICON, LOGO, OVERVIEW_ICON, REQUESTS_ICON, ROUTES_ICON, TASKS_ICON } from './icons'
 import { filterRoutes, inspectApp } from './inspect'
-import { errorSummary, errorText, overviewSpec, overviewState, ROUTES_FILTER_ACTION, routesSpec, routesState } from './views'
+import { errorSummary, errorText, internalsSpec, internalsState, overviewSpec, overviewState, ROUTES_FILTER_ACTION, routesSpec, routesState } from './views'
 
 /** 默认挂载路径 */
 export const DEVTOOLS_BASE = '/__devtools/'
@@ -27,6 +28,11 @@ export interface DevtoolsSource {
   readonly app: Application | undefined
   /** 每次（重新）加载应用后通知，加载失败时 ok 为 false */
   onReload: (listener: (result: ReloadStatus) => void) => () => void
+  /**
+   * 在应用的模块图中加载模块（与应用共用同一份 @hazejs/core 等）。
+   * 执行定时任务、AI Playground 等需要应用内部类的操作依赖它；不提供时这些操作不可用。
+   */
+  import?: <T = any>(id: string) => Promise<T>
 }
 
 export interface DevtoolsOptions {
@@ -44,6 +50,11 @@ export interface DevtoolsOptions {
   auth?: boolean
   /** 终端面板，默认开启；传对象覆盖 devframe 终端插件的选项 */
   terminals?: boolean | TerminalsOptions
+  /**
+   * 向编码代理（Claude Code、Cursor 等）暴露 MCP 端点 `<base>__mcp`，默认开启。
+   * 只接受本机连接；工具包括应用结构、路由、模块联动、请求时间线、AI 调用与 OpenAPI 文档。
+   */
+  mcp?: boolean
 }
 
 export interface Devtools {
@@ -60,7 +71,7 @@ export interface Devtools {
   close: () => Promise<void>
 }
 
-const GROUP_ID = 'hazejs'
+const GROUP_ID = 'hazejs:group'
 const RELOAD_MESSAGE = 'hazejs:reload'
 
 /**
@@ -97,22 +108,38 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
     cwd: root,
     server: options.server,
     auth: options.auth ?? true,
-    // 面板暂不向编码代理暴露（MCP 需要额外安装 @devframes/agentic）
-    mcp: false,
-    devframes: terminals
-      ? [
-          {
-            devframe: createTerminalsDevframe({
-              cwd: root,
-              presets: hazePresets(root),
-              ...(typeof terminals === 'object'
-                ? terminals
-                : {}),
-            }),
-            dock: { category: 'advanced' },
-          },
-        ]
-      : [],
+    mcp: options.mcp === false
+      ? false
+      : {
+          instructions: 'Tools for the running hazejs app in development. Call hazejs_snapshot first to learn its modules, routes, events and jobs; use hazejs_requests / hazejs_request to debug what a request did (queries, cache, events, jobs, AI calls).',
+        },
+    devframes: [
+      {
+        devframe: createHazeFrame({ source }),
+        // SPA 的默认页面是模块联动图；其它页面在 configure 中以 iframe 面板注册
+        dock: {
+          title: 'Graph',
+          titleLocales: { 'zh-CN': '模块联动' },
+          icon: GRAPH_ICON,
+          groupId: GROUP_ID,
+          defaultOrder: 15,
+        },
+      },
+      ...(terminals
+        ? [
+            {
+              devframe: createTerminalsDevframe({
+                cwd: root,
+                presets: hazePresets(root),
+                ...(typeof terminals === 'object'
+                  ? terminals
+                  : {}),
+              }),
+              dock: { category: 'advanced' },
+            },
+          ]
+        : []),
+    ],
     renderers: [
       jsonRenderUiRenderer(),
     ],
@@ -131,6 +158,11 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
         id: 'hazejs-routes',
         title: 'Routes',
         spec: routesSpec(),
+      })
+      const internals = createJsonRenderView(ctx, {
+        id: 'hazejs-internals',
+        title: 'Internals',
+        spec: internalsSpec(),
       })
 
       ctx.docks.register({
@@ -157,6 +189,40 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
         groupId: GROUP_ID,
         defaultOrder: 20,
       }))
+      // hazejs SPA 的其它页面
+      const page = (id: string, title: string, zh: string, icon: typeof GRAPH_ICON, defaultOrder: number): void => void ctx.docks.register({
+        type: 'iframe',
+        id: `hazejs:${id}`,
+        title,
+        titleLocales: { 'zh-CN': zh },
+        icon,
+        groupId: GROUP_ID,
+        defaultOrder,
+        url: `${base}${FRAME_ID}/#/${id}`,
+      })
+      page('requests', 'Requests', '请求', REQUESTS_ICON, 25)
+      page('ai', 'AI', 'AI', AI_ICON, 40)
+      page('tasks', 'Tasks', '任务与队列', TASKS_ICON, 45)
+      ctx.docks.register(toJsonRenderDockEntry(internals, {
+        id: 'hazejs:internals',
+        title: 'Internals',
+        titleLocales: { 'zh-CN': '容器与事件' },
+        icon: INTERNALS_ICON,
+        groupId: GROUP_ID,
+        defaultOrder: 50,
+      }))
+      // OpenAPI 文档页面（/docs）由应用提供，未开启时隐藏
+      const apiDock = ctx.docks.register({
+        type: 'iframe',
+        id: 'hazejs:api',
+        title: 'API Docs',
+        titleLocales: { 'zh-CN': '接口文档' },
+        icon: API_ICON,
+        groupId: GROUP_ID,
+        defaultOrder: 55,
+        url: '/docs',
+        when: 'false',
+      })
       // /__haze 开发面板（请求、查询、队列、邮件……）由应用自己提供，这里以 iframe 嵌入
       const dashboardDock = ctx.docks.register({
         type: 'iframe',
@@ -165,7 +231,7 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
         titleLocales: { 'zh-CN': '开发面板' },
         icon: DASHBOARD_ICON,
         groupId: GROUP_ID,
-        defaultOrder: 30,
+        defaultOrder: 60,
         url: '/__haze/',
         when: 'false',
       })
@@ -203,6 +269,15 @@ export function createDevtools(options: DevtoolsOptions): Devtools {
         }
         patch(overview, overviewState(snapshot, reload))
         renderRoutes()
+        let details: AppIntrospection | undefined
+        try {
+          details = app?.introspect()
+        }
+        catch {}
+        patch(internals, internalsState(details))
+        apiDock.update(details?.openapi?.docsPath
+          ? { url: details.openapi.docsPath, when: undefined }
+          : { when: 'false' })
         routesDock.update({
           badge: snapshot
             ? String(snapshot.routes.length)

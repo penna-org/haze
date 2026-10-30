@@ -123,6 +123,68 @@ describe('devtools on the dev server', () => {
     expect(snapshot.dashboard).toEqual({ path: '/__haze' })
   })
 
+  it('serves the panels SPA and an MCP endpoint for coding agents', async () => {
+    const dev = await start()
+
+    const spa = await fetch(new URL('/__devtools/hazejs/', dev.url))
+    expect(spa.status).toBe(200)
+    expect(await spa.text()).toContain('<div id="app">')
+
+    const mcp = (body: unknown, origin?: string): Promise<Response> => fetch(new URL('/__devtools/__mcp', dev.url), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'accept': 'application/json, text/event-stream',
+        ...(origin && { origin }),
+      },
+      body: JSON.stringify(body),
+    })
+    const data = async (response: Response): Promise<any> => JSON.parse((await response.text()).split('data: ')[1]!)
+
+    // 只接受带本机 Origin 的请求（DNS rebinding 防护）
+    expect((await mcp({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).status).toBe(403)
+    // dev.url 可能是 [::] / 0.0.0.0，Origin 要写成本机地址
+    const origin = `http://localhost:${new URL(dev.url!).port}`
+    const tools = await data(await mcp({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, origin))
+    const names = tools.result.tools.map((tool: { name: string }) => tool.name)
+    expect(names).toEqual(expect.arrayContaining([
+      'hazejs_snapshot',
+      'hazejs_routes',
+      'hazejs_graph',
+      'hazejs_requests',
+      'hazejs_request',
+      'hazejs_ai',
+      'hazejs_openapi',
+      'hazejs_run-schedule',
+    ]))
+    const routes = tools.result.tools.find((tool: { name: string }) => tool.name === 'hazejs_routes')
+    expect(routes.inputSchema.properties.arg0.properties.query.type).toBe('string')
+
+    await fetch(new URL('/hello', dev.url))
+    const call = async (name: string, arg0?: unknown): Promise<any> => {
+      const result = (await data(await mcp({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name,
+          arguments: arg0 === undefined
+            ? {}
+            : { arg0 },
+        },
+      }, origin))).result
+      expect(result.isError).toBeFalsy()
+      return JSON.parse(result.content[0].text)
+    }
+    const snapshot = await call('hazejs_snapshot')
+    expect(snapshot.modules.map((module: { name: string }) => module.name)).toEqual(['blog'])
+    expect((await call('hazejs_routes', { query: 'blog show' })).map((route: { path: string }) => route.path)).toEqual(['/blog/posts/:id'])
+    const requests = await call('hazejs_requests', { limit: 10 })
+    expect(requests[0]).toMatchObject({ method: 'GET', path: '/hello', status: 200 })
+    const detail = await call('hazejs_request', { requestId: requests[0].requestId })
+    expect(detail.request.content.path).toBe('/hello')
+  })
+
   it('can be turned off', async () => {
     const dev = await start({ devtools: false })
     expect(dev.devtools).toBeUndefined()
