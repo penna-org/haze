@@ -17,7 +17,8 @@ function icon(body: string): Icon {
   }
 }
 
-export const LOGO = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><defs><radialGradient id="g" cx="18" cy="14" r="56" gradientUnits="userSpaceOnUse"><stop stop-color="#948aff"/><stop offset="1" stop-color="#4f3fdc"/></radialGradient></defs><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#g)"/><path d="M19 15v34M19 40c0-9 5.5-14 12-14s12 5 12 14" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M41.5 40h5" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M39 47h11" stroke="#fff" stroke-opacity=".6" stroke-width="5" stroke-linecap="round"/><path d="M37 53.5h15" stroke="#fff" stroke-opacity=".3" stroke-width="4.5" stroke-linecap="round"/></svg>')}`
+/** 与文档站相同的 logo（docs/public/logo.svg，不带背景色） */
+export const LOGO = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><defs><linearGradient id="hz" x1="10" y1="8" x2="58" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#7a6bff"/><stop offset="1" stop-color="#30a9e4"/></linearGradient></defs><path d="M14 7v44M14 36c0-12.5 8-19 18-19s18 6.5 18 19v4" stroke="url(#hz)" stroke-width="8" stroke-linecap="round"/><path d="M42 48.5c2.7-2 5.3-2 8 0s5.3 2 8 0" stroke="url(#hz)" stroke-opacity=".62" stroke-width="6" stroke-linecap="round"/><path d="M36 57c3.3-2.4 6.7-2.4 10 0s6.7 2.4 10 0 4-1.6 6-1" stroke="url(#hz)" stroke-opacity=".3" stroke-width="5.5" stroke-linecap="round"/></svg>')}`
 
 /** 仪表盘：概览 */
 export const OVERVIEW_ICON = icon('<path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1.2"/><path d="M4 19h16"/>')
