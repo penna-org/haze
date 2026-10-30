@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/search",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Full-text search for hazejs models: database full-text (MySQL FULLTEXT, PostgreSQL tsvector, SQLite FTS5, LIKE), Meilisearch, Typesense and Elasticsearch / OpenSearch over fetch, with model index syncing",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/search#readme",

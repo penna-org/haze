@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/devtools",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Devtools for hazejs on top of devframe: app overview, module and route inspector, dev dashboard and terminals in one hub",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/devtools#readme",

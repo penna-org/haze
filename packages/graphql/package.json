@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/graphql",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "GraphQL for hazejs: schema-first and code-first schemas, GraphQL over HTTP, GraphiQL, depth / complexity limits, batching loaders and graphql-transport-ws subscriptions",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/graphql#readme",
