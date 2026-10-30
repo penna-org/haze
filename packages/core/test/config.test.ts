@@ -128,9 +128,20 @@ describe('config', () => {
       mode: 'test',
       env: false,
       config: {
-        database: defineConfig(() => ({ default: 'main', connections: { main: { driver: 'pglite', casing: 'snake_case' } } })),
+        database: defineConfig(() => ({
+          default: 'main',
+          connections: {
+            main: { driver: 'pglite', casing: 'snake_case' },
+          },
+        })),
       },
-      configOverrides: { database: { connections: { main: { client } } } },
+      configOverrides: {
+        database: {
+          connections: {
+            main: { client },
+          },
+        },
+      },
     })
     expect(app.config.get('database.connections.main.casing')).toBe('snake_case')
     expect(app.config.get('database.connections.main.client')).toBe(client)

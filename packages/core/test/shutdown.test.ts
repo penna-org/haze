@@ -23,7 +23,9 @@ console.log(new URL(server.url).port)
 
 describe('graceful shutdown', () => {
   it('exits after shutdownTimeout even while a long-lived connection is open', async () => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] })
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
     const port = await new Promise<string>(resolve => child.stdout.once('data', chunk => resolve(String(chunk).trim())))
     const response = await fetch(`http://127.0.0.1:${port}/stream`)
     const reader = response.body!.getReader()
