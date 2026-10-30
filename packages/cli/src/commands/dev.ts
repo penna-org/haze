@@ -36,6 +36,8 @@ export default defineCommand({
     consola.log('')
     consola.log(`  ${colors.green('➜')}  Local:  ${colors.cyan(displayUrl(server.url!))}`)
     consola.log(`  ${colors.green('➜')}  Routes: ${routes}`)
+    if (server.devtools)
+      consola.log(`  ${colors.green('➜')}  DevTools: ${colors.cyan(displayUrl(server.devtools))}`)
     consola.log(`  ${colors.dim('watching for changes...')}`)
     consola.log('')
     onExit(() => server.close())

@@ -29,6 +29,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
       ['resources', ['API Resources', 'API 资源']],
       ['errors', ['Errors & Logging', '异常与日志']],
       ['observability', ['Observability', '可观测性']],
+      ['devtools', ['DevTools', '开发者工具']],
       ['openapi', ['OpenAPI', 'OpenAPI 文档']],
     ],
   },

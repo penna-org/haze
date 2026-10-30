@@ -1,4 +1,5 @@
 import type { UserConfig } from 'vite'
+import type { DevtoolsConfig } from './devtools'
 import type { ExternalsOptions } from './presets/deps'
 import type { CloudflareOptions, PresetName, VercelOptions } from './presets/types'
 import { existsSync, readFileSync } from 'node:fs'
@@ -25,6 +26,8 @@ export interface HazeConfig {
   vercel?: VercelOptions
   /** 依赖处理：默认能打包的都打包，驱动 / 原生模块追踪复制进产物的 node_modules */
   externals?: ExternalsOptions
+  /** 开发时的 DevTools（需安装 `@hazejs/devtools`），默认开启；false 关闭 */
+  devtools?: boolean | DevtoolsConfig
   /** 透传给 Vite 的配置（插件、别名等） */
   vite?: UserConfig
 }
@@ -40,6 +43,7 @@ export interface ResolvedHazeConfig {
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
   externals: ExternalsOptions | undefined
+  devtools: boolean | DevtoolsConfig
   vite: UserConfig
   configFile: string | undefined
 }
@@ -85,6 +89,7 @@ export async function loadHazeConfig(root: string, mode = 'development'): Promis
     cloudflare: config.cloudflare,
     vercel: config.vercel,
     externals: config.externals,
+    devtools: config.devtools ?? true,
     vite: config.vite ?? {},
     configFile,
   }

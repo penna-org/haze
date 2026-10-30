@@ -2,16 +2,19 @@ import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
+import type { DevtoolsConfig, DevtoolsInstance } from './devtools'
 import type { ModulePackage } from './modules'
 import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { nodeUpgradeHandler, registerNodeServer } from '@hazejs/core'
+import { colors } from 'consola/utils'
 import { toNodeHandler } from 'srvx/node'
 import { normalizePath, transformWithOxc } from 'vite'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
+import { loadDevtools } from './devtools'
 import { createAppHost } from './host'
 import { findModulePackages, packagedMigrationFiles, rewriteMigrationUrls } from './modules'
 import { bundleAllExcept, DRIVER_PACKAGES, externalPackages, externalPattern, findInstalled, migrateEntryCode, resolvePreset, scanExternals, traceDependencies, workerEntryCode } from './presets'
@@ -39,6 +42,8 @@ export interface HazePluginOptions {
   vercel?: VercelOptions
   /** 依赖的打包 / 追踪方式（默认读取 haze.config.ts） */
   externals?: ExternalsOptions
+  /** 开发时的 DevTools（需安装 `@hazejs/devtools`；默认读取 haze.config.ts，否则开启） */
+  devtools?: boolean | DevtoolsConfig
   /**
    * 不集成 Vite 开发服务器与前端构建（不挂载中间件、不配置 client / ssr 构建）。
    * 由 `haze dev / build` 与 `@hazejs/testing` 使用。
@@ -91,6 +96,7 @@ interface Settings {
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
   externals: ExternalsOptions
+  devtools: boolean | DevtoolsConfig
 }
 
 const RESOLVED_PREFIX = '\0'
@@ -125,6 +131,7 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
     cloudflare: undefined,
     vercel: undefined,
     externals: {},
+    devtools: true,
   }
   let lastBuild: BuildInfo | undefined
   let unsupported = new Set<string>()
@@ -139,6 +146,8 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
     lastBuild: () => lastBuild,
   }
   let isDev = true
+  /** 全栈开发服务器上运行的 DevTools */
+  let devtools: DevtoolsInstance | undefined
 
   return {
     name: PLUGIN_NAME,
@@ -165,6 +174,7 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       settings.cloudflare = options.cloudflare ?? fileConfig?.cloudflare
       settings.vercel = options.vercel ?? fileConfig?.vercel
       settings.externals = options.externals ?? fileConfig?.externals ?? {}
+      settings.devtools = options.devtools ?? fileConfig?.devtools ?? true
       settings.orm = Boolean(findInstalled('@hazejs/orm', base))
       settings.modulePackages = findModulePackages(base)
 
@@ -317,11 +327,26 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       isDev = config.command === 'serve'
     },
 
-    configureServer(server) {
+    async configureServer(server) {
       if (!settings.fullstack)
         return
 
       const host = createAppHost({ vite: server, api })
+      // DevTools 在 Vite 的 http 服务器上处理自己的 WebSocket（<base>__ws），中间件排在后端之前
+      devtools = await loadDevtools(settings.root, settings.devtools, {
+        source: host,
+        server: (server.httpServer ?? undefined) as never,
+      })
+      if (devtools) {
+        server.middlewares.use(devtools.nodeMiddleware)
+        const printUrls = server.printUrls.bind(server)
+        server.printUrls = () => {
+          printUrls()
+          const local = server.resolvedUrls?.local[0]
+          if (local)
+            server.config.logger.info(`  ${colors.green('➜')}  ${colors.bold('DevTools')}: ${colors.cyan(new URL(devtools!.base.slice(1), local).href)}`)
+        }
+      }
       // Vite 的 connect 服务器是 HTTP/1；srvx 的类型同时覆盖 HTTP/2，这里按 HTTP/1 使用
       const handle = toNodeHandler(host.fetch) as unknown as (req: IncomingMessage, res: ServerResponse) => unknown
       // 框架内置的 /__haze/*（开发面板、存储签名链接）同样交给后端
@@ -349,9 +374,25 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       // Vite 关闭或重启（如 vite.config.ts / .env 变化）时释放应用
       const close = server.close.bind(server)
       server.close = async () => {
+        await devtools?.close()
+        devtools = undefined
         await host.close()
         return close()
       }
+    },
+
+    // 在前端页面中注入悬浮的 DevTools 入口
+    transformIndexHtml() {
+      const embedded = typeof settings.devtools !== 'object' || settings.devtools.embedded !== false
+      if (!devtools || !embedded)
+        return
+      return [
+        {
+          tag: 'script',
+          attrs: { type: 'module', src: `${devtools.base}embedded.js` },
+          injectTo: 'body',
+        },
+      ]
     },
 
     async configurePreviewServer(server) {
