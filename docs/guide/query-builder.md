@@ -270,7 +270,7 @@ await Db.table(users).delete(1)                                // by primary key
 await Db.table(users).delete([1, 2, 3])
 ```
 
-`update()` and `delete()` return the affected row count and refuse to run without any condition unless you pass `{ all: true }`. `update(values, { returning: true })` returns the updated rows instead (plain rows, also on model queries; MySQL throws a `DatabaseError`). Keys whose value is `undefined` are dropped, so optional input can be passed as is; when nothing is left, `update()` throws `DatabaseError('update() called without data')`.
+`update()` and `delete()` return the affected row count and refuse to run without any condition unless you pass `{ all: true }` (on model queries the automatic soft-delete, tenant and global-scope filters do not count as conditions). `update(values, { returning: true })` returns the updated rows instead (plain rows, also on model queries; MySQL throws a `DatabaseError`). Keys whose value is `undefined` are dropped, so optional input can be passed as is; when nothing is left, `update()` throws `DatabaseError('update() called without data')`.
 
 They are single statements: on model queries they respect soft deletes and global scopes, but do not fire model events or maintain the model's timestamps. Column-level `$onUpdate()` / `$onUpdateFn()` from the drizzle schema still apply — to `update()` and to the `DO UPDATE` part of `upsert()` — so a column defined as `updatedAt: timestamp().$onUpdate(() => new Date())` needs no manual value.
 

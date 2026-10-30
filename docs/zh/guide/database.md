@@ -319,7 +319,7 @@ export class OrderRepository {
 `Db.table()` 返回的查询构造器与模型使用的是同一个，支持 `where`、`order`、`paginate`、`count`、`insert`、`update`、`delete` 等，连接查询、子查询、分组、JSON 字段、upsert 以及完整的方法列表见[查询构造器](./query-builder)。
 
 ::: tip 防误操作
-- 不带任何条件的 `update()` / `delete()` 会直接报错，确实要改整张表时传 `{ all: true }`。
+- 不带任何条件的 `update()` / `delete()` 会直接报错，确实要改整张表时传 `{ all: true }`。模型自动附加的过滤（软删除、多租户、全局作用域）不算条件。
 - 各数据库的唯一约束冲突都会统一转换为 `UniqueConstraintException`，响应 `409`，`code` 为 `'unique_violation'`；异常带有驱动给出的 `constraint`、`table`、`columns` 与 `detail`（见[模型 → 异常](./models#异常)）。
 - 查询构造器是可变的：每次查询新建一个，不要从共用的基础查询上分支（见[查询构造器](./query-builder)）。
 :::

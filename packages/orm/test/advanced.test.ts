@@ -563,6 +563,41 @@ describe.each(dialects)('advanced orm on $name', (dialect) => {
       expect((await User.findOrEmpty(1)).isEmpty()).toBe(false)
     })
 
+    it('refuses unconditional bulk writes on soft-delete and globally scoped models', async () => {
+      await seed()
+      // 自动附加的软删除过滤（deleted_at IS NULL）与全局作用域不算条件
+      const refused = /Refusing to (update|delete) all rows of "users" without conditions/
+      await expect(User.query().update({ status: 9 })).rejects.toThrow(refused)
+      await expect(User.query().delete()).rejects.toThrow(refused)
+      await expect(User.withTrashed().delete()).rejects.toThrow(refused)
+      await expect(User.onlyTrashed().delete()).rejects.toThrow(refused)
+      await expect(User.query().forceDelete()).rejects.toThrow(refused)
+      await expect(User.onlyTrashed().forceDelete()).rejects.toThrow(refused)
+      await expect(User.query().restore()).rejects.toThrow(refused)
+      await expect(User.onlyTrashed().restore()).rejects.toThrow(refused)
+      await expect(ActiveUser.query().update({ age: 1 })).rejects.toThrow(refused)
+      await expect(ActiveUser.query().delete()).rejects.toThrow(refused)
+      await expect(ActiveUser.query().forceDelete()).rejects.toThrow(refused)
+      expect(await User.withTrashed().where('status', 9).count()).toBe(0)
+      expect(await User.withTrashed().where('age', 1).count()).toBe(0)
+      expect(await User.onlyTrashed().count()).toBe(0)
+      expect(await User.withTrashed().count()).toBe(3)
+
+      // 用户条件、主键或 { all: true } 照常执行，且语句仍带上作用域条件
+      expect(await ActiveUser.where('age', '>', 20).update({ age: 40 })).toBe(2)
+      expect(await ActiveUser.query().update({ name: 'Active' }, { all: true })).toBe(2)
+      expect(names(await User.order('id').select())).toEqual(['Active', 'Bob', 'Active'])
+      expect(await User.query().delete(2)).toBe(1)
+      expect(await User.query().delete({ all: true })).toBe(2)
+      expect(await User.onlyTrashed().count()).toBe(3)
+      expect(await User.onlyTrashed().where('id', 2).restore()).toBe(1)
+      expect(await User.query().forceDelete([2])).toBe(1)
+      expect(await User.onlyTrashed().restore({ all: true })).toBe(2)
+      expect(await User.where('id', 1).forceDelete()).toBe(1)
+      expect(await ActiveUser.query().delete({ all: true })).toBe(1)
+      expect(await User.withTrashed().count()).toBe(0)
+    })
+
     it('serializes with dynamic hidden, visible, append and withAttr', async () => {
       await seed()
       const user = await User.with('posts').findOrFail(1)

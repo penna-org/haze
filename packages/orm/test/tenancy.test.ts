@@ -114,6 +114,28 @@ describe('single database with a tenant id column (belongsToTenant)', () => {
     expect(await Project.order('id').column('name')).toEqual(['Rocket', 'Anvil'])
   })
 
+  it('does not treat the tenant filter as a condition for bulk writes', async () => {
+    await boot()
+    await Db.execute(sql`create table projects (id integer primary key autoincrement, tenant_id text, name text not null, status integer not null default 1)`)
+    await Tenancy.run('acme', () => Project.create({ name: 'Rocket' }))
+    await Tenancy.run('acme', () => Project.create({ name: 'Anvil' }))
+    await Tenancy.run('globex', () => Project.create({ name: 'Hammock' }))
+
+    const refused = /Refusing to (update|delete) all rows of "projects" without conditions/
+    await expect(Tenancy.run('acme', () => Project.query().update({ status: 2 }))).rejects.toThrow(refused)
+    await expect(Tenancy.run('acme', () => Project.query().delete())).rejects.toThrow(refused)
+    await expect(Tenancy.run('acme', () => Project.query().forceDelete())).rejects.toThrow(refused)
+    expect(await Project.where('status', 2).count()).toBe(0)
+    expect(await Project.count()).toBe(3)
+
+    // 用户条件与 { all: true } 仍然只作用于当前租户
+    expect(await Tenancy.run('acme', () => Project.where('name', 'Rocket').update({ status: 2 }))).toBe(1)
+    expect(await Tenancy.run('acme', () => Project.query().update({ status: 3 }, { all: true }))).toBe(2)
+    expect(await Project.where('status', 3).count()).toBe(2)
+    expect(await Tenancy.run('acme', () => Project.query().delete({ all: true }))).toBe(2)
+    expect(await Project.query().column('name')).toEqual(['Hammock'])
+  })
+
   it('scopes models in requests resolved by the tenancy middleware', async () => {
     const app = await boot()
     await Db.execute(sql`create table projects (id integer primary key autoincrement, tenant_id text, name text not null, status integer not null default 1)`)

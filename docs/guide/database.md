@@ -319,7 +319,7 @@ export class OrderRepository {
 `Db.table()` returns the same query builder that models use, with `where`, `order`, `paginate`, `count`, `insert`, `update`, `delete` and more. Joins, subqueries, grouping, JSON fields, upserts and the full list of methods are in [Query Builder](./query-builder).
 
 ::: tip Safety nets
-- `update()` and `delete()` without any condition throw. Pass `{ all: true }` to really touch every row.
+- `update()` and `delete()` without any condition throw. Pass `{ all: true }` to really touch every row. A model's automatic filters (soft deletes, tenant, global scopes) do not count as a condition.
 - Unique constraint violations on every driver become a `UniqueConstraintException`, rendered as `409` with `code: 'unique_violation'`; it carries the `constraint`, `table`, `columns` and `detail` the driver reported ([Models → Errors](./models#errors)).
 - Query builders are mutable: build a fresh one per query instead of branching from a shared base ([Query Builder](./query-builder)).
 :::
