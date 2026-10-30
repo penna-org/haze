@@ -90,12 +90,14 @@ export * from './exception/exceptions'
 export { ExceptionHandler } from './exception/handler'
 export type { NormalizedError } from './exception/handler'
 export * from './http-client'
+export { clientIp, setClientAddress, trustedProxyHops } from './http/client-ip'
+export type { RequestWithAddress, TrustProxy } from './http/client-ip'
+
 export { getHttpContext, HttpContext } from './http/context'
 export type { ContextState, MatchedRoute, ResponseHook, Validated, ValidationTargets } from './http/context'
 
 export { serializeCookie } from './http/cookie'
 export type { CookieOptions } from './http/cookie'
-
 export { ResponseFormatter } from './http/formatter'
 export { defineInterceptor } from './http/interceptor'
 export type { Interceptor } from './http/interceptor'
@@ -146,11 +148,11 @@ export { hashSecret as hashMaintenanceSecret, Maintenance, MAINTENANCE_MESSAGE, 
 export type { DownResult, MaintenanceDriver } from './maintenance/manager'
 export { maintenancePage } from './maintenance/page'
 export type { MaintenancePageProps } from './maintenance/page'
+
 export { bodyLimit, builtinMiddleware, session } from './middleware/builtin'
+
 export { cacheResponse } from './middleware/builtin/cache-response'
-
 export { compress, defineCompressConfig, negotiateEncoding } from './middleware/builtin/compress'
-
 export type { CompressOptions, Encoding } from './middleware/builtin/compress'
 export { cors, defineCorsConfig } from './middleware/builtin/cors'
 export type { CorsOptions } from './middleware/builtin/cors'

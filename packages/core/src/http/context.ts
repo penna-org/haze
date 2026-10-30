@@ -10,9 +10,10 @@ import type { Session } from '../session/session'
 import type { Tenant } from '../tenancy/config'
 import type { Component, ViewNode } from '../view/jsx'
 import type { ViewResponseInit } from '../view/view'
+import type { RequestWithAddress, TrustProxy } from './client-ip'
 import type { CookieOptions } from './cookie'
 import type { SseOptions, SseSource } from './sse'
-import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, getRequestURL, HTTPError, readBody, redirect, setCookie } from 'h3'
+import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestURL, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
 import { Gate } from '../auth/gate'
 import { Config } from '../config/config'
@@ -27,6 +28,7 @@ import { startSession } from '../session/session'
 import { currentTenant } from '../tenancy/context'
 import { parseSize } from '../utils'
 import { contextView } from '../view/view'
+import { clientIp, trustedProxyHops } from './client-ip'
 import { defaultCookieOptions } from './cookie'
 import { eventStream } from './sse'
 import { formDataToObject, UploadedFile } from './upload'
@@ -211,11 +213,12 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
       : [value]).filter((item): item is UploadedFile => item instanceof UploadedFile)
   }
 
-  /** 客户端 IP（config/app.ts 的 trustProxy 为 true 时取 X-Forwarded-For） */
+  /**
+   * 客户端 IP：平台给出的连接地址（Node / Bun / Deno 服务器、Cloudflare 的 cf-connecting-ip、Lambda 的 sourceIp）；
+   * config/app.ts 的 trustProxy 开启时取 X-Forwarded-For 从右数第 n 项（n 为可信代理层数，true 即 1）
+   */
   get ip(): string | undefined {
-    return getRequestIP(this.event, {
-      xForwardedFor: this.config.get<boolean>('app.trustProxy', false),
-    })
+    return clientIp(this.event.req as RequestWithAddress, this.config.get<TrustProxy>('app.trustProxy', false))
   }
 
   /**
@@ -223,7 +226,7 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
    * 取反向代理传来的 X-Forwarded-Proto / X-Forwarded-Host，用于生成给浏览器的绝对地址
    */
   get origin(): string {
-    const trust = this.config.get<boolean>('app.trustProxy', false)
+    const trust = trustedProxyHops(this.config.get<TrustProxy>('app.trustProxy', false)) > 0
     return getRequestURL(this.event, { xForwardedHost: trust, xForwardedProto: trust }).origin
   }
 

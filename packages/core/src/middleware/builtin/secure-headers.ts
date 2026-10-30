@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from '../types'
 import { getRequestProtocol } from 'h3'
+import { trustedProxyHops } from '../../http/client-ip'
 
 /** 每项设为 false 关闭，字符串覆盖默认值 */
 export interface SecureHeadersOptions {
@@ -41,7 +42,7 @@ export const secureHeaders: MiddlewareHandler = (ctx, next) => {
     'permissions-policy': options.permissionsPolicy ?? false,
   }
   const https = getRequestProtocol(ctx.event, {
-    xForwardedProto: ctx.config.get<boolean>('app.trustProxy', false),
+    xForwardedProto: trustedProxyHops(ctx.config.get('app.trustProxy', false)) > 0,
   }) === 'https'
   // COOP 与 Origin-Agent-Cluster 只在 https（安全上下文）中生效：http 访问时浏览器忽略，COOP 还会在控制台报错
   if (https) {
