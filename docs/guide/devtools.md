@@ -2,6 +2,8 @@
 
 `@hazejs/devtools` adds DevTools to the dev server: panels that show how the app is put together and what it does at runtime, an MCP endpoint that gives coding agents the same view, and a static report of the app's structure. It is built on [devframe](https://devfra.me) and is **experimental**: the panels and options may change between minor versions.
 
+![The Graph panel: the project and the shop module linked through the OrderPlaced and UserRegistered events and the SendReceipt job, with runtime counts](/devtools/graph.png)
+
 | Panel | What it shows |
 |-------|---------------|
 | **Overview** | App name, mode, directories, Node.js version, route count, the result of the last (re)load, enabled modules and sub-apps. |
@@ -55,6 +57,8 @@ Click a node to list its links in and out. Drag nodes to rearrange them and scro
 
 The Requests panel lists the requests the dev server handled, newest first, with their status, duration, route and module. Select one to see its timeline: every operation is placed at the moment it started, relative to the request. Work done by a queued job that the request dispatched is included and marked **job**.
 
+![The Requests panel: a POST /api/shop/orders request and its timeline of the OrderPlaced event, the queued NotifyAdmin listener and the SendReceipt job](/devtools/requests.png)
+
 When the same SQL runs two or more times in a request, the panel lists it under **Repeated queries** and marks each occurrence **N+1**.
 
 The panel reads the [dev dashboard](./observability#dev-dashboard)'s records, so the dashboard must be on (the default in development).
@@ -63,11 +67,15 @@ The panel reads the [dev dashboard](./observability#dev-dashboard)'s records, so
 
 The AI panel lists the model calls made through [`@hazejs/ai`](./ai): totals and averages per model, and for each call the messages it sent, the output and the tool calls the model made. Messages and outputs are recorded only while the dev dashboard is on, and each part is cut at 4,000 characters. OpenTelemetry and other telemetry consumers never receive them.
 
+![The AI panel: calls and tokens per model, the system prompt, user message and output of a call, and the playground](/devtools/ai.png)
+
 The playground runs a prompt against any configured model or alias, with an optional system prompt. Its calls show up in the list like any other.
 
 ## Tasks
 
 The Tasks panel lists scheduled tasks with their cron expression, time zone, next run and last run. **Run now** runs a task immediately, with the same `withoutOverlapping` and `onOneServer` checks as the scheduler, and records the run. Queue counts come from each connection's driver; retry or delete failed jobs in the [queue dashboard](./queues).
+
+![The Tasks panel: a scheduled task with its next run and a Run now button, queue counts and per-job counts](/devtools/tasks.png)
 
 ## Coding agents (MCP)
 

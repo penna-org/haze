@@ -2,6 +2,8 @@
 
 DevTools for hazejs, built on [devframe](https://devfra.me). Experimental.
 
+![The module graph panel](https://raw.githubusercontent.com/penna-org/haze/main/docs/public/devtools/graph.png)
+
 - **Panels** at `/__devtools/`: overview, module graph (events, listeners, jobs, schedules and shared middleware between modules, plus what happened at runtime), routes, request waterfalls with N+1 hints, AI calls and a prompt playground, scheduled tasks and queues, container and events, the OpenAPI docs, the `/__haze` dashboard and terminals.
 - **MCP** at `/__devtools/__mcp`: the same information for coding agents.
 - **Static report**: `haze devtools:report` bakes the app structure into a static site.
