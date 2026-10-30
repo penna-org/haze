@@ -1255,11 +1255,14 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
       this.field(name as never)
   }
 
+  /**
+   * update() / delete() 的条件：只看用户给出的条件（where / 主键），
+   * 模型自动附加的软删除过滤、多租户与全局作用域不算，避免它们让整表写入绕过 { all: true }
+   */
   protected writableWhere(action: string, options: WriteOptions, ctx: BuildContext): SQL | undefined {
-    const where = this.scopedWhere(ctx)
-    if (!where && !options.all)
+    if (!this.buildWhere(ctx) && !options.all)
       throw new DatabaseError(`Refusing to ${action} all rows of "${getTableName(this.table)}" without conditions. Pass { all: true } to confirm.`)
-    return where
+    return this.scopedWhere(ctx)
   }
 
   /** delete(1) / delete([1, 2]) / delete({ all: true }) */

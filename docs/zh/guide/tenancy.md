@@ -203,7 +203,7 @@ export class Project extends Model.define(projects) {
 
 在租户上下文中：
 
-- 模型的所有查询（包括关联、`find()`、统计、批量更新 / 删除）都会加上 `tenantId = 当前租户 ID`；
+- 模型的所有查询（包括关联、`find()`、统计、批量更新 / 删除）都会加上 `tenantId = 当前租户 ID`（这个过滤不算 `{ all: true }` 检查里的条件：`Project.query().delete()` 仍然会报错）；
 - 新建模型时，`tenantId` 为空则自动填充。
 
 ```ts

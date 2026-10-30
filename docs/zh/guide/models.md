@@ -226,7 +226,7 @@ await b.save()      // 抛出 OptimisticLockException（409）
 
 新建模型时版本列交给数据库的默认值（例如 `integer('revision').notNull().default(1)`），只有没有默认值的列才从 `0` 开始。
 
-查询上的批量 `update()` / `delete()` 是一条 SQL 语句：不触发模型事件、不维护时间戳；没有任何条件时会拒绝执行，除非传入 `{ all: true }`。
+查询上的批量 `update()` / `delete()` 是一条 SQL 语句：不触发模型事件、不维护时间戳；没有任何条件时会拒绝执行，除非传入 `{ all: true }`。只有自己写的条件才算（`where()`、局部作用域、传给 `delete(ids)` 的主键）：模型自动附加的过滤——软删除的 `deletedAt IS NULL`、[多租户](./tenancy)列和全局作用域——仍然会加到语句里，但不算条件，所以不带条件的 `Post.query().delete()`、`forceDelete()`、`restore()` 同样会报错。
 
 ## 软删除
 
@@ -244,6 +244,7 @@ await Post.withTrashed().select()      // 包含已删除的数据
 await Post.onlyTrashed().select()      // 只查已删除的数据
 await post.restore()                   // 清空 deletedAt
 await Post.whereIn('id', [1, 2]).restore()   // 批量恢复
+await Post.onlyTrashed().restore({ all: true })   // 恢复全部已删除的数据
 await post.forceDelete()               // 物理删除
 post.trashed()                         // boolean
 ```

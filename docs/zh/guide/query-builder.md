@@ -270,7 +270,7 @@ await Db.table(users).delete(1)                                // 按主键
 await Db.table(users).delete([1, 2, 3])
 ```
 
-`update()` 和 `delete()` 返回影响行数，没有任何条件时拒绝执行，除非传入 `{ all: true }`。`update(values, { returning: true })` 改为返回更新后的行（普通对象，模型查询上也一样；MySQL 抛出 `DatabaseError`）。值为 `undefined` 的键会被去掉，可选的输入可以直接传入；去掉后没有数据时抛出 `DatabaseError('update() called without data')`。
+`update()` 和 `delete()` 返回影响行数，没有任何条件时拒绝执行，除非传入 `{ all: true }`（模型查询上自动附加的软删除、多租户和全局作用域过滤不算条件）。`update(values, { returning: true })` 改为返回更新后的行（普通对象，模型查询上也一样；MySQL 抛出 `DatabaseError`）。值为 `undefined` 的键会被去掉，可选的输入可以直接传入；去掉后没有数据时抛出 `DatabaseError('update() called without data')`。
 
 它们是单条 SQL：在模型查询上会应用软删除与全局作用域，但不触发模型事件，也不维护模型的时间戳。drizzle 表定义中列级的 `$onUpdate()` / `$onUpdateFn()` 仍然生效——`update()` 与 `upsert()` 的 `DO UPDATE` 部分都会写入——所以定义了 `updatedAt: timestamp().$onUpdate(() => new Date())` 的列不需要手动赋值。
 

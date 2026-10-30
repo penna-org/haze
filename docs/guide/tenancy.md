@@ -203,7 +203,7 @@ export class Project extends Model.define(projects) {
 
 Inside a tenant context:
 
-- every query on the model, including relations, `find()`, counts and mass updates / deletes, adds `tenantId = <current tenant id>`;
+- every query on the model, including relations, `find()`, counts and mass updates / deletes, adds `tenantId = <current tenant id>` (this filter does not count as a condition for the `{ all: true }` check: `Project.query().delete()` still throws);
 - new models get `tenantId` filled in when it is empty.
 
 ```ts

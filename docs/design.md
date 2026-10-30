@@ -1966,3 +1966,12 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - 业务记录写回依赖审批引擎自己的事务（没有经过 ORM 的事务上下文），因此没有改成 `afterCommit` 事件；`Db.joinTransaction` 中注册的 `afterCommit` 在回调结束时执行，早于外部库真正提交，ai-admin 保留了包装引擎 commit 的写法。
 - 监听器返回 `false` 会中止后续监听器：`({ changes }) => service.queueDelivery(changes)` 这种写法在服务返回布尔值时会意外中止（ai-admin 的测试发现），文档已加提示。
 - `join()` 的条件参数仍要求 `SQL`（不接受 undefined）。
+
+### 整表写入保护修复（2026-10-30）
+
+审计 ORM 文档时发现：`update()` / `delete()` 没有条件时应要求 `{ all: true }`，但检查用的是 `scopedWhere()`——模型查询在其中附加的软删除过滤（`deletedAt IS NULL`）、多租户列（`belongsToTenant`）和全局作用域都被当成了条件，于是软删除 / 多租户 / 全局作用域模型上的 `Post.query().delete()`、`update({...})`、`forceDelete()` 不加 `{ all: true }` 就会写整张表（租户上下文中是整个租户）。MongoDB 的 `writableFilter()` 同样把软删除过滤算作条件。
+
+- 修复：`writableWhere()` 只用 `buildWhere()`（用户的 `where()`、局部作用域、`delete(ids)` 的主键）判断是否有条件，执行的语句仍然是 `scopedWhere()`；Mongo 的 `writableFilter()` 用 `buildFilter()` 判断、`scopedFilter()` 执行。
+- `onlyTrashed()` / `withTrashed()` 也不算条件：`Post.onlyTrashed().forceDelete()`、`restore()` 需要 `{ all: true }`（`restore()` 走 `withTrashed().update()`，修复前就会拒绝）。
+- 行为变化：以上调用现在抛出 `DatabaseError`，按补丁版本发布并在 changeset 中注明。
+- 测试：`advanced.test.ts`（SQLite / D1 / PGlite：软删除与全局作用域的 update / delete / forceDelete / restore）、`tenancy.test.ts`（belongsToTenant）、`mongo.test.ts`（软删除）。修复前前两者失败；Mongo 用例在本机无法下载 mongod 未运行，用不连接数据库的脚本确认了修复前后的检查行为。

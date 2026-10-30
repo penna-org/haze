@@ -226,7 +226,7 @@ await b.save()      // throws OptimisticLockException (409)
 
 A new model leaves the version column to its database default (for example `integer('revision').notNull().default(1)`); only a column without a default starts at `0`.
 
-Bulk `update()` / `delete()` on a query run as a single statement. They skip model events and timestamps, and refuse to run without a condition unless you pass `{ all: true }`.
+Bulk `update()` / `delete()` on a query run as a single statement. They skip model events and timestamps, and refuse to run without a condition unless you pass `{ all: true }`. Only your own conditions count (`where()`, local scopes, primary keys passed to `delete(ids)`): the filters a model adds by itself — the soft-delete `deletedAt IS NULL`, the [tenant](./tenancy) column and global scopes — still apply to the statement but do not satisfy the check, so `Post.query().delete()`, `forceDelete()` and `restore()` with no condition throw too.
 
 ## Soft deletes
 
@@ -244,6 +244,7 @@ await Post.withTrashed().select()      // include them
 await Post.onlyTrashed().select()      // only deleted ones
 await post.restore()                   // clear deletedAt
 await Post.whereIn('id', [1, 2]).restore()   // bulk restore
+await Post.onlyTrashed().restore({ all: true })   // restore every deleted row
 await post.forceDelete()               // really delete
 post.trashed()                         // boolean
 ```
