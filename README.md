@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/public/logo.svg" alt="hazejs logo" width="120" height="120">
+</p>
+
 <h1 align="center">hazejs</h1>
 
 <p align="center">
