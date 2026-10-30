@@ -513,11 +513,11 @@ export class MongoQuery<T = Document, R = WithId<T>> {
     }
   }
 
+  /** update() / delete() 的过滤条件：只看用户给出的条件，模型自动附加的软删除过滤不算 */
   protected writableFilter(action: string, options: { all?: boolean }): Document {
-    const filter = this.scopedFilter()
-    if (!Object.keys(filter).length && !options.all)
+    if (!Object.keys(this.buildFilter()).length && !options.all)
       throw new DatabaseError(`Refusing to ${action} all documents of "${this.collectionName}" without conditions. Pass { all: true } to confirm.`)
-    return filter
+    return this.scopedFilter()
   }
 
   protected async group(accumulator: Document): Promise<unknown> {

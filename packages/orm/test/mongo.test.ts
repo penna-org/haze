@@ -326,6 +326,26 @@ describe('mongo model', () => {
     expect(await User.onlyTrashed().count()).toBe(1)
   })
 
+  it('does not treat the soft-delete filter as a condition for bulk writes', async () => {
+    await seed()
+    const refused = /Refusing to (update|delete) all documents of "users" without conditions/
+    await expect(User.query().update({ status: 9 })).rejects.toThrow(refused)
+    await expect(User.query().delete()).rejects.toThrow(refused)
+    await expect(User.onlyTrashed().delete()).rejects.toThrow(refused)
+    await expect(User.query().forceDelete()).rejects.toThrow(refused)
+    await expect(User.query().restore()).rejects.toThrow(refused)
+    await expect(User.onlyTrashed().restore()).rejects.toThrow(refused)
+    expect(await User.withTrashed().where('status', 9).count()).toBe(0)
+    expect(await User.onlyTrashed().count()).toBe(0)
+
+    expect(await User.where('name', 'Ada').update({ status: 2 })).toBe(1)
+    expect(await User.query().delete({ all: true })).toBe(4)
+    expect(await User.onlyTrashed().where('name', 'Bob').restore()).toBe(1)
+    expect(await User.onlyTrashed().forceDelete({ all: true })).toBe(3)
+    expect(await User.query().update({ status: 7 }, { all: true })).toBe(1)
+    expect(await User.withTrashed().column('name')).toEqual(['Bob'])
+  })
+
   it('applies scopes and paginates models', async () => {
     await seed()
     expect((await User.scope('adults').order('name').select()).map(user => user.name)).toEqual(['Ada', 'Cleo'])
