@@ -183,6 +183,14 @@ gate.fallback((user: AuthUser | undefined, ability) => user?.permissions.include
 
 `await ctx.authorizeAny(['report:export', 'report:manage'])`（以及 `gate.authorizeAny(user, abilities)`）拥有其中任一能力即通过，`can:a|b` 中间件同理。
 
+已登录用户被拒绝时抛出 `AuthorizationException`（`ForbiddenException` 的子类，状态 403），带有 `abilities`（被拒绝的能力，`authorizeAny` 时为全部候选）与 `reason`（`deny()` 给出的原因）。异常处理器可以据此说明缺少哪个权限，或按语言改写消息：
+
+```ts
+// app/exception/Handler.ts
+if (error instanceof AuthorizationException && !error.reason)
+  return { statusCode: 403, code: 'forbidden', message: `缺少权限：${error.abilities.join('、')}` }
+```
+
 ## 判断顺序
 
 1. 先执行全局 `gate.before()`，再执行策略的 `before`，第一个非 `undefined` 的结果即为最终结果。

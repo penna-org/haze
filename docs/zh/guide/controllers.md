@@ -82,6 +82,7 @@ export class HealthController {
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookie |
 | `ctx.validated` | 路由 `.validate()` 的校验结果 |
 | `ctx.method`、`ctx.path`、`ctx.url`、`ctx.ip`、`ctx.req` | 请求信息 |
+| `ctx.route` | 匹配到的路由：`method`、路径模式 `path`（`/api/users/:id`）、`name` 与 `.meta()` 写入的 `meta`；没有匹配到路由时为 `undefined`。路由中间件（操作日志、按路由的限制）据此读取路由的声明 |
 | `ctx.status(code)`、`ctx.setHeader(name, value)` | 设置响应状态码与响应头 |
 | `ctx.created(data)`、`ctx.noContent()`、`ctx.redirect(url, status?)` | 响应辅助方法 |
 | `ctx.setCookie()`、`ctx.setSignedCookie()`、`ctx.deleteCookie()` | 写 Cookie |

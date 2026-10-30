@@ -1,6 +1,6 @@
 import type { RouteRegistrar, UserProvider } from '../src'
 import { describe, expect, it } from 'vitest'
-import { allow, allowGuest, createApplication, defineAbilities, definePolicy, defineRoutes, defineUserProvider, deny, Gate, generateKey, issueTestCredentials, NotFoundException } from '../src'
+import { allow, allowGuest, AuthorizationException, createApplication, defineAbilities, definePolicy, defineRoutes, defineUserProvider, deny, Gate, generateKey, issueTestCredentials, NotFoundException } from '../src'
 
 interface User {
   id: number
@@ -228,6 +228,18 @@ describe('ctx.can / authorize and the can middleware', () => {
     expect((await app.request('/any', { headers: await as(app, 1) })).status).toBe(200)
     expect(await gate.allows(users[0], 'unknown:code')).toBe(false)
     await expect(gate.authorizeAny(users[0], [])).rejects.toThrow('at least one')
+    // 拒绝时的异常带上能力，异常处理器可据此列出缺少的权限码
+    const denied = await gate.authorize(users[0], 'system:user:create').catch((error: unknown) => error)
+    expect(denied).toBeInstanceOf(AuthorizationException)
+    expect(denied).toMatchObject({
+      status: 403,
+      abilities: ['system:user:create'],
+      reason: undefined,
+    })
+    const any = await gate.authorizeAny(users[1], ['a:b', 'c:d']).catch((error: unknown) => error)
+    expect(any).toMatchObject({
+      abilities: ['a:b', 'c:d'],
+    })
   })
 
   it('treats everyone as a guest without config/auth.ts', async () => {

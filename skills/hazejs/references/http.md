@@ -56,7 +56,7 @@ export default defineRoutes((r) => {
 | `.middleware(...refs)` | Alias strings (with `:params`), functions, classes, or arrays of them |
 | `.validate({ body, query, params, headers })` | Validates before the handler; merges if called twice; output in `ctx.validated` |
 | `.doc({...})` | OpenAPI metadata (see below); mergeable |
-| `.meta({ envelope: false, ...})` | Route metadata; `envelope: false` skips the success envelope |
+| `.meta({ envelope: false, ...})` | Route metadata; `envelope: false` skips the success envelope. Middleware reads it as `ctx.route.meta` |
 
 **Resources** — `r.resource(path, Controller, { only?, except?, param?, name? })` registers `index` (GET /users), `store` (POST), `show` (GET /users/:id), `update` (PUT and PATCH), `destroy` (DELETE), named `users.index` etc. Without `only`, only methods that exist on the controller are registered; listing a missing action in `only` fails at boot. `param` renames `:id`, `name` changes the name base. The returned `ResourceRoutes` supports `.middleware()`, `.validateMember()` (show/update/destroy) and `.doc({ tags, deprecated, hidden })`.
 
@@ -64,7 +64,7 @@ export default defineRoutes((r) => {
 
 **WebSockets** — `r.ws(path, { open(peer), message(peer, message), ... })` returns a `Route`. The upgrade request passes global and route middleware like a GET, so `.middleware('auth')` works. See [websocket guide](../../../docs/guide/websocket.md).
 
-`haze route:list` (`--json`) prints method, path, name, handler and the fully expanded middleware list; use it to sanity-check.
+`haze route:list` (`--json`) prints method, path, name, handler and the fully expanded middleware list; use it to sanity-check. Middleware passed as a function or class is listed as `name()` (`anonymous()` for unnamed arrows), never as an alias; `--json` writes only JSON to stdout (boot logs go to stderr), so `haze route:list --json > routes.json` is safe.
 
 ## Controllers
 
@@ -162,6 +162,32 @@ export class EnsureJson implements Middleware {
 - Order: global → group (outer first) → route (as written) → controller (`only`/`except`) → validation → handler. Reversed on the way out.
 - `ctx.set(key, value)` / `ctx.get(key)` pass request state; type keys via `declare module '@hazejs/core' { interface ContextState { ... } }`.
 - Unknown middleware names fail at boot. `make:middleware Name` scaffolds a class.
+- OpenAPI infers `401` / `403` only from the **alias strings** `auth` / `can:` / `guest`; a function you pass inline is shown as `fnName()` and adds nothing. Keep auth as aliases (`'auth'`, `` `can:${code}` ``) when you generate middleware lists.
+
+**Meta-driven middleware** — declare per-route facts once with `.meta()` and let one alias middleware act on them (audit log text, body limit, response encoding, demo-mode allow-lists) instead of building a closure per route:
+
+```ts
+// app/middleware/audit.ts — registered as alias 'audit' in config/middleware.ts
+export const audit: MiddlewareHandler = (ctx, next) => {
+  if (ctx.method !== 'GET') {
+    ctx.onResponse((response) => {
+      const route = ctx.route // { method, path: '/api/users/:id', name, meta }
+      logs.record({ route: route?.path ?? ctx.path, summary: String(route?.meta.summary ?? ''), status: response.status })
+    })
+  }
+  return next()
+}
+export const bodyLimit: MiddlewareHandler = (ctx, next) => {
+  if (typeof ctx.route?.meta.bodyLimit === 'number')
+    ctx.bodyLimit = ctx.route.meta.bodyLimit
+  return next()
+}
+
+// route/users.ts
+r.post('/users', [UserController, 'store']).meta({ summary: 'Create user', bodyLimit: 2_097_152 }).middleware('audit', 'auth', 'can:user:create', 'bodyLimit')
+```
+
+A per-route throttle bucket without one named limiter per route: put the route pattern in the limiter key — ``perRoute: { max: 20, window: 60, key: ctx => `${ctx.method} ${ctx.route?.path}:${ctx.ip}` }`` in `config/throttle.ts`, then `throttle:perRoute` on each route.
 
 ### Built-in middleware
 
@@ -221,6 +247,7 @@ The bucket key is `throttle:<spec>:<key>`, where `<spec>` is the argument string
 | `ctx.ip` | Client IP; `X-Forwarded-For` only when `app.trustProxy` |
 | `ctx.origin` / `ctx.secure` | e.g. `https://admin.example.com` / is https; `X-Forwarded-Proto`/`-Host` only when `app.trustProxy` |
 | `ctx.method`, `ctx.path`, `ctx.url` (URL), `ctx.req` (Web Request), `ctx.event` (H3Event) | Request info |
+| `ctx.route` | Matched route: `{ method, path, name, meta }` (`path` is the pattern, `/api/users/:id`); `undefined` when no route matched. Use it in route middleware |
 | `ctx.validated` | Output of route `.validate()` |
 | `ctx.requestId`, `ctx.logger`, `ctx.config`, `ctx.startedAt`, `ctx.make(key)` | Request utilities |
 

@@ -75,16 +75,20 @@ describe('events', () => {
     expect(log).toEqual(['stopper'])
   })
 
-  it('registers runtime listeners and propagates errors from sync listeners', async () => {
+  it('registers runtime listeners and isolates errors from sync listeners', async () => {
     await boot()
     const off = Events.on(UserRegistered, ({ userId }) => {
       if (userId === 0)
         throw new Error('invalid user')
       log.push(`runtime:${userId}`)
     })
+    const after = Events.on(UserRegistered, ({ userId }) => void log.push(`after:${userId}`))
     await UserRegistered.emit({ userId: 1 })
     expect(log).toContain('runtime:1')
-    await expect(UserRegistered.emit({ userId: 0 })).rejects.toThrow('invalid user')
+    // 抛错的监听器只记录日志：其余监听器照常执行，emit() 不失败
+    await expect(UserRegistered.emit({ userId: 0 })).resolves.toBeUndefined()
+    expect(log).toContain('after:0')
+    after()
     off()
     log.length = 0
     await UserRegistered.emit({ userId: 2 })

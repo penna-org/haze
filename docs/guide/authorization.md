@@ -183,6 +183,14 @@ gate.fallback((user: AuthUser | undefined, ability) => user?.permissions.include
 
 `await ctx.authorizeAny(['report:export', 'report:manage'])` (and `gate.authorizeAny(user, abilities)`) passes when any of the abilities is granted; the `can:a|b` middleware does the same.
 
+A denied signed-in user gets an `AuthorizationException` (a `ForbiddenException`, status 403) carrying `abilities` (the ability, or every candidate for `authorizeAny`) and `reason` (the `deny()` message, if any). An exception handler can use them to name the missing permission or localize the message:
+
+```ts
+// app/exception/Handler.ts
+if (error instanceof AuthorizationException && !error.reason)
+  return { statusCode: 403, code: 'forbidden', message: `Missing permission: ${error.abilities.join(', ')}` }
+```
+
 ## How a decision is made
 
 1. Global `gate.before()` hooks, then the policy's `before`. The first non-`undefined` result wins.

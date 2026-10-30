@@ -33,9 +33,23 @@ export default defineSchedule((s) => {
 | --- | --- |
 | `s.call(name, fn)` | 执行一个函数 |
 | `s.cron(expression, name, fn)` | 按 cron 表达式执行函数 |
-| `s.job(Job, payload, options?)` | 到期时投递 [队列任务](./queues)。`options` 支持 `delay`、`queue`、`connection` 与 `name`（默认 `job:<任务名>`） |
+| `s.job(Job, payload?, options?)` | 到期时投递 [队列任务](./queues)。没有载荷的任务可以省略 payload（`s.job(PruneTokens)`）。`options` 支持 `delay`、`queue`、`connection`、`afterCommit` 与 `name`（默认 `job:<任务名>`） |
 
 任务名不能重复。没有设置频率的任务每分钟执行一次。
+
+回调的第二个参数是所属应用，条件中可以直接取服务（这里的 `FeatureFlags` 是项目自己的类），不必借助全局：
+
+```ts
+export default defineSchedule((s, app) => {
+  s.job(PruneTokens)
+    .daily()
+    .skip(() => app.make(FeatureFlags).isOff('pruning'))
+})
+```
+
+定时任务在所属应用的上下文中执行：`s.call()` 的函数、`when()` / `skip()` 条件与钩子中的门面（`Queue`、`Events`、`Db`…）、`useApp()`、`config()` 与 `inject()` 都解析到定义它的应用，`s.job()` 投递到这个应用的队列。
+
+`s.job()` 只负责**投递**，任务由队列 worker 执行。它的日志为 `Scheduled job dispatched to the queue`，任务本身的结果见队列日志（`Job "PruneTokens" done in …` 或失败信息）。
 
 ## 频率
 
@@ -99,7 +113,22 @@ s.call('import', () => runImport()).everyFiveMinutes().withoutOverlapping('1h')
 
 两者都基于 [`Cache.lock`](./cache#原子锁)，因此需要一个原子且共享的存储：跨实例请用 `redis` 或 `upstash`（`memory` 只在单个进程内有效）。使用 `kv` 存储会直接报错；可以通过 `config/schedule.ts` 的 `store` 指定其他存储。
 
+::: warning `s.job()` 只锁住投递
+在 `s.job()` 任务上，`withoutOverlapping()` 与 `onOneServer()` 保护的是只需几毫秒的**投递**，而不是任务的执行：任务入队后锁就释放了。要防止任务本身的两次执行重叠（上一次导入还没结束，下一次又投递了），请使用任务中间件 [`withoutOverlapping`](./queues#job-middleware)，或把任务设为[唯一任务](./queues#unique-jobs)：
+
+```ts
+export default defineJob({
+  middleware: [withoutOverlapping()], // 同一时间只执行一个 ImportFeeds，其余放回队列
+  async handle() { /* ... */ },
+})
+```
+
+`s.job()` 任务上的 `onOneServer()` 仍然有用：多个调度器实例不会各自投递一次。
+:::
+
 ## 运行调度器
+
+在 `config/schedule.ts` 中设置 `runInServer: true`，可以在 Web 进程中执行到期的任务，适合开发与单实例部署：HTTP 服务器开始监听时启动，应用释放时停止，测试与命令行不会启动。多实例部署请关闭它，另外运行一个 `schedule:work` 进程（或配合共享存储使用 `onOneServer()`）。
 
 | 环境 | 运行方式 |
 | --- | --- |

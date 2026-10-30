@@ -23,7 +23,13 @@ const UserRegistered = defineEvent<{ userId: number, email: string }>()
 export default UserRegistered
 ```
 
-需要自定义事件名时传入 `{ name }`：`defineEvent<P>({ name: 'user.registered' })`。
+需要自定义事件名时传入 `{ name }`：`defineEvent<P>({ name: 'user.registered' })`。没有载荷的事件（`defineEvent()`，载荷类型为 `void`）调用 `.emit()` 时不传参数。
+
+| 选项 | 说明 |
+| --- | --- |
+| `name` | 事件名，默认取文件名 |
+| `afterCommit` | 在数据库事务中触发时，等最外层事务提交后再执行监听器（与广播），回滚时丢弃，见[事务提交后触发](#after-commit) |
+| `broadcastOn` / `broadcastAs` / `broadcastWith` / `broadcastWhen` | 同时广播事件，见[广播](./broadcasting) |
 
 ## 触发事件
 
@@ -43,7 +49,28 @@ import { Events } from '@hazejs/core'
 await Events.emit(UserRegistered, { userId: user.id, email: user.email })
 ```
 
-`emit()` 会等到所有同步监听器执行完、排队监听器投递完才返回。同步监听器抛出的错误会传给触发方。
+`emit()` 会等到所有同步监听器执行完、排队监听器投递完才返回。
+
+监听器之间相互隔离：某个同步监听器抛错（或排队监听器投递失败）时，以 `error` 级别记录日志（带事件名与监听器名，如 `Listener "SendWelcomeEmail" failed`），其余监听器照常执行，`emit()` 不会失败。需要让调用方失败的检查请放在触发之前，或者不经过事件直接调用。
+
+监听器在触发事件的应用的上下文中执行：其中的门面、`useApp()`、`config()` 与 `inject()` 解析到这个应用，在请求之外也是如此。
+
+### 事务提交后触发 {#after-commit}
+
+在数据库事务中触发的事件，监听器通常在提交之前就执行了，事务回滚时也照样执行。给事件加上 `afterCommit`，整个触发（同步监听器、排队监听器与广播）推迟到最外层事务提交之后，回滚时丢弃；不在事务中时立即触发：
+
+```ts
+// app/event/OrderPlaced.ts
+export default defineEvent<{ orderId: number }>({ afterCommit: true })
+
+// 在服务中
+await Db.transaction(async () => {
+  const order = await Order.create({ ... })
+  await OrderPlaced.emit({ orderId: order.id }) // COMMIT 之后才执行监听器
+})
+```
+
+只需推迟某一次触发时，包一层即可：`await afterCommit(() => OrderPlaced.emit({ orderId }))`（`@hazejs/core` 的 `afterCommit`，或 `@hazejs/orm` 的 `Db.afterCommit`）。推迟执行的监听器出错只记录日志，事务已经提交。需要 `@hazejs/orm`（见[事务](./transactions#after-commit)）；没有数据库包时立即触发。
 
 ## 定义监听器
 
@@ -100,7 +127,15 @@ export default defineListener([OrderPaid, OrderRefunded], async (payload, ctx) =
 
 ### 执行顺序与中止
 
-同步监听器按文件名顺序依次执行。返回 `false` 时，本次触发不再执行后续的同步监听器：
+同步监听器按注册顺序依次执行：
+
+1. [模块](./modules)的监听器，按模块启用的顺序；
+2. 项目 `app/listener` 下的文件，按路径排序（`app/listener/a/X.ts` 先于 `app/listener/b/Y.ts`，可以用 `01-` 这样的文件名前缀明确顺序）；
+3. 运行时用 `Events.on()` 注册的监听器，按注册顺序。
+
+排队监听器在同一顺序中的位置投递。两个同名的监听器文件（例如 `app/listener/Audit.ts` 与 `app/listener/admin/Audit.ts`）会在启动时报错并给出两个文件，因为排队监听器注册为任务 `listener:<名字>`；请重命名其中一个或传入 `{ name }`。
+
+返回 `false` 时，本次触发不再执行后续的同步监听器：
 
 ```ts
 // app/listener/BlockSpam.ts —— 文件名排在其他监听器之前
@@ -112,6 +147,10 @@ export default defineListener(UserRegistered, ({ email }) => {
     return false
 })
 ```
+
+::: warning
+写成 `event => service.handle(event)` 的监听器会返回 `handle()` 的返回值；它可能是 `false`（布尔结果）时，会意外地中止后续的监听器。用代码块（`event => { service.handle(event) }`）或只 `await` 不返回。
+:::
 
 ## 排队监听器
 

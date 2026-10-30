@@ -1863,3 +1863,106 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 
 **已知限制**：连接池按连接名在进程内共享，两个应用对同一连接名使用不同的“自有”配置时会互相替换连接（外部传入的客户端不受影响）；`Db.drizzleSync()` 在读写分离时总是写库；时区依赖启动参数，经过不转发启动参数的连接池时无效。验证过程中机器多次休眠，测试用时出现数十分钟的跳变，判断代码问题时以单独复跑的结果为准。
 
+
+### @hazejs/orm 迁移补齐记录（2026-10-29）
+
+来源：把 ai-admin 约 30 个 Repository 从手写 drizzle 改为 `@hazejs/orm` 时整理的 25 条不足（M32）。
+
+**类型**
+- 根因修复：`TableOf<M>` 改为 `infer T extends Table`，模型相关签名不再写 `TableOf<M> & Table`。交叉类型让 drizzle 的列映射与 `Table` 的 `Record<string, Column>` 合并成字符串索引签名，模型查询上 `ColumnKey` 退化为 `string`、`Row` 退化为 `{ [x: string]: any }`——`User.where('typo', 1)` 能编译、`User.query().column('name')` 为 `any[]`。修复后全仓库 typecheck 无新增错误。
+- 联表可空：没有给 `QueryBuilder` 加类型参数（`ModelQuery` 继承时 `this` 类型无法改写泛型参数，联表后会丢失模型查询的方法），而是让 `join` 系列返回 `this & JoinMarker<已连接表名, 可空表名>`，`field()` 的对象重载用 `this: S` 推导出可空表名，`SelectionResult<F, N>` 按列的 `tableName` 判断。`leftJoin` 标记被连接表，`rightJoin` 标记主表与之前连接的表（`JoinedOf<this>`），`fullJoin` 标记全部。限制：只在同一条链中生效；自连接（同一张表的别名）按表名判断，主表的列也会标为可空（偏保守）。
+- `field({ log: table })`：drizzle 本来支持在选择中放整张表（嵌套对象，外连接全空时为 null），只补了类型。
+- `value()` / `column()`：额外重载接受 `R` 的键（`ResultKey<R>`，模型结果排除），运行时 `pickField()` 沿用 `field()` 定义的表达式。
+- `getData()` 返回 `TRow`；插入值类型 `InsertValues<T>` 允许 `SQL`。
+
+**行为**
+- `where(undefined)` 在 `addCondition()` 中直接忽略（不产生空的条件片段，因此不影响 `hasConditions` 与无条件写入的保护）。
+- `update()` / `delete()` 拆出 `updateStatement()` / `deleteStatement()` / `hardDeleteStatement()`，`toSQL('update' | 'delete')` 复用；模型查询覆盖 `deleteStatement()` 实现软删除（原来覆盖 `delete()`）。drizzle 的查询是 thenable，从 async 函数直接返回会被执行，所以包在 `{ statement }` 中返回。
+- `exists()`：`select 1 … limit 1`，去掉排序；有 union / distinct，或 having 与 field() 同时存在（having 可能引用别名）时仍按原字段读取。
+- `paginate()`：`inTransaction()` 为假时 `Promise.all`；事务中依次执行并在 total 为 0 时不取数据。统计查询本来就不带排序（plain 构造 / 子查询计数时清空 orders），加了测试固定下来。
+- `upsert()`：`update` 为对象时原样作为 SET；`where` 对应 drizzle 的 `setWhere`；MySQL 上 `where` / `returning` 抛 `DatabaseError`。
+- `selectInsert(..., { ignore })`：MySQL 为 `INSERT IGNORE`；PostgreSQL / SQLite 包一层 `select * from (…) where true on conflict do nothing`（SQLite 的 INSERT…SELECT…ON CONFLICT 需要 WHERE 消除语法歧义）。
+- `lock(mode, { skipLocked, noWait })`：交给 drizzle 的 `for(strength, config)`；MySQL 上的 PostgreSQL 专有模式与两项同时使用抛错；SQLite 仍整体忽略。
+- `Model.updateById(id | ids, values)`：一条 UPDATE，写 updatedAt、去掉只读字段、乐观锁版本 `+ 1`（不校验），遵守软删除 / 全局作用域 / 多租户，不触发事件。没有改静态 `update()` / `destroy()` 的“先加载再逐个保存”语义（事件与时间戳依赖它），文档中给出三种写法的选择表；按主键删除已有 `Model.query().delete(id)`。
+- `optimLock`：新建时版本列有默认值（`hasDefault`）就不写 0。
+- `UniqueConstraintException`：`uniqueViolationOf()` 沿 cause 链解析 PostgreSQL（node-postgres / PGlite 的 `constraint` / `table` / `detail`，postgres.js 的 `constraint_name` / `table_name`，列从 detail 的 `Key (…)=` 解析）、MySQL（`for key 'table.key'`）、SQLite / libsql / D1（`UNIQUE constraint failed: t.a, t.b`）、MongoDB（索引名、keyPattern）；`code` 改为 `'unique_violation'`；core 的框架消息新增 `http.unique_violation`，并把默认消息加入 `localizeHttpMessage` 的已知消息表。
+
+**只写文档**：`when()` 的空值规则（另加 `whenDefined()`）、构造器可变、复合主键不支持（模型方法抛错，用 `Db.table()` 与 upsert 的 `target`）、静态 `update` / `destroy` 是 N+1 且非原子、`create()` 的时间戳用应用时钟（没有改为交给 `defaultNow()`：MySQL 需要回查、且会改变已有行为）、批量写不维护模型时间戳但 drizzle 的 `$onUpdate` 生效、联表不写 `field()` 时按 SQL 表名分组而类型仍为主表行（改类型需要在每个读取方法上推导 `this`，成本高，文档要求联表时总是写 `field()`）。
+
+**测试**：新增 `packages/orm/test/porting.test.ts`（sqlite / D1 / PGlite，设置 `HAZE_TEST_MYSQL_URL` / `HAZE_TEST_TURSO_URL` 时也跑 MySQL / Turso），含 `expectTypeOf` 类型断言（由 `pnpm typecheck` 检查）；`orm.test.ts` / `mongo.test.ts` 的唯一约束用例补充 code 与约束信息断言；core `i18n.test.ts` 覆盖 `unique_violation` 的翻译。
+
+**已知限制**：联表可空类型依赖链式调用；`ResultKey` 对 `field('a as b')` 这类字符串字段是 `string`（结果类型本身就是 `Record<string, any>`）；MySQL 上 upsert / update 不支持 returning；SQLite 忽略全部锁选项。
+
+
+### 队列、定时任务与事件补齐记录（2026-10-29）
+
+来源：ai-admin 迁移第三阶段（M32）整理的 14 条不足（队列 / 定时任务 / 事件）。
+
+**应用上下文（第 2 条）**
+- `request.ts` 新增 `runInApp(app, fn)`、`getContextApp()`、`getContextContainer()`：一个挂在 `globalThis`（`Symbol.for('hazejs.app-scope')`）上的 AsyncLocalStorage，core 的多份模块实例共用。进入时记录当时所处的请求；解析时如果之后又进入了别的请求（`scope.request !== 当前请求`），由请求决定，否则由 `runInApp` 指定的应用决定（与请求同属一个应用时仍取请求的子容器，`useContext()` 等不受影响）。
+- 原来用 `getRequestStore()?.container` / `?.app` 解析的门面（Queue、Events、Cache、Mail、Storage、Notification、Broadcast、Redis、Http、I18n、Maintenance、Tenancy、视图、`inject()`、`useApp()`、`config()`）统一改为 `getContextContainer()` / `getContextApp()`；`config()` 在 `runInApp` 指定了别的应用时取该应用的配置。orm 的 `currentDatabaseManager()` 改用 `getContextApp()`。
+- 框架包裹的位置：`QueueManager.process()`（所有驱动、`Queue.fake().drain()`、Cloudflare `handleBatch` 都经过它）、`Scheduler.runTask()`（条件、函数、钩子）与 `Scheduler.tasks()`（defineSchedule 的回调）、`EventManager.emit()`（同步监听器；排队监听器作为任务执行时由 process 包裹）。
+
+**命令行取 core（第 1 条）**
+- 根因：`server.import('@hazejs/core')` 没有 importer，Vite 的 `fetchModule` 把它当作入口在 module runner 中内联执行；应用代码中的同一导入有 importer，依赖被外部化时（安装在 node_modules 中）由 Node 原生加载。两份实例的类不相等，`app.make(runnerCore.Scheduler)` 自动构造出没有 app 的 Scheduler。monorepo 中 workspace 链接的包不会被外部化，所以测试一直没有发现。
+- 修复：`packages/cli/src/app-import.ts` 的 `importFromApp()` / `appCore()`：先用 runner 取 core，`server.app instanceof core.Application` 不成立时说明应用的依赖由 Node 原生加载，改为从项目根目录 `createRequire(...).resolve()` 后原生导入。worker（queue:* / schedule:*）、maintenance、console、repl（含 Db）、openapi、db:migrate、microservice、search 的包导入都改用它。没有改 packages/vite 的 host（另一会话在改 dev.ts / plugin.ts）。
+- 测试：`packages/cli/test/worker.test.ts` 用 `haze.config.ts` 的 `vite.ssr.external: ['@hazejs/core']` 模拟外部化，跑 `schedule:list` / `schedule:run` / `queue:failed`。
+
+**事务提交后（第 3 条）**
+- core `transaction.ts`：`registerAfterCommitHandler(handler)`（globalThis 上的集合）、`deferUntilCommit(fn, logger?)`、`afterCommit(fn)`。core 不依赖 orm：handler 返回 true 表示已登记。推迟执行的回调由 core 包一层，错误只记日志。
+- orm：`TxState.callbacks`；`deferAfterCommit()` 登记到当前上下文中每个连接的最内层事务（`Db.connection(x).afterCommit()` 只看该连接），多连接时全部提交才执行、任一回滚即丢弃（计数 + discarded 标记）。保存点提交时移交外层，回滚时丢弃；最外层提交后在 `Db.transaction()` / `Db.commit()` 返回前依次执行，执行时已经离开事务上下文。`transaction()` 现在在结束后把状态标记为 closed（原来只有手动事务会标记），之后残留的异步延续不会再使用已结束的事务对象。`joinTransaction()` 加入的外部事务没有外层时，以回调成功返回视为提交。模块加载时注册 handler（重复注册无影响）。
+- 任务：`defineJob({ afterCommit })`、`DispatchOptions.afterCommit`、`PendingJob.afterCommit(enabled = true)`；只作用于直接投递（`dispatch` / `dispatchPending`），任务链后续、批量成员、回调不受影响。推迟时先生成消息 ID 返回 `{ id, skipped: false, deferred: true }`，唯一锁到真正投递时才检查。判断在 fake 之前，`Queue.fake()` 提交后才记录。
+- 事件：`defineEvent({ afterCommit })` 推迟整个 emit（含广播）。没有做监听器级别的 afterCommit（需要时用 `afterCommit(() => …)` 包住）。
+
+**其它**
+- 第 4 条：`defineSchedule((s, app) => …)`；`Schedule` 构造器新增可选的 `dispatch`，Scheduler 传入所属应用的 `QueueManager.dispatch`。
+- 第 5 条：选择“记录日志并继续”，emit 不再因监听器失败而 reject（行为变化，旧测试“propagates errors”改为隔离）。排队监听器投递失败同样隔离。监听器 logger 带 `listener` 字段。顺序写进文档：模块 → 项目（按路径排序，`normalizeModules` 的 localeCompare）→ `Events.on()`。
+- 第 6 条：任务成功 debug 日志 `Job "<name>" done in Xms (attempt a/t)`；`s.job()` 的成功日志改为 `Scheduled job dispatched to the queue`，失败为 `Scheduled job could not be dispatched`。
+- 第 7 条：`DispatchArgs<P, O>` / `WithArgs<P>`：`unknown extends P`（没有声明载荷）或 `[P] extends [void | undefined]` 时载荷可选；`Queue.dispatch`、`QueueManager.dispatch`、`Job.dispatch` / `Job.with`、`s.job` 使用。`toJson(undefined)` 保持 undefined（原来变成 null）。事件同样加了 `EmitArgs`。
+- 第 8 条：`normalizeModules` / `moduleEntries` 的条目带第三项来源（glob 路径；模块的条目为 `module "<name>" (<路径>)`），`QueueManager.register(job, name, source)`、`EventManager.registerListener(listener, name, source)` 遇到不同定义同名时报错并给出两个来源；同一定义重复注册忽略。`app.discovered()` 仍只返回两项。
+- 第 9 条：`registerInProcessWorkers` 按连接驱动判断：sync 记一次警告并跳过，memory 只有指定了其它队列或并发数时才启动 worker；启动失败记录错误而不是未处理的 rejection。`QueueManager.work()` 对 sync 连接直接抛出清楚的错误。
+- 第 10 条：唯一任务投递时，缓存存储驱动为 memory 且连接不是 sync / memory 时，每个（存储, 连接）提示一次。
+- 第 11 条：实际原因不是循环引用：ai-admin 是 `"type": "module"` + `moduleResolution: "nodenext"`，生成的 `typeof import("../../config/redis")` 不带扩展名解析失败（skipLibCheck 隐藏了错误），`GeneratedConfig.redis` 为 any，旧的 `RedisConnectionName = GeneratedConfig extends { redis: { connections: infer C } } ? keyof C & string : string` 从 any 推断出 `C = unknown`，`keyof unknown` 为 never，于是 `connection: 'default'` 报“string 不能赋给 undefined”。修复：(1) typegen 生成的配置与策略导入带文件扩展名（TS 允许类型导入带 `.ts`，nodenext 与 bundler 都能解析）；(2) 连接名单独生成到 `GeneratedRedisConnections { connections: … }`，不再经过整个 GeneratedConfig，解析失败时退化为 string；(3) `defineCacheConfig` 的约束改为 `Record<string, CacheStoreConfig | undefined>`（`CacheConfigInput<S>`），按条件展开的存储可以通过类型检查，`CacheRepositoryFor` 对存储配置取 `NonNullable`。
+- 文档（第 12–14 条）：`s.job()` 的 `withoutOverlapping()` / `onOneServer()` 只锁投递；sync 连接的语义与用 `Queue.fake()` + `drain()` 测试延迟与放回；`retryAfter` 按连接、长任务放单独连接、BullMQ 的 stalled 检测、任务需幂等。没有实现按任务的 retryAfter / 心跳续租（可选项）。
+
+**测试**：core `queue-context.test.ts`（两个应用时任务 / 监听器 / 定时任务的门面解析、`runInApp`、`defineSchedule` 的 app 参数与 `s.job` 投递到所属应用、无载荷投递与类型、成功 debug 日志、重名报错、监听器错误隔离、监听器顺序、用模拟事务钩子测 afterCommit 与 fake、runInServer 跳过 sync / memory、唯一任务 memory 存储警告、sync 连接拒绝 work）；`events.test.ts` 改为错误隔离；orm `after-commit.test.ts`（sqlite 与 PGlite：立即执行、保存点移交与丢弃、回滚、手动事务、回调出错、joinTransaction；两个应用时任务中的 Db 解析到所属应用、任务与事件的 afterCommit、fake）；vite `typegen.test.ts` 用 TypeScript 编译器 API（nodenext + ESM）检查 `connection: 'default'`、条件展开的存储与错误连接名；cli `worker.test.ts`。
+
+**已知限制**：应用上下文只覆盖框架包裹的入口，应用自己 `setTimeout` / 事件发射器回调中的代码仍按“继承创建时的异步上下文”解析；afterCommit 不覆盖 MongoDB 事务与 D1；`joinTransaction()` 中的回调在外部真正提交前执行；listener 级别的 afterCommit 未实现；按任务的 retryAfter 未实现。
+
+### M32 实施记录（2026-10-30）：用 ai-admin 验证整体框架
+
+目标：ai-admin 的后端（约 3.2 万行、292 条路由、403 个用例）在第一轮迁移（只换内核）之后，**整体**按 hazejs 的规范重建——目录结构、`inject()`、路由、JWT 与权限、socket.io、`@hazejs/orm`、队列 / 定时任务 / 事件、`haze` 工具链与 docker 预设——并在 Docker 中做完整的端到端验证。框架的不足当场在 hazejs 中修复（测试、中英文文档、changeset），而不是在应用中绕过。
+
+**ai-admin 的结果**
+- 结构：`app/`（provider、exception、middleware、command、socket、support、shared）、`config/`、`database/`、`modules/<模块>/`（18 个本地模块：`module.ts` + `route/` + `app/{provider,job,event,listener}` + `schedule/` + 功能目录）。旧的按名称注入的容器、`defineModule` 与路由表适配器全部删除；业务类用 `inject()`，测试与种子数据用 `app.make(Class)`。
+- 路由：`r.group` + `[Controller, 'action']`，应用的 `endpoints(tag)` 把一条声明（参数、返回值、权限码、限流、演示模式、操作日志）转换为 `.validate()` / `.doc()` / `.meta()` / 路由中间件。操作日志、演示模式、请求体上限、返回值编码（VO）是读取 `ctx.route.meta` 的别名中间件。292 条路由与原来逐条一致（方法、路径、中间件链）。
+- 认证与权限：`config/auth.ts` 的 JWT Guard，`resolveUser` 复用原来的会话校验（组织由请求头决定）；权限码交给 `Gate.fallback`；`can:<码>` 中间件。异常处理器把框架的 401 / 403（`AuthorizationException`）转换为原来的错误码与中英文消息。
+- 实时推送：`@hazejs/socket.io`（`app/socket/index.ts` + `authenticate({ headers })`），配置 `REDIS_URL` 时用 Redis 适配器。
+- 数据层：32 个模型、29 个 Repository 使用 `Db.table()` / 模型；统计、递归、审批引擎的存储、skip locked 的队列等复杂 SQL 保留 drizzle。
+- 后台工作：审批超时、文件维护、AI 审核、业务回调（webhook）、生视频轮询改为队列任务 + 定时任务 + 事件监听器；业务记录的写回仍与审批在同一事务中。单进程（开发、内存演示库）用 `runInServer`，生产为独立的 queue / scheduler 容器。
+- 验证：410 个用例（新增 7 个）全部通过；`tsc`、lint 无错误。
+
+**框架补齐（本里程碑内）**
+- 核心：`AuthorizationException`（带被拒绝的能力）、`ctx.route`（匹配到的路由与 meta）、`app.onBooted()`、内联中间件按 `名称()` 显示（OpenAPI 不再误判为 `guest` / `auth`）、`schedule.runInServer` / `queue.runInServer`、`serve()` 的优雅退出在长连接存在时不再挂起（`app.shutdownTimeout`）。
+- 工具链：只有引入 `@hazejs/vite` 的 vite.config 才视为全栈项目；构建前清空输出目录；`route:list --json` 的 stdout 只有 JSON；生产 `migrate.mjs` 不再为没有迁移的本地模块输出误导的行。
+- ORM：见“@hazejs/orm 迁移补齐记录”（25 条，含一个让模型查询的列类型退化为 any 的根因）以及 `Model.update()` 的数据允许主键（严格类型之后的回归）。
+- 队列、定时任务与事件：见“队列、定时任务与事件补齐记录”（14 条，含 CLI 加载两份 core、任务与监听器的应用上下文、`afterCommit`）。
+
+**Docker 端到端验证**（colima，4 CPU / 8GB）
+- 镜像：多阶段构建（前端 + `haze build` docker 预设，运行时依赖取自 `dist/package.json`），481MB，构建约 17 分钟（含前端类型检查与构建）。
+- 拓扑：postgres 17 + redis 7 + 一次性的 migrate（`migrate.mjs` + `worker.mjs command db:init`）+ web + queue（`worker.mjs queue`）+ scheduler（`worker.mjs schedule`）。本机没有 docker compose，用等价的 `docker run` 脚本验证，compose 文件在 ai-admin 的 deploy/。
+- 空库到全部就绪 11 秒；66 个迁移；再次执行 0 个；重启 Web 后令牌仍有效、1 秒就绪。
+- 浏览器登录、仪表盘；审批的实时通知；AI 审核任务在 queue 容器中执行、通知经 Redis 适配器推到连在 Web 容器上的浏览器（徽标 6 → 7 并弹出提示）；文件上传、整文件下载、Range 206、ETag 304；对话 SSE 首包 11ms。
+
+**Docker 验证中发现的问题**
+1. `migrate.mjs` 启动整个应用：提供者在 boot 中查询的表在空库中还不存在。ai-admin 改为表存在时才载入系统设置缓存。**未修**：框架应让提供者知道自己运行在迁移中（或先迁移再启动提供者）。
+2. 生产产物没有 `seed` 入口（`haze db:seed` 的 database/seeders 不进构建产物）；ai-admin 用应用命令 `db:init`。**未修**：需要改 vite 插件（另一会话正在修改该文件）。
+3. `serve()` 收到 SIGTERM 后 `server.close()` 等待所有连接，浏览器的 WebSocket 让进程一直不退出，直到被编排平台强制结束。已修（`shutdownTimeout`）。
+4. 迁移日志对没有迁移的本地模块输出 `[main] skipped`。已修。
+
+**已知限制 / 后续**
+- 多个应用实例共享进程级的 socket.io 状态（测试中第二个应用复用第一个的 io）。
+- `Model.create()` 的时间戳用应用时钟；需要数据库时钟的地方显式写 `sql\`now()\``。
+- 业务记录写回依赖审批引擎自己的事务（没有经过 ORM 的事务上下文），因此没有改成 `afterCommit` 事件；`Db.joinTransaction` 中注册的 `afterCommit` 在回调结束时执行，早于外部库真正提交，ai-admin 保留了包装引擎 commit 的写法。
+- 监听器返回 `false` 会中止后续监听器：`({ changes }) => service.queueDelivery(changes)` 这种写法在服务返回布尔值时会意外中止（ai-admin 的测试发现），文档已加提示。
+- `join()` 的条件参数仍要求 `SQL`（不接受 undefined）。

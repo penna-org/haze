@@ -60,16 +60,18 @@ export function unwrapDefault<T>(mod: unknown): T {
 }
 
 /** 把 `import.meta.glob` 记录或数组统一成 `[name, value][]`，name 为不带扩展名的文件名 */
-export function normalizeModules<T>(input: T[] | ModuleRecord | undefined): Array<[name: string | undefined, value: T]> {
+export function normalizeModules<T>(input: T[] | ModuleRecord | undefined): Array<[name: string | undefined, value: T, source?: string]> {
   if (!input)
     return []
   if (Array.isArray(input))
     return input.map(value => [undefined, value])
+  // 按路径排序（发现的文件即按文件路径的字母顺序注册），第三项为路径（重名时用于报错）
   return Object.entries(input)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([path, mod]) => [
       basename(path),
       unwrapDefault<T>(mod),
+      path,
     ])
 }
 

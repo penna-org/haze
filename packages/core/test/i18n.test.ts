@@ -3,7 +3,7 @@ import type { LangInput, TranslationPath } from '../src/i18n/manager'
 import * as v from 'valibot'
 import { afterAll, describe, expect, expectTypeOf, it } from 'vitest'
 import { z } from 'zod'
-import { createApplication, defineMail, defineRoutes, ForbiddenException, Mail, MailManager, NotFoundException, validate } from '../src'
+import { ConflictException, createApplication, defineMail, defineRoutes, ForbiddenException, Mail, MailManager, NotFoundException, validate } from '../src'
 import { I18n, I18nManager, setI18nManager, t } from '../src/i18n/manager'
 
 const lang: LangInput = {
@@ -320,6 +320,10 @@ describe('exception messages', () => {
     r.get('/keyed', () => {
       throw new NotFoundException('admin.users.title')
     })
+    // @hazejs/orm 的 UniqueConstraintException 的默认消息
+    r.get('/duplicate', () => {
+      throw new ConflictException('数据已存在（违反唯一约束）', { code: 'unique_violation' })
+    })
     r.get('/limited', () => ({ ok: true })).middleware('throttle:1,60')
   }, { config: i18nConfig })
 
@@ -337,6 +341,8 @@ describe('exception messages', () => {
     expect(await message('/nope', 'zh-CN')).toEqual([404, '找不到与 [GET] /nope 匹配的路由'])
     expect(await message('/custom', 'zh-CN')).toEqual([404, 'Post 42 is gone'])
     expect(await message('/keyed', 'zh-CN')).toEqual([404, '用户管理'])
+    expect(await message('/duplicate', 'en')).toEqual([409, 'The record already exists.'])
+    expect(await message('/duplicate', 'zh-CN')).toEqual([409, '数据已存在（违反唯一约束）'])
     await (await app).request('/limited')
     expect(await message('/limited', 'en')).toEqual([429, 'Too Many Requests'])
   })

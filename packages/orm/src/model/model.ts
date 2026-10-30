@@ -1,5 +1,6 @@
 import type { Table } from 'drizzle-orm'
 import type { TransactionConfig } from '../context'
+import type { InsertValues, UpdateValues } from '../query/builder'
 import type { WhereCondition, WhereObject } from '../query/conditions'
 import type { AnyDatabase, ColumnKey, Insert, Operator, Paginated, Row } from '../types'
 import type { ModelSettings, TimestampOptions } from './meta'
@@ -17,7 +18,7 @@ import { ActiveRecord } from './record'
 import { BelongsToMany, defaultKey, HasManyThrough, HasOneThrough } from './relations'
 
 /** 通过品牌属性读取模型的表类型（避免结构比较时展开关联类型导致循环） */
-export type TableOf<M> = M extends { readonly '~table': infer T } ? T : never
+export type TableOf<M> = M extends { readonly '~table': infer T extends Table } ? T : never
 
 /**
  * 泛型约束只检查品牌属性：用 `M extends Model` 会做结构比较，
@@ -29,7 +30,7 @@ export interface ModelLike { readonly '~table': any }
 export type ModelClass<M extends ModelLike = Model<any>> = (new () => M) & ModelSettings
 
 type WhereArgs<T extends Table>
-  = | [condition: WhereCondition<T>]
+  = | [condition: WhereCondition<T> | undefined]
     | [column: ColumnKey<T>, value: unknown]
     | [column: ColumnKey<T>, operator: Operator, value: unknown]
 
@@ -122,15 +123,15 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return new ModelQuery(this)
   }
 
-  static where<M extends ModelLike>(this: ModelClass<M>, ...args: WhereArgs<TableOf<M> & Table>): ModelQuery<M> {
+  static where<M extends ModelLike>(this: ModelClass<M>, ...args: WhereArgs<TableOf<M>>): ModelQuery<M> {
     return (new ModelQuery(this).where as (...a: unknown[]) => ModelQuery<M>)(...args)
   }
 
-  static whereIn<M extends ModelLike, K extends ColumnKey<TableOf<M> & Table>>(this: ModelClass<M>, column: K, values: ReadonlyArray<Row<TableOf<M> & Table>[K]>): ModelQuery<M> {
+  static whereIn<M extends ModelLike, K extends ColumnKey<TableOf<M>>>(this: ModelClass<M>, column: K, values: ReadonlyArray<Row<TableOf<M>>[K]>): ModelQuery<M> {
     return new ModelQuery(this).whereIn(column, values)
   }
 
-  static order<M extends ModelLike>(this: ModelClass<M>, column: ColumnKey<TableOf<M> & Table>, direction: 'asc' | 'desc' = 'asc'): ModelQuery<M> {
+  static order<M extends ModelLike>(this: ModelClass<M>, column: ColumnKey<TableOf<M>>, direction: 'asc' | 'desc' = 'asc'): ModelQuery<M> {
     return new ModelQuery(this).order(column, direction)
   }
 
@@ -205,8 +206,8 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return transaction(callback, this.connection, config)
   }
 
-  /** 创建并保存（会触发事件与时间戳）；allowField 限制可写入的字段 */
-  static async create<M extends ModelLike>(this: ModelClass<M>, data: Partial<Insert<TableOf<M> & Table>>, allowField?: Array<ColumnKey<TableOf<M> & Table>>): Promise<M> {
+  /** 创建并保存（会触发事件与时间戳）；allowField 限制可写入的字段。值可以是 drizzle SQL 表达式 */
+  static async create<M extends ModelLike>(this: ModelClass<M>, data: Partial<InsertValues<TableOf<M>>>, allowField?: Array<ColumnKey<TableOf<M>>>): Promise<M> {
     const model = new this()
     const record = model as unknown as Model
     if (allowField)
@@ -220,7 +221,7 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
    * 逐条更新（触发事件与时间戳），返回更新的数量：
    * `User.update({ status: 0 }, { role: 'guest' })`，或按数据中的主键 `User.update({ id: 1, name: 'Ada' })`
    */
-  static async update<M extends ModelLike>(this: ModelClass<M>, data: Partial<Insert<TableOf<M> & Table>>, where?: WhereCondition<TableOf<M> & Table>): Promise<number> {
+  static async update<M extends ModelLike>(this: ModelClass<M>, data: Partial<Insert<TableOf<M>>> & Partial<Row<TableOf<M>>>, where?: WhereCondition<TableOf<M>>): Promise<number> {
     const key = defaultKey(this as unknown as RecordClass)
     const { [key]: id, ...values } = data as Record<string, unknown>
     const query = new ModelQuery(this)
@@ -236,8 +237,36 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return models.length
   }
 
+  /**
+   * 按主键直接更新：一条 UPDATE，不先读取模型（适合大字段的表），返回影响行数：
+   * `await Article.updateById(1, { title: 'New' })`、`updateById([1, 2], { status: 0 })`
+   *
+   * 维护 updatedAt、忽略只读字段、乐观锁版本加 1，遵守软删除 / 全局作用域 / 多租户；
+   * 不触发模型事件，也不检查乐观锁版本。值为 undefined 的键忽略
+   */
+  static async updateById<M extends ModelLike>(this: ModelClass<M>, id: unknown, data: UpdateValues<TableOf<M>>): Promise<number> {
+    const meta = metaOf(this as unknown as ModelSettings)
+    const key = meta.primaryKey
+    if (!key)
+      throw new DatabaseError(`${this.name} has no single-column primary key`)
+    const readonly = (this as unknown as typeof Model).readonly
+    const values = Object.fromEntries(Object.entries(data).filter(([name, value]) => value !== undefined && name in meta.columns && name !== key && !readonly.includes(name)))
+    if (!Object.keys(values).length)
+      throw new DatabaseError(`${this.name}.updateById() called without data`)
+    if (meta.updatedAt && values[meta.updatedAt] === undefined)
+      values[meta.updatedAt] = nowFor(meta.columns[meta.updatedAt])
+    if (meta.lockVersion && values[meta.lockVersion] === undefined)
+      values[meta.lockVersion] = sql`${meta.columns[meta.lockVersion]} + 1`
+    const query = new ModelQuery(this)
+    if (Array.isArray(id))
+      query.whereIn(key as never, id as never)
+    else
+      query.where(key as never, id as never)
+    return query.update(values)
+  }
+
   /** 批量保存（在事务中）：带主键且存在的更新，其余新增 */
-  static async saveAll<M extends ModelLike>(this: ModelClass<M>, list: Array<Partial<Insert<TableOf<M> & Table>>>): Promise<M[]> {
+  static async saveAll<M extends ModelLike>(this: ModelClass<M>, list: Array<Partial<Insert<TableOf<M>>>>): Promise<M[]> {
     const key = defaultKey(this as unknown as RecordClass)
     return atomically(async () => {
       const saved: M[] = []
@@ -258,14 +287,14 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
    * 逐个删除（触发事件与软删除），返回删除数量：
    * `destroy(1)`、`destroy([1, 2])`、`destroy({ status: 0 })`、`destroy(q => q.where('age', '<', 18))`
    */
-  static destroy<M extends ModelLike>(this: ModelClass<M>, condition: ((query: ModelQuery<M>) => unknown) | WhereObject<TableOf<M> & Table>): Promise<number>
+  static destroy<M extends ModelLike>(this: ModelClass<M>, condition: ((query: ModelQuery<M>) => unknown) | WhereObject<TableOf<M>>): Promise<number>
   static destroy<M extends ModelLike>(this: ModelClass<M>, ids: unknown): Promise<number>
   static async destroy<M extends ModelLike>(this: ModelClass<M>, ids: unknown): Promise<number> {
     const query = new ModelQuery(this)
     if (typeof ids === 'function')
       ids(query)
     else if (isPlainObject(ids))
-      query.where(ids as WhereObject<TableOf<M> & Table>)
+      query.where(ids as WhereObject<TableOf<M>>)
     else
       query.whereIn(defaultKey(this as unknown as RecordClass) as never, ([] as unknown[]).concat(ids) as never)
     const models = await query.select()
@@ -320,7 +349,8 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
         if (key && this.$attributes[key] == null)
           this.$attributes[key] = nowFor(meta.columns[key])
       }
-      if (meta.lockVersion && this.$attributes[meta.lockVersion] == null)
+      // 乐观锁版本：没有赋值时交给列的默认值（例如 default(1)），列没有默认值时写 0
+      if (meta.lockVersion && this.$attributes[meta.lockVersion] == null && !meta.columns[meta.lockVersion].hasDefault)
         this.$attributes[meta.lockVersion] = 0
       for (const [key, step] of Object.entries(this.$increments))
         this.$attributes[key] = Number(this.$attributes[key] ?? 0) + step

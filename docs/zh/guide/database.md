@@ -320,7 +320,8 @@ export class OrderRepository {
 
 ::: tip 防误操作
 - 不带任何条件的 `update()` / `delete()` 会直接报错，确实要改整张表时传 `{ all: true }`。
-- 各数据库的唯一约束冲突都会统一转换为 `UniqueConstraintException`，响应 `409`。
+- 各数据库的唯一约束冲突都会统一转换为 `UniqueConstraintException`，响应 `409`，`code` 为 `'unique_violation'`；异常带有驱动给出的 `constraint`、`table`、`columns` 与 `detail`（见[模型 → 异常](./models#异常)）。
+- 查询构造器是可变的：每次查询新建一个，不要从共用的基础查询上分支（见[查询构造器](./query-builder)）。
 :::
 
 ## 事务
@@ -332,7 +333,7 @@ await Db.transaction(async () => {
 })
 ```
 
-回调内通过 `Db` 和 `Model` 发起的查询都会自动加入这个事务。手动的 `Db.startTrans()` / `Db.commit()` / `Db.rollback()`、嵌套事务（保存点）、隔离级别与行锁见[事务](./transactions)。
+回调内通过 `Db` 和 `Model` 发起的查询都会自动加入这个事务。手动的 `Db.startTrans()` / `Db.commit()` / `Db.rollback()`、嵌套事务（保存点）、隔离级别、行锁与 `Db.afterCommit()`（提交后再执行代码、投递任务或触发事件）见[事务](./transactions)。
 
 ## 多个连接
 
@@ -365,7 +366,7 @@ export class Event extends Model.define(events) {
 
 ### 同一进程中的多个应用
 
-每个应用由 `databaseProvider()` 创建自己的 `DatabaseManager`。请求内的 `Db` 与模型使用处理该请求的应用的连接；请求之外（队列任务、定时器、脚本）使用最近启动的应用，应用关闭后恢复为之前的应用。多个应用同时运行时（通常是测试），用 `Db.withManager()` 把请求之外的代码固定到某个应用：回调中的一切（包括其中创建的定时器与 Promise）都使用这个 DatabaseManager，事务也按 DatabaseManager 区分，两个应用的同名连接不会共用一个事务：
+每个应用由 `databaseProvider()` 创建自己的 `DatabaseManager`。请求内的 `Db` 与模型使用处理该请求的应用的连接；队列任务、定时任务与事件监听器同样在所属应用的上下文中执行，其中的 `Db` 无需任何设置即使用该应用的连接。其它请求之外的代码（定时器、脚本）使用最近启动的应用，应用关闭后恢复为之前的应用。多个应用同时运行时（通常是测试），用 `@hazejs/core` 的 `runInApp(app, fn)`（同时固定其它门面、`useApp()` 与 `config()`）或 `Db.withManager()` 把这类代码固定到某个应用：回调中的一切（包括其中创建的定时器与 Promise）都使用这个 DatabaseManager，事务也按 DatabaseManager 区分，两个应用的同名连接不会共用一个事务：
 
 ```ts
 import { DatabaseManager, Db } from '@hazejs/orm'

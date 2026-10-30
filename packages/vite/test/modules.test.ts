@@ -57,10 +57,10 @@ describe('modules', () => {
     const types = readFileSync(join(root, '.haze/types/haze.d.ts'), 'utf8')
     expect(types).toContain('"blog.posts.show": { id: string | number }')
     expect(types).toContain('"news.latest": Record<never, never>')
-    expect(types).toContain('"blog": ConfigValue<typeof import("../../config/blog").default>')
+    expect(types).toContain('"blog": ConfigValue<typeof import("../../config/blog.ts").default>')
     // 本地模块的配置文件：项目没有同名配置时加入（模块包的配置类型由包自己的声明扩充提供）
     expect(types).not.toContain('modules/blog/config/blog')
-    expect(types).toContain('"feed": ConfigValue<typeof import("../../modules/blog/config/feed").default>')
+    expect(types).toContain('"feed": ConfigValue<typeof import("../../modules/blog/config/feed.ts").default>')
 
     // 修改本地模块
     let reloaded = nextReload(dev)

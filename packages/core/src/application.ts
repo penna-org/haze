@@ -47,12 +47,13 @@ import { disposePersistent } from './persistent'
 import { setQueueManager } from './queue/context'
 import { QueueManager } from './queue/manager'
 import { RedisManager, setRedisManager } from './redis/manager'
-import { getRequestStore, runInRequest } from './request'
+import { getContextApp, getRequestStore, runInRequest } from './request'
 import { Router } from './routing/router'
 import { Scheduler } from './schedule/scheduler'
+import { registerInProcessWorkers } from './server/in-process'
 import { setStorageManager, StorageManager } from './storage/manager'
 import { tenancyMiddleware } from './tenancy/manager'
-import { isClass, isModuleRecord, normalizeModules, toJsonSafe } from './utils'
+import { isClass, isModuleRecord, normalizeModules, parseDuration, toJsonSafe } from './utils'
 import { isViewNode } from './view/jsx'
 import { renderViewResponse } from './view/view'
 import { webSocketConfig, webSocketPlugin } from './websocket/server'
@@ -146,6 +147,8 @@ export class Application {
   #appModules = new Map<string, EnabledApp>()
   #h3: H3 | undefined
   #booted = false
+  readonly #bootedCallbacks: Array<(app: Application) => unknown> = []
+  #stopWorkers: (() => Promise<void>) | undefined
 
   constructor(options: ApplicationOptions = {}) {
     this.#options = options
@@ -163,6 +166,17 @@ export class Application {
 
   get booted(): boolean {
     return this.#booted
+  }
+
+  /**
+   * 全部提供者 boot 完成后执行（按注册顺序）；已经启动完成时立即执行。
+   * 模块的提供者先于项目的提供者启动，需要项目提供者准备好的资源（如已建立的数据库连接）时用它推迟
+   */
+  async onBooted(callback: (app: Application) => unknown): Promise<void> {
+    if (this.#booted)
+      await callback(this)
+    else
+      this.#bootedCallbacks.push(callback)
   }
 
   fetch(request: Request): Promise<Response> {
@@ -230,8 +244,8 @@ export class Application {
     setHttpManager(http)
     // 队列与定时任务
     const queue = new QueueManager(this)
-    for (const [name, job] of this.#items('jobs', options.jobs))
-      queue.register(job as never, name)
+    for (const [name, job, source] of this.#items('jobs', options.jobs))
+      queue.register(job as never, name, source)
     this.container.instance(QueueManager, queue)
     setQueueManager(queue, QueueManager)
     // 多语言：config/i18n.ts + lang/<locale>/*.ts（邮件渲染会用到，先于邮件创建）
@@ -252,8 +266,8 @@ export class Application {
     setEventManager(events, EventManager)
     for (const [name, event] of this.#items('events', options.events))
       events.registerEvent(event, name)
-    for (const [name, listener] of this.#items('listeners', options.listeners))
-      events.registerListener(listener, name)
+    for (const [name, listener, source] of this.#items('listeners', options.listeners))
+      events.registerListener(listener, name, source)
     // 广播：app/channel 的频道授权，内置接口位于 /broadcasting
     const broadcast = new BroadcastManager(this)
     this.container.instance(BroadcastManager, broadcast)
@@ -285,9 +299,15 @@ export class Application {
     await options.setup?.(this)
     for (const provider of this.#providers)
       await provider.boot?.(this)
+    // 回调中再注册的回调同样执行
+    while (this.#bootedCallbacks.length)
+      await this.#bootedCallbacks.shift()!(this)
 
     // 5. HTTP 内核
     this.#h3 = this.#createH3()
+    // 进程内的定时任务与队列消费（runInServer）：服务器开始监听时启动
+    if (this.mode !== 'test')
+      this.#stopWorkers = registerInProcessWorkers(this)
     this.#booted = true
     // 记录最近启动的应用，供请求之外的 useApp() / config() 使用
     // eslint-disable-next-line ts/no-this-alias
@@ -317,11 +337,22 @@ export class Application {
         ...(options.plugins ?? []),
       ],
     })
-    const shutdown = async (): Promise<void> => {
-      await server.close()
+    let stopping: Promise<void> | undefined
+    const shutdown = (): Promise<void> => stopping ??= (async () => {
+      // 停止监听，等待在途请求；WebSocket、SSE 与 keep-alive 的长连接不会自己结束：超过 shutdownTimeout 后强制断开
+      const timeout = parseDuration(this.config.get<string | number>('app.shutdownTimeout', 10))
+      this.logger.info(`Shutting down (waiting up to ${timeout}s for in-flight requests)`)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        server.close(),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => void server.close(true).then(resolve, resolve), timeout * 1000)
+        }),
+      ])
+      clearTimeout(timer)
       await this.dispose({ reason: 'shutdown' })
       process.exit(0)
-    }
+    })()
     process.once('SIGINT', shutdown)
     process.once('SIGTERM', shutdown)
     return server
@@ -332,7 +363,7 @@ export class Application {
     return [
       ...this.#modules.flatMap(module => moduleDiscovered(module, name)),
       ...normalizeModules<unknown>(this.#options.discovered?.[name] as unknown[] | ModuleRecord | undefined),
-    ] as Array<[string | undefined, T]>
+    ].map(([key, value]) => [key, value]) as Array<[string | undefined, T]>
   }
 
   /** 视图模块（app/view 下的文件，键为 glob 路径，值为加载函数或模块） */
@@ -369,10 +400,17 @@ export class Application {
   }
 
   /** 模块与项目的同类定义：模块在前（按启用顺序），项目在后 */
-  #items<T = unknown>(field: 'interceptors' | 'policies' | 'jobs' | 'schedules' | 'events' | 'listeners' | 'providers', own: unknown[] | ModuleRecord | undefined): Array<[name: string | undefined, value: T]> {
+  /** 模块的条目在前、项目的在后；第三项为来源（文件路径，模块的条目带模块名），重名时用于报错 */
+  #items<T = unknown>(field: 'interceptors' | 'policies' | 'jobs' | 'schedules' | 'events' | 'listeners' | 'providers', own: unknown[] | ModuleRecord | undefined): Array<[name: string | undefined, value: T, source: string | undefined]> {
     return [
-      ...this.#modules.flatMap(module => moduleEntries<T>(module.definition[field])),
-      ...normalizeModules<T>(own as T[] | ModuleRecord | undefined),
+      ...this.#modules.flatMap(module => moduleEntries<T>(module.definition[field]).map(([name, value, source]): [string | undefined, T, string] => [
+        name,
+        value,
+        `module "${module.name}"${source
+          ? ` (${source})`
+          : ''}`,
+      ])),
+      ...normalizeModules<T>(own as T[] | ModuleRecord | undefined).map(([name, value, source]): [string | undefined, T, string | undefined] => [name, value, source]),
     ]
   }
 
@@ -387,6 +425,9 @@ export class Application {
   }
 
   async dispose(options: DisposeOptions = {}): Promise<void> {
+    // 先停止进程内的定时任务与队列消费（等待进行中的任务结束），再关闭提供者（数据库连接等）
+    await this.#stopWorkers?.()
+    this.#stopWorkers = undefined
     for (const provider of [...this.#providers].reverse())
       await provider.shutdown?.(this)
     // 队列连接（BullMQ 的 Queue / Worker）随应用关闭
@@ -727,9 +768,9 @@ export function createApplication(options: ApplicationOptions = {}): Promise<App
   return new Application(options).boot()
 }
 
-/** 当前应用：请求内取请求所属应用，否则取最近启动的应用 */
+/** 当前应用：请求内取请求所属应用，队列任务 / 定时任务 / 事件监听器中（runInApp()）取所属应用，否则取最近启动的应用 */
 export function useApp(): Application {
-  const app = getRequestStore()?.app ?? currentApp
+  const app = getContextApp() ?? currentApp
   if (!app)
     throw new Error('No application is running. Did you call createApplication()?')
   return app
@@ -739,8 +780,12 @@ export function useApp(): Application {
 export function config<P extends ConfigPath>(key: P): ConfigPathValue<P>
 export function config<T>(key: string, defaultValue: T): T
 export function config(key: string, defaultValue?: unknown): unknown {
-  // 请求内读取当前应用的配置（多应用时为应用级配置）
-  const config = getRequestStore()?.ctx.config ?? useApp().config
+  // 请求内读取当前应用的配置（多应用时为应用级配置）；runInApp() 指定了其它应用时取该应用的配置
+  const request = getRequestStore()
+  const app = getContextApp()
+  const config = request && request.app === app
+    ? request.ctx.config
+    : (app ?? useApp()).config
   return config.get(key, defaultValue)
 }
 

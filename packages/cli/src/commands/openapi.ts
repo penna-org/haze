@@ -4,6 +4,7 @@ import process from 'node:process'
 import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { importFromApp } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 
 type GenerateOpenAPI = (app: unknown) => Promise<{ paths: Record<string, unknown> }>
@@ -21,7 +22,7 @@ export default defineCommand({
       if (!server.app)
         throw new Error('Application failed to start')
       // 从应用的模块图加载 @hazejs/core，与应用使用同一份实例
-      const { generateOpenAPI } = await server.import<{ generateOpenAPI?: GenerateOpenAPI }>('@hazejs/core')
+      const { generateOpenAPI } = await importFromApp<{ generateOpenAPI?: GenerateOpenAPI }>(server, root, '@hazejs/core')
       if (typeof generateOpenAPI !== 'function')
         throw new TypeError('The installed @hazejs/core does not support OpenAPI generation; please upgrade it')
       const document = await generateOpenAPI(server.app)

@@ -346,7 +346,7 @@ function group(...parts: unknown[]): Entries {
 }
 
 /** 把模块的定义列表统一成 `[名称, 值][]`（名称为文件名或对象键，数组项为 undefined） */
-export function moduleEntries<T = unknown>(items: unknown): Array<[name: string | undefined, value: T]> {
+export function moduleEntries<T = unknown>(items: unknown): Array<[name: string | undefined, value: T, source?: string]> {
   if (items === undefined || items === null)
     return []
   if (Array.isArray(items)) {
@@ -366,6 +366,7 @@ export function moduleEntries<T = unknown>(items: unknown): Array<[name: string 
     return Object.entries(items).map(([name, value]) => [
       name,
       unwrapDefault<T>(value),
+      name,
     ])
   }
   return [
@@ -404,7 +405,7 @@ export async function moduleCommands(module: ResolvedModule): Promise<Discovered
 }
 
 /** 模块按名称发现的定义（`app.discovered(name)`）：notifications / channels 与 discovered 中的同名项 */
-export function moduleDiscovered(module: ResolvedModule, name: string): Array<[string | undefined, unknown]> {
+export function moduleDiscovered(module: ResolvedModule, name: string): Array<[string | undefined, unknown, string?]> {
   const { definition } = module
   return [
     ...(name === 'notifications'

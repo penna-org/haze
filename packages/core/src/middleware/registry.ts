@@ -27,8 +27,9 @@ export class MiddlewareRegistry {
   resolve(refs: MiddlewareRef[], expanding: string[] = []): ResolvedMiddleware[] {
     return refs.flatMap((ref) => {
       if (typeof ref !== 'string') {
+        // 直接传入的函数 / 类按 `名称()` 显示：不与别名（auth、guest、can:…）混淆，OpenAPI 只按别名推断 401 / 403
         return [
-          { name: ref.name || 'anonymous', handler: ref, args: [] },
+          { name: `${ref.name || 'anonymous'}()`, handler: ref, args: [] },
         ]
       }
 

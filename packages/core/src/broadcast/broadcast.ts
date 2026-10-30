@@ -2,7 +2,7 @@ import type { EventDefinition } from '../events/event'
 import type { PresenceMember } from './channels'
 import type { BroadcastFake, BroadcastInput, BroadcastManager } from './manager'
 import { EventManager } from '../events/manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 
 let fallback: BroadcastManager | undefined
 let token: unknown
@@ -15,7 +15,7 @@ export function setBroadcastManager(manager: BroadcastManager | undefined, key: 
 
 /** 当前应用的广播管理器：请求内取请求容器，否则取最近启动的应用 */
 export function useBroadcastManager(): BroadcastManager {
-  const manager = (token && getRequestStore()?.container.make(token as never)) as BroadcastManager | undefined ?? fallback
+  const manager = (token && getContextContainer()?.make(token as never)) as BroadcastManager | undefined ?? fallback
   if (!manager)
     throw new Error('Broadcasting is not available: the application has not booted')
   return manager

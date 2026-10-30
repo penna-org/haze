@@ -119,6 +119,8 @@ node dist/worker.mjs command inspire --all     # run one; exits with the command
 
 Workers stop gracefully on `SIGTERM` / `SIGINT`, letting running jobs finish. In full-stack projects (and always with `deno`) the path is `dist/server/worker.mjs`; in Docker, `docker run <image> node server/worker.mjs queue`.
 
+The web server shuts down on `SIGTERM` / `SIGINT` too: it stops accepting connections, waits for in-flight requests, then disposes the application (queue connections, database pools, in-process workers). Long-lived connections — WebSockets, SSE streams, keep-alive sockets — never finish on their own, so after `app.shutdownTimeout` (default `10` seconds; seconds or `'30s'`) they are closed forcibly. Keep the orchestrator's grace period above it (Docker's `stop_grace_period` defaults to 10 seconds; Kubernetes' `terminationGracePeriodSeconds` to 30).
+
 `--connection` is the queue connection from `config/queue.ts`. The worker reads the same `REDIS_URL` (or `config/redis.ts`) as the web process, so the [Redis](./redis) settings only need to be set once per environment.
 
 `worker.mjs command` runs the [console commands](./console) in `app/command` without the CLI or the source, which makes it the place for one-off and cron-driven maintenance in production. Serverless and edge presets have no command entry.

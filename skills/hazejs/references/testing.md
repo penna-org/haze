@@ -369,7 +369,10 @@ Real env vars override `.env.test`, so export e.g. `QUEUE_CONNECTION=redis` / `R
 - `.env.local` is ignored in tests; put test-only overrides in `.env.test` / `.env.test.local`.
 - **Most fakes are per-application** and reset automatically, but **`AI.fake()` is process-wide** — always `afterEach(() => AI.restore())`. `Http` without a booted app also uses a process-wide fake: call `Http.restore()` in `afterEach` for pure unit tests.
 - `Events.fake()` without a list fakes **every** event, so listeners (including ones that dispatch jobs) stop running.
-- `queue.drain()` does not run batches and ignores delays; jobs dispatched while draining are recorded, not run — call `drain()` again.
+- `queue.drain()` does not run batches and ignores delays; jobs dispatched while draining are recorded, not run — call `drain()` again. It runs jobs through the real pipeline (middleware, `release()`, retries), so it is the way to test released / retried jobs — the `sync` connection ignores delays and drops releases.
+- `afterCommit` jobs and events are recorded by the fakes only after the transaction commits (nothing on rollback).
+- `queue.runInServer` / `schedule.runInServer` never start in tests; test scheduled work by dispatching the job (`Queue.fake()` + `drain()`).
+- Several apps in one test process: jobs, listeners and scheduled tasks resolve facades to their own app; wrap other out-of-request code in `runInApp(app, fn)`. Socket.IO state and the default rate-limit store are process-wide — pass a per-app `throttle.store` if counts leak between apps.
 - A fake only records what happens after it is created: call `Mail.fake()` before `queue.drain()` (or before the request) that sends the mail.
 - `Storage` fake assertions are async (`await disk.assertExists(...)`); the other fakes' assertions are sync.
 - `res.body` is text (not JSON) for non-JSON responses such as SSE; assert with `toContain`.

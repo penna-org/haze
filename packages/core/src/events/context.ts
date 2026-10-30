@@ -1,5 +1,5 @@
 import type { EventManager } from './manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 
 let fallback: EventManager | undefined
 let token: unknown
@@ -11,7 +11,7 @@ export function setEventManager(manager: EventManager | undefined, key: unknown)
 }
 
 export function useEventManager(): EventManager {
-  const manager = (token && getRequestStore()?.container.make(token as never)) as EventManager | undefined ?? fallback
+  const manager = (token && getContextContainer()?.make(token as never)) as EventManager | undefined ?? fallback
   if (!manager)
     throw new Error('Events are not available: the application has not booted')
   return manager

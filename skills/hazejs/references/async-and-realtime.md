@@ -85,7 +85,7 @@ export default defineQueueConfig(() => ({
 
 | Driver | Behaviour | Worker |
 | --- | --- | --- |
-| `sync` | Runs inside `dispatch()`, errors thrown to caller, no retries, no failed-job store | none |
+| `sync` | Runs inside `dispatch()`, errors thrown to caller, no retries, delays ignored, `release()` drops the job, no failed-job store (test delays/releases with `Queue.fake()` + `drain()`) | none (`queue:work` refuses it) |
 | `memory` | In-process, timers for delay/backoff, lost on exit. Default when `config/queue.ts` is missing | same process |
 | `redis` | BullMQ (`pnpm add bullmq ioredis`). `connection` (from `config/redis.ts`), `url`, `prefix` (default `haze`), `queues`, `keepCompleted` | separate `queue:work` |
 | `database` | SQL table via `@hazejs/orm` (`databaseProvider()`); `npx haze make:queue-tables && npx haze db:migrate`. Options `table`, `failedTable`, `retryAfter`, `sleep`, `maxSleep` | separate `queue:work --connection database` |
@@ -135,7 +135,13 @@ export default defineJob({
 })
 ```
 
-A duplicate unique dispatch: `Job.with(p).dispatch()` returns `{ skipped: true }`; `Job.dispatch(p)` returns the ID of the job already holding the lock. Custom middleware is `JobMiddleware = (payload, job, next) => ...`; return without calling `next()` to skip, call `job.release('30m')` first to retry later.
+A duplicate unique dispatch: `Job.with(p).dispatch()` returns `{ skipped: true }`; `Job.dispatch(p)` returns the ID of the job already holding the lock. Unique locks are taken by the dispatcher and released by the worker, so with remote workers set `store` in `config/queue.ts` to a shared store (a `memory` store logs a warning). Custom middleware is `JobMiddleware = (payload, job, next) => ...`; return without calling `next()` to skip, call `job.release('30m')` first to retry later.
+
+- Jobs without a payload (`handle()` with no / `void` payload): `await PruneTokens.dispatch()`, `PruneTokens.with()`, `s.job(PruneTokens)`.
+- Jobs, scheduled tasks and listeners run **in their application's context**: facades (`Queue`, `Events`, `Db`, `Cache`…), `useApp()`, `config()` and `inject()` resolve to the owning app — no `Db.withManager` job middleware needed; `runInApp(app, fn)` pins scripts.
+- **After commit**: `defineJob({ afterCommit: true })`, `Job.with(p).afterCommit().dispatch()` (→ `{ deferred: true }`), `dispatch(p, { afterCommit: true })`, `defineEvent({ afterCommit: true })`, `afterCommit(fn)` (core) / `Db.afterCommit(fn)` (orm): deferred until the outermost transaction commits, dropped on rollback, immediate outside a transaction.
+- Two different jobs (or listeners) with the same name — e.g. a module's `app/job/Cleanup.ts` and the project's — fail at boot naming both sources; rename one or set `name`.
+- `database` driver `retryAfter` is per connection: keep it above the longest job `timeout`; put long jobs on their own connection.
 
 ### Workers, failed jobs, dashboard
 
@@ -146,7 +152,22 @@ node dist/worker.mjs queue --queue high,default --concurrency 5   # after build 
 npx haze queue:failed | queue:retry [id] | queue:forget <id> | queue:flush   # all accept --connection
 ```
 
-The built worker drains running jobs on `SIGTERM`. The dev dashboard (`/__haze`) has a Queues tab; mount it in production behind your own middleware:
+The built worker drains running jobs on `SIGTERM`.
+
+**In-process worker** (dev, single-instance deployments) — consume the queue inside the web process instead of a separate `queue:work`:
+
+```ts
+// config/queue.ts
+export default defineQueueConfig(() => ({
+  default: env('QUEUE_CONNECTION', 'database'),
+  connections: { database: { driver: 'database', retryAfter: '35m' }, sync: { driver: 'sync' } },
+  runInServer: env('WORKER_IN_SERVER', false), // or { connection, queues: ['high', 'default'], concurrency: 2 }
+}))
+```
+
+It starts when the HTTP server starts listening (`haze dev`, `haze start`, node/docker builds), stops after running jobs when the app is disposed, and never starts in tests or console commands. `sync` is skipped with a warning; `memory` already runs in-process (an extra worker only for other `queues` / `concurrency`). With several web instances keep it off and run `worker.mjs queue`.
+
+The dev dashboard (`/__haze`) has a Queues tab; mount it in production behind your own middleware:
 
 ```ts
 // route/admin.ts
@@ -197,8 +218,11 @@ await Events.emit(OrderShipped, { orderId: 1, userId: 2 }) // facade is `Events`
 const off = Events.on(OrderShipped, p => { /* runtime sync listener, e.g. in a provider boot() */ })
 ```
 
-- `emit()` resolves after sync listeners ran and queued listeners were dispatched; a sync listener's error propagates.
-- Sync listeners run in **file-name order**; returning `false` stops the remaining sync listeners.
+- `emit()` resolves after sync listeners ran and queued listeners were dispatched. Listener errors are **isolated**: logged (`Listener "X" failed`), the others still run, `emit()` does not reject — don't wrap every listener in try/catch.
+- Order: module listeners, then `app/listener` files sorted by path, then `Events.on()` ones; returning `false` stops the remaining sync listeners.
+- **`return false` pitfall**: an expression-bodied listener `(e, { app }) => app.make(Svc).queueDelivery(e)` returns whatever the service returns — a boolean `false` silently stops the listeners after it. Use a block body (`async (e) => { await svc.handle(e) }`).
+- Listener `ctx`: `app`, `logger`, `event`, `attempt`; resolve services with `ctx.app.make(Service)`. Listeners (and jobs) run in their app's context, also outside requests.
+- `defineEvent({ afterCommit: true })` defers the whole emit until the transaction commits.
 - With `broadcastOn`, `emit()` broadcasts *before* running listeners. `broadcast(OrderShipped, payload)` broadcasts without running listeners.
 - Queued listeners become jobs named `listener:<name>` and run on your queue workers.
 - Testing: `Events.fake([OrderShipped])` (list = fake only those) → `assertEmitted`, `assertNotEmitted`, `assertEmittedTimes`. Faked events neither run listeners nor broadcast.
@@ -220,20 +244,25 @@ export default defineSchedule((s) => {
 })
 ```
 
-- `s.call(name, fn)`, `s.cron(expr, name, fn)`, `s.job(Job, payload, { delay?, queue?, connection?, name? })`. Names must be unique; no frequency = every minute.
+- `s.call(name, fn)`, `s.cron(expr, name, fn)`, `s.job(Job, payload?, { delay?, queue?, connection?, afterCommit?, name? })`. Names must be unique; no frequency = every minute.
+- `defineSchedule((s, app) => …)`: the callback gets the app (`skip(() => app.make(Flags).off)`); tasks run in the app's context.
 - Frequencies: `cron(expr)` (5 fields, 6 with seconds), `everyMinute`, `everyTwoMinutes`, `everyFiveMinutes`, `everyTenMinutes`, `everyFifteenMinutes`, `everyThirtyMinutes`, `hourly`, `hourlyAt(17)`, `daily`, `dailyAt('13:30')`, `twiceDaily(1, 13)`, `weekly`, `weeklyOn(1, '08:00')`, `monthly`, `monthlyOn(15, '10:00')`. Modifiers: `at`, `weekdays`, `weekends`, `timezone`.
 - `onOneServer()` (once per minute across instances) and `withoutOverlapping(ttl = '24h')` use `Cache.lock`: need an atomic shared store (`redis` / `upstash`; `memory` = one process only; `kv` throws).
+- On `s.job()` tasks these only lock the **dispatch**; to stop job runs overlapping use the job middleware `withoutOverlapping()` or `unique`. `onOneServer()` still matters when several processes run the scheduler.
+- `s.job()` only queues the job — its result is in the queue worker's log (`Job "X" done in …`), not the scheduler's (`Scheduled job dispatched to the queue`).
 
 ```ts
 // config/schedule.ts
 import { defineScheduleConfig } from '@hazejs/core'
-export default defineScheduleConfig({ timezone: 'Asia/Shanghai', store: 'redis' }) // timezone default UTC
+export default defineScheduleConfig({ timezone: 'Asia/Shanghai', store: 'redis', runInServer: false }) // timezone default UTC
 ```
+
+`runInServer: true` runs due tasks inside the web process (dev, single instance); it starts with the HTTP server and never in tests / console commands. With several instances keep it off and run one `worker.mjs schedule` (or `onOneServer()` with a shared store).
 
 | Environment | Run with |
 | --- | --- |
 | Dev | `npx haze schedule:work` (`pnpm schedule`); `npx haze schedule:list` to inspect |
-| node / bun / deno / docker | `node dist/worker.mjs schedule` (long-running) or cron `* * * * * node dist/worker.mjs schedule:run` |
+| node / bun / deno / docker | `node dist/worker.mjs schedule` (long-running), cron `* * * * * node dist/worker.mjs schedule:run`, or `runInServer: true` |
 | cloudflare | Cron trigger `* * * * *` added automatically; Worker `scheduled()` runs due tasks |
 | aws-lambda | handler `index.schedule`, EventBridge `rate(1 minute)` |
 | vercel | Vercel Cron → `/__haze/schedule`; set `CRON_SECRET` |
@@ -554,16 +583,18 @@ npx haze repl -e "await User.count()"
 
 - **Function callbacks only on `sync` / `memory`.** `chain().catch(fn)` or `batch().then/catch/finally(fn)` with a function throws at `dispatch()` on `redis` / `database` / `cloudflare`; pass a job reference (`Cleanup.with({...})`).
 - **`Queue.batch(...)` is not awaitable** — forgetting `.dispatch()` and writing `await Queue.batch([...])` rejects with a TypeError (its `.then()` is the batch success callback).
-- **`memory` is the default** (no `config/queue.ts`): jobs run in the web process and are lost on restart; with several instances use `redis` or `database` plus a separate `queue:work` / `worker.mjs queue`.
-- **`sync`** throws job errors to the caller, never retries, keeps no failed jobs, and drops `job.release()` with a warning.
+- **`memory` is the default** (no `config/queue.ts`): jobs run in the web process and are lost on restart; with several instances use `redis` or `database` plus a separate `queue:work` / `worker.mjs queue` (or `runInServer` for a single instance).
+- **`sync`** runs in the caller's process and async context: throws job errors to the caller, ignores `delay`, never retries, keeps no failed jobs, and drops `job.release()` with a warning; `queue:work` refuses it. Test delays / releases / retries with `Queue.fake()` + `drain()` instead. Inside a transaction a `sync` job runs before COMMIT unless it is `afterCommit`.
 - **Payloads are JSON.** Jobs and queued listeners receive plain objects, not model instances — pass IDs. (Queued notifications and mail are rendered at send time, so models in their payload are fine.)
 - **Atomic stores required**: unique jobs, job middleware, batches, `onOneServer` / `withoutOverlapping` need `redis` (or `memory` single-process). `kv` logs a warning for queues and throws for the scheduler.
 - **Database driver** `retryAfter` must exceed the job `timeout`, or a slow job runs twice. Consuming needs a long-running server process even if dispatching from D1/Turso on the edge.
 - **Batch members ignore `unique`**; chains inside a batch are not supported.
 - **Maintenance mode** (`haze down`, `pauseWorkers: true` default) pauses queue workers between jobs (including the in-process memory queue) and skips due scheduled tasks.
 - **Scheduler triggers are per minute**: a platform cron firing less often (Vercel Hobby) silently skips tasks due in between.
-- **Events facade is `Events`** (plural); `Events.fake()` also suppresses event broadcasting. Sync listener order is file-name order.
-- **Single-process by default**: `Socket.publish`, the broadcasting `memory` bus and Socket.IO without the Redis adapter only reach connections on the current process. Configure `config/websocket.ts` `broadcast`, `config/broadcasting.ts` `bus` (defaults to the websocket Redis settings), or `config/socketio.ts` `adapter`.
+- **Events facade is `Events`** (plural); `Events.fake()` also suppresses event broadcasting. Sync listener order: modules, then `app/listener` by path, then `Events.on()`.
+- **Listener errors don't reach the caller** (logged, others continue). If a failure must abort the operation, call the code directly instead of emitting.
+- **Write-backs that must share the caller's transaction stay in-process** (a direct call or a sync listener without `afterCommit`); only side effects that may happen after COMMIT become `afterCommit` events or jobs. `afterCommit` inside `Db.joinTransaction()` fires when the callback returns, *before* the outer library commits — wrap that library's commit instead.
+- **Single-process by default**: `Socket.publish`, the broadcasting `memory` bus and Socket.IO without the Redis adapter only reach connections on the current process — so a job running in a separate `queue` container cannot reach browsers on the web container. Configure `config/websocket.ts` `broadcast`, `config/broadcasting.ts` `bus` (defaults to the websocket Redis settings), or `config/socketio.ts` `adapter: { driver: 'redis' }`. Socket.IO server state is also process-level: a second app instance in the same process (tests) reuses the first one's `io`.
 - **Read request data in `upgrade`/`open`** and store it on `peer.context`; the request container is gone afterwards. Browsers can't send `Authorization` on `new WebSocket()` — prefer cookie/session guards.
 - **`r.ws` ≠ Socket.IO**: `socket.io-client` cannot connect to `r.ws()` routes. Socket.IO needs `socketIoProvider()` in `app/provider`; `app/socket/` is reserved for namespaces.
 - **Cloudflare**: `broadcast()` from the Worker does not reach the Durable Object WebSocket endpoint — use `Socket.publish()` there; Socket.IO and `nodemailer` (smtp) don't run on Workers.

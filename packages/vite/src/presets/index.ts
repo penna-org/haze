@@ -66,6 +66,9 @@ const { values } = parseArgs({
 const app = await createApp({ mode: 'production' })
 try {
   for (const result of await runMigrations({ files, connection: values.connection, all: values.all })) {
+    // 没有迁移的目录（如没有 database/migrations 的本地模块）不输出
+    if (result.skipped === 'no-migrations')
+      continue
     app.logger.info(result.skipped
       ? \`[\${result.connection}] skipped (\${result.skipped})\`
       : \`[\${result.connection}] \${result.applied} of \${result.total} migrations applied (\${result.folder})\`)

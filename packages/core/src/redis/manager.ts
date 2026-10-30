@@ -2,7 +2,7 @@ import type { RedisConfig, RedisConnectionConfig, RedisConnectionName, RedisConn
 import type { RedisClient, RedisDriver } from './load'
 import { Config } from '../config/config'
 import { definePersistent, disposePersistent } from '../persistent'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { resolveRedisConfig } from './config'
 import { loadRedis } from './load'
 
@@ -400,7 +400,7 @@ export function setRedisManager(manager: RedisManager | undefined): void {
  * 应用之外（独立脚本、单独使用的微服务传输）为只有隐式 default 连接（REDIS_URL）的管理器
  */
 export function useRedisManager(): RedisManager {
-  const container = getRequestStore()?.container
+  const container = getContextContainer()
   if (container?.has(RedisManager))
     return container.make(RedisManager)
   return fallback ?? (standalone ??= new RedisManager())

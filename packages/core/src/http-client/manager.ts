@@ -1,7 +1,7 @@
 import type { Config } from '../config/config'
 import type { HttpFakeDefinition } from './fake'
 import type { HttpClientOptions } from './options'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { HttpFake } from './fake'
 import { SENSITIVE_HEADERS } from './redact'
 
@@ -101,7 +101,7 @@ export function setHttpManager(manager: HttpManager | undefined): void {
 
 /** 当前应用的 HTTP 客户端状态：请求内取请求容器，否则取最近启动的应用；没有应用时为独立的实例 */
 export function useHttpManager(): HttpManager {
-  const container = getRequestStore()?.container
+  const container = getContextContainer()
   if (container?.has(HttpManager))
     return container.make(HttpManager)
   return fallback ?? (standalone ??= new HttpManager())

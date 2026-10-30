@@ -63,6 +63,11 @@ export interface JobOptions<P> {
   unique?: boolean | UniqueJobOptions<P>
   /** 任务中间件（在 config/queue.ts 的全局中间件之后执行） */
   middleware?: JobMiddleware<P>[]
+  /**
+   * 在数据库事务中投递时，推迟到最外层事务提交后再投递（回滚时不投递）；不在事务中时立即投递。
+   * 投递时的 `{ afterCommit }` 选项优先。需要注册了事务实现的数据库包（@hazejs/orm）
+   */
+  afterCommit?: boolean
   handle: (payload: P, job: JobContext) => MaybePromise<unknown>
   /** 全部重试都失败后调用 */
   failed?: (payload: P, error: unknown, job: JobContext) => MaybePromise<unknown>
@@ -73,7 +78,19 @@ export interface DispatchOptions {
   delay?: string | number
   queue?: string
   connection?: string
+  /** 处于数据库事务中时推迟到提交后投递（回滚时丢弃），默认取任务的 afterCommit */
+  afterCommit?: boolean
 }
+
+/**
+ * 投递参数：载荷类型为 void / undefined（或没有声明，即 unknown）时载荷可以省略，
+ * `await Cleanup.dispatch()`、`s.job(Cleanup)`
+ */
+export type DispatchArgs<P, O = DispatchOptions> = unknown extends P
+  ? [payload?: P, options?: O]
+  : [P] extends [void | undefined]
+      ? [payload?: P, options?: O]
+      : [payload: P, options?: O]
 
 /** `Job.with(payload).dispatch()` 与 `Queue.chain(...).dispatch()` 的结果 */
 export interface DispatchResult {
@@ -81,16 +98,18 @@ export interface DispatchResult {
   id: string
   /** 唯一任务的锁已被占用，本次没有投递 */
   skipped: boolean
+  /** afterCommit：处于事务中，推迟到提交后投递（id 为届时使用的任务 ID；唯一锁到那时才检查） */
+  deferred?: boolean
   /** 任务链 ID（Queue.chain） */
   chainId?: string
 }
 
 export interface JobDefinition<P = unknown> extends JobOptions<P> {
   readonly [kJob]: true
-  /** 投递任务，返回任务 ID（唯一任务被跳过时为已在队列中的任务 ID） */
-  dispatch: (payload: P, options?: DispatchOptions) => Promise<string>
+  /** 投递任务，返回任务 ID（唯一任务被跳过时为已在队列中的任务 ID）；无载荷的任务可以省略 payload */
+  dispatch: (...args: DispatchArgs<P>) => Promise<string>
   /** 待投递的任务：任务链、批量与回调使用，也可以直接 `.dispatch()`（返回 `{ id, skipped }`） */
-  with: (payload: P) => PendingJob<P>
+  with: (...args: WithArgs<P>) => PendingJob<P>
 }
 
 /**
@@ -109,11 +128,18 @@ export function defineJob<P>(options: JobOptions<P>): JobDefinition<P> {
   const job: JobDefinition<P> = {
     ...options,
     [kJob]: true,
-    dispatch: (payload, dispatchOptions) => useQueueManager().dispatch(job, payload, dispatchOptions),
-    with: payload => new PendingJob(job, payload),
+    dispatch: (...args) => useQueueManager().dispatch(job, ...args),
+    with: (...args) => new PendingJob(job, args[0] as P),
   }
   return job
 }
+
+/** `Job.with(payload)` 的参数：无载荷的任务可以省略 */
+export type WithArgs<P> = unknown extends P
+  ? [payload?: P]
+  : [P] extends [void | undefined]
+      ? [payload?: P]
+      : [payload: P]
 
 export function isJob(value: unknown): value is JobDefinition<any> {
   return typeof value === 'object' && value !== null && kJob in value

@@ -4,6 +4,7 @@ import type { ModelAbility, PlainAbility } from '../auth/gate'
 import type { Container } from '../container/container'
 import type { InjectionKey } from '../container/token'
 import type { TranslationKey, TranslationParams } from '../i18n/manager'
+import type { RouteMeta } from '../routing/route'
 import type { SignatureOptions } from '../routing/signed'
 import type { Session } from '../session/session'
 import type { Tenant } from '../tenancy/config'
@@ -57,6 +58,16 @@ const kContext = Symbol.for('hazejs.context')
 
 /** 对 H3Event 的薄封装；`ctx.event` 可直接用于 h3 的全部工具函数 */
 export class HttpContext<V extends ValidationTargets = ValidationTargets> {
+/** 当前请求匹配到的路由（`ctx.route`） */
+export interface MatchedRoute {
+  method: string
+  /** 路径模式，如 `/api/users/:id`（含分组与模块的前缀） */
+  path: string
+  name: string | undefined
+  /** `.meta()` 写入的元数据 */
+  meta: RouteMeta
+}
+
   static scope = Scope.Request
 
   readonly event: H3Event
@@ -113,6 +124,25 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
 
   /** 路由参数（已 URL 解码：`/files/%E6%96%87` → `文`） */
   param(name: string): string | undefined {
+  /**
+   * 匹配到的路由：方法、路径模式（`/users/:id`）、名称与 `.meta()` 写入的元数据。
+   * 路由中间件、处理器与出站阶段可用；没有匹配到路由（404、静态文件）时为 undefined
+   */
+  get route(): MatchedRoute | undefined {
+    const matched = this.event.context.matchedRoute as { method?: string, route?: string, meta?: RouteMeta } | undefined
+    if (!matched)
+      return undefined
+    const { name, ...meta } = matched.meta ?? {}
+    return {
+      method: matched.method || this.method,
+      path: matched.route ?? this.path,
+      name: typeof name === 'string'
+        ? name
+        : undefined,
+      meta,
+    }
+  }
+
     const value = this.event.context.params?.[name]
     return value === undefined
       ? undefined

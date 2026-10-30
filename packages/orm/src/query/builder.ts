@@ -5,7 +5,7 @@ import type { AnyDatabase, ColumnKey, Direction, Insert, Paginated, Row } from '
 import type { BuildContext, FieldPath, SubqueryLike } from './conditions'
 import { useCacheManager } from '@hazejs/core'
 import { aliasedTable, and, asc, avg, count, desc, getTableColumns, getTableName, inArray, is, max, min, sql, SQL, sum } from 'drizzle-orm'
-import { resolveSession } from '../context'
+import { inTransaction, resolveSession } from '../context'
 import { DatabaseError, ModelNotFoundException, translateDatabaseError } from '../errors'
 import { affectedRows, isPlainObject, primaryKeyOf } from '../utils'
 import { Conditions } from './conditions'
@@ -20,11 +20,56 @@ export interface WriteOptions {
   all?: boolean
 }
 
+export interface UpdateOptions extends WriteOptions {
+  /** 返回更新后的行（PostgreSQL / SQLite 使用 RETURNING；MySQL 不支持） */
+  returning?: boolean
+}
+
+export interface InsertOptions {
+  /** false 时不返回行，只返回插入的条数（MySQL 也不再按主键回查），适合日志等热路径 */
+  returning?: boolean
+}
+
+/** insert() / Model.create() 的值：每列可以是值或 drizzle SQL 表达式 */
+export type InsertValues<T extends Table> = { [K in keyof Insert<T>]: Insert<T>[K] | SQL }
+
+/** update() 的值：列值或 drizzle SQL 表达式（值为 undefined 的键会被忽略） */
+export type UpdateValues<T extends Table> = Partial<InsertValues<T>> | Record<string, unknown>
+
 export interface UpsertOptions<T extends Table> {
   /** 冲突判断的列（PostgreSQL / SQLite 需要唯一索引），默认主键；MySQL 按任意唯一键判断，忽略此项 */
   target?: ColumnKey<T> | Array<ColumnKey<T>>
-  /** 冲突时更新的列，默认为传入数据中除冲突列以外的全部列 */
-  update?: Array<ColumnKey<T>>
+  /**
+   * 冲突时更新的列：
+   * - 列名数组：取本次要插入的值（默认为传入数据中除冲突列以外的全部列）
+   * - `{ 列: 值 | SQL 表达式 }`：例如 `{ attempts: sql\`${jobs.attempts} + 1\` }`（表达式中的列指已存在的行）
+   */
+  update?: Array<ColumnKey<T>> | { [K in ColumnKey<T>]?: Row<T>[K] | SQL }
+  /** 只在条件成立时更新（`ON CONFLICT … DO UPDATE … WHERE`，PostgreSQL / SQLite） */
+  where?: SQL
+  /** 返回插入或更新后的行（PostgreSQL / SQLite；冲突后没有更新的行不返回） */
+  returning?: boolean
+}
+
+/** 行锁模式：`no key update` / `key share` 仅 PostgreSQL */
+export type LockMode = 'update' | 'share' | 'no key update' | 'key share'
+
+export interface LockOptions {
+  /** 跳过已被锁住的行（`SKIP LOCKED`，PostgreSQL / MySQL 8） */
+  skipLocked?: boolean
+  /** 行已被锁住时立即报错而不等待（`NOWAIT`，PostgreSQL / MySQL 8） */
+  noWait?: boolean
+}
+
+export interface SelectInsertOptions {
+  /** 忽略违反唯一约束的行（PostgreSQL / SQLite：ON CONFLICT DO NOTHING；MySQL：INSERT IGNORE） */
+  ignore?: boolean
+}
+
+/** toSQL() 的结果 */
+export interface SqlPreview {
+  sql: string
+  params: unknown[]
 }
 
 /** paginateX() 的游标分页结果 */
@@ -51,19 +96,45 @@ export type JoinType = 'inner' | 'left' | 'right' | 'full'
 /** join 的表：drizzle 表，或 `[表, 别名]` */
 export type JoinTable = Table | [Table, string]
 
-type Selected = Column | SQL | SQL.Aliased
+type Selected = Column | SQL | SQL.Aliased | Table
 type SelectionMap = Record<string, Selected>
 
-/** field({ ... }) 的结果类型 */
-export type SelectionResult<F extends SelectionMap> = {
+/**
+ * field({ ... }) 的结果类型。N 为结果中可能为 null 的表名（左连接 / 右连接 / 全连接引入），
+ * 这些表的列总是可空；值为整张表时结果为该表的行对象（可空的表为 `行 | null`）
+ */
+export type SelectionResult<F extends SelectionMap, N extends string = never> = {
   [K in keyof F]: F[K] extends SQL<infer V> | SQL.Aliased<infer V>
     ? V
     : F[K] extends Column
-      ? F[K]['_']['notNull'] extends true
-        ? F[K]['_']['data']
-        : F[K]['_']['data'] | null
-      : unknown
+      ? F[K]['_']['tableName'] extends N
+        ? F[K]['_']['data'] | null
+        : F[K]['_']['notNull'] extends true
+          ? F[K]['_']['data']
+          : F[K]['_']['data'] | null
+      : F[K] extends Table
+        ? F[K]['_']['name'] extends N
+          ? Row<F[K]> | null
+          : Row<F[K]>
+        : unknown
 }
+
+/**
+ * 联表的类型标记（只存在于类型中）：已连接的表名与结果中可能为 null 的表名。
+ * join 系列方法返回 `this & JoinMarker<...>`，之后的 `field({ ... })` 据此把可空表的列标为 `T | null`
+ */
+export interface JoinMarker<J extends string, N extends string> {
+  readonly '~joined': { [K in J]: true }
+  readonly '~nullable': { [K in N]: true }
+}
+
+type JoinedOf<S> = S extends { readonly '~joined': infer X } ? keyof X & string : never
+type NullableOf<S> = S extends { readonly '~nullable': infer X } ? keyof X & string : never
+type JoinNameOf<J> = (J extends readonly [infer X, string] ? X : J) extends infer X extends Table ? X['_']['name'] : never
+type TableNameOf<T extends Table> = T['_']['name']
+
+/** value() / column() 可用的结果字段（field() 的别名等）；模型查询的结果是模型，不在此列 */
+type ResultKey<R> = R extends { readonly '~table': any } ? never : keyof R & string
 
 interface FieldEntry {
   key: string
@@ -111,7 +182,8 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   protected groups: Lazy[] = []
   protected havings: Lazy[] = []
   protected distinctValue = false
-  protected lockMode: 'update' | 'share' | undefined
+  protected lockMode: LockMode | undefined
+  protected lockOptions: LockOptions = {}
   protected unions: Array<{ all: boolean, query: SubqueryLike }> = []
   protected cacheOptions: CacheOptions | undefined
   /** 读写分离：读取也使用写库 */
@@ -157,31 +229,33 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * 未指定 field() 时，Db.table() 的结果按表名分组：`{ users: {...}, posts: {...} }`；
    * 模型查询只取当前表的列。
    */
-  join(table: JoinTable, on: SQL): this
-  join(table: JoinTable, left: string, right: string): this
-  join(table: JoinTable, left: string, operator: string, right: string): this
+  join<J extends JoinTable>(table: J, on: SQL): this & JoinMarker<JoinNameOf<J>, never>
+  join<J extends JoinTable>(table: J, left: string, right: string): this & JoinMarker<JoinNameOf<J>, never>
+  join<J extends JoinTable>(table: J, left: string, operator: string, right: string): this & JoinMarker<JoinNameOf<J>, never>
   join(table: JoinTable, ...on: [SQL] | string[]): this {
     return this.addJoin('inner', table, on)
   }
 
-  leftJoin(table: JoinTable, on: SQL): this
-  leftJoin(table: JoinTable, left: string, right: string): this
-  leftJoin(table: JoinTable, left: string, operator: string, right: string): this
+  /** LEFT JOIN：之后 `field({ ... })` 结果中被连接表的列为 `T | null` */
+  leftJoin<J extends JoinTable>(table: J, on: SQL): this & JoinMarker<JoinNameOf<J>, JoinNameOf<J>>
+  leftJoin<J extends JoinTable>(table: J, left: string, right: string): this & JoinMarker<JoinNameOf<J>, JoinNameOf<J>>
+  leftJoin<J extends JoinTable>(table: J, left: string, operator: string, right: string): this & JoinMarker<JoinNameOf<J>, JoinNameOf<J>>
   leftJoin(table: JoinTable, ...on: [SQL] | string[]): this {
     return this.addJoin('left', table, on)
   }
 
-  rightJoin(table: JoinTable, on: SQL): this
-  rightJoin(table: JoinTable, left: string, right: string): this
-  rightJoin(table: JoinTable, left: string, operator: string, right: string): this
+  /** RIGHT JOIN：之后 `field({ ... })` 结果中主表与之前连接的表的列为 `T | null` */
+  rightJoin<J extends JoinTable>(table: J, on: SQL): this & JoinMarker<JoinNameOf<J>, TableNameOf<T> | JoinedOf<this>>
+  rightJoin<J extends JoinTable>(table: J, left: string, right: string): this & JoinMarker<JoinNameOf<J>, TableNameOf<T> | JoinedOf<this>>
+  rightJoin<J extends JoinTable>(table: J, left: string, operator: string, right: string): this & JoinMarker<JoinNameOf<J>, TableNameOf<T> | JoinedOf<this>>
   rightJoin(table: JoinTable, ...on: [SQL] | string[]): this {
     return this.addJoin('right', table, on)
   }
 
-  /** FULL JOIN（MySQL 不支持） */
-  fullJoin(table: JoinTable, on: SQL): this
-  fullJoin(table: JoinTable, left: string, right: string): this
-  fullJoin(table: JoinTable, left: string, operator: string, right: string): this
+  /** FULL JOIN（MySQL 不支持）：之后 `field({ ... })` 结果中所有表的列为 `T | null` */
+  fullJoin<J extends JoinTable>(table: J, on: SQL): this & JoinMarker<JoinNameOf<J>, TableNameOf<T> | JoinedOf<this> | JoinNameOf<J>>
+  fullJoin<J extends JoinTable>(table: J, left: string, right: string): this & JoinMarker<JoinNameOf<J>, TableNameOf<T> | JoinedOf<this> | JoinNameOf<J>>
+  fullJoin<J extends JoinTable>(table: J, left: string, operator: string, right: string): this & JoinMarker<JoinNameOf<J>, TableNameOf<T> | JoinedOf<this> | JoinNameOf<J>>
   fullJoin(table: JoinTable, ...on: [SQL] | string[]): this {
     return this.addJoin('full', table, on)
   }
@@ -193,9 +267,12 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * - `field('id', 'name')`：当前表的列，结果有类型
    * - `field('posts.title', 'name as nickname', 'meta->city as city')`
    * - `field({ total: count(), name: users.name })`：drizzle 表达式，键为结果字段名
+   * - `field({ log: logs, userName: users.name })`：值为整张表时，结果中 `log` 为该表的行对象
+   *
+   * 链式调用 leftJoin() / rightJoin() / fullJoin() 之后，可能为 null 的表的列在结果类型中为 `T | null`
    */
   field<K extends ColumnKey<T>>(...keys: K[]): QueryBuilder<T, Pick<Row<T>, K>>
-  field<F extends SelectionMap>(fields: F): QueryBuilder<T, SelectionResult<F>>
+  field<F extends SelectionMap, S = this>(this: S, fields: F): QueryBuilder<T, SelectionResult<F, NullableOf<S>>>
   field(...keys: Array<ColumnKey<T> | FieldPath | `${string} as ${string}`>): QueryBuilder<T, Record<string, any>>
   field(...args: unknown[]): QueryBuilder<T, any> {
     for (const arg of args) {
@@ -273,17 +350,21 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   /**
    * - `order('id', 'desc')`、`order('posts.id')`、`order('meta->rank')`
    * - `order({ status: 'asc', id: 'desc' })`
-   * - `order(sql\`...\`)`（drizzle 表达式）
+   * - `order(sql\`...\`)`、`order(sql\`...\`, 'desc')`（drizzle 表达式；不传方向时原样使用）
    *
    * 字段不是表的列但是 field() 的别名时按别名排序。
    */
   order(column: ColumnKey<T> | FieldPath, direction?: Direction): this
   order(column: string, direction?: Direction): this
   order(columns: Partial<Record<ColumnKey<T>, Direction>> | Record<string, Direction | undefined>): this
-  order(expression: SQL): this
-  order(column: string | Record<string, Direction | undefined> | SQL, direction: Direction = 'asc'): this {
+  order(expression: SQL, direction?: Direction): this
+  order(column: string | Record<string, Direction | undefined> | SQL, direction?: Direction): this {
     if (is(column, SQL)) {
-      this.orders.push(() => column)
+      this.orders.push(() => direction === 'desc'
+        ? desc(column)
+        : direction === 'asc'
+          ? asc(column)
+          : column)
     }
     else if (typeof column === 'string') {
       this.orders.push((ctx) => {
@@ -361,11 +442,19 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     return this
   }
 
-  /** 行锁：`lock()` / `lock('update')` 为 FOR UPDATE，`lock('share')` 为共享锁（SQLite 忽略，需在事务中使用） */
-  lock(mode: boolean | 'update' | 'share' = true): this {
+  /**
+   * 行锁（需在事务中使用，SQLite 忽略）：
+   * - `lock()` / `lock('update')`：FOR UPDATE；`lock('share')`：共享锁
+   * - `lock('no key update')` / `lock('key share')`：PostgreSQL 的弱锁
+   * - `lock('update', { skipLocked: true })` / `{ noWait: true }`：SKIP LOCKED / NOWAIT（PostgreSQL / MySQL 8）
+   */
+  lock(mode: boolean | LockMode = true, options: LockOptions = {}): this {
     this.lockMode = mode === true
       ? 'update'
       : mode || undefined
+    this.lockOptions = this.lockMode
+      ? { ...options }
+      : {}
     return this
   }
 
@@ -423,8 +512,10 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
       this.havings = []
     if (all || name === 'distinct')
       this.distinctValue = false
-    if (all || name === 'lock')
+    if (all || name === 'lock') {
       this.lockMode = undefined
+      this.lockOptions = {}
+    }
     if (all || name === 'union')
       this.unions = []
     if (all || name === 'cache')
@@ -468,13 +559,15 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     return result
   }
 
-  /** 某一列的值（第一条） */
+  /** 某一列的值（第一条）；也可以是 field() 定义的别名：`field({ total: count() }).value('total')` */
   async value<K extends ColumnKey<T>>(column: K): Promise<Row<T>[K] | undefined>
+  async value<K extends ResultKey<R>>(column: K): Promise<R[K] | undefined>
   async value(column: FieldPath): Promise<unknown>
   async value(column: string): Promise<unknown> {
     const query = this.clone().resetFields()
     query.attrs = {}
-    const [row] = await (query.field(column as never) as unknown as QueryBuilder<T>).limit(1).selectRows()
+    query.pickField(column, this.fields)
+    const [row] = await query.limit(1).selectRows()
     return this.applyAttr(column.split('->').at(-1)!.split('.').at(-1)!, row)
   }
 
@@ -483,9 +576,11 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * 指定索引列时返回对象：`column('name', 'id')` → `{ 1: 'Ada' }`，`column('*', 'id')` → `{ 1: row }`
    */
   async column<K extends ColumnKey<T>>(column: K): Promise<Array<Row<T>[K]>>
-  async column<K extends ColumnKey<T>>(column: K, key: ColumnKey<T>): Promise<Record<string, Row<T>[K]>>
-  async column(column: '*', key: ColumnKey<T>): Promise<Record<string, R>>
-  async column(column: FieldPath): Promise<unknown[]>
+  async column<K extends ColumnKey<T>>(column: K, key: ColumnKey<T> | ResultKey<R>): Promise<Record<string, Row<T>[K]>>
+  async column(column: '*', key: ColumnKey<T> | ResultKey<R>): Promise<Record<string, R>>
+  async column<K extends ResultKey<R>>(column: K): Promise<Array<R[K]>>
+  async column<K extends ResultKey<R>>(column: K, key: ColumnKey<T> | ResultKey<R>): Promise<Record<string, R[K]>>
+  async column(column: FieldPath, key?: string): Promise<unknown[]>
   async column(column: string, key?: string): Promise<unknown[] | Record<string, unknown>> {
     if (column === '*') {
       const rows = await this.select()
@@ -496,9 +591,9 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     }
     const name = column.split('->').at(-1)!.split('.').at(-1)!
     const query = this.clone().resetFields()
-    query.field(column as never)
+    query.pickField(column, this.fields)
     if (key && key !== name)
-      query.field(key as never)
+      query.pickField(key, this.fields)
     const rows = await query.selectRows()
     if (!key)
       return rows.map(row => this.applyAttr(name, row))
@@ -549,14 +644,38 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     return await this.aggregate(ctx, min(this.fieldOf(column, ctx))) as Row<T>[K] | null
   }
 
+  /** 是否有符合条件的数据（`select 1 … limit 1`，不读取整行） */
   async exists(): Promise<boolean> {
-    return (await this.clone().limit(1).selectRows()).length > 0
+    const query = this.clone().limit(1)
+    // 合并 / 去重时 select 1 会改变语义，having 可能引用 field() 的别名：仍按原字段读取
+    if (this.unions.length || this.distinctValue || (this.havings.length && this.fields.length))
+      return (await query.selectRows()).length > 0
+    query.orders = []
+    const ctx = await query.context()
+    return (await query.fetch(ctx, query.buildSelect(ctx, { exists: sql`1` }))).length > 0
   }
 
+  /**
+   * 分页：`{ data, total, page, perPage, lastPage }`。
+   * 不在事务中时统计与取数据并行；在事务中时依次执行，total 为 0 时不再取数据
+   */
   async paginate(page = 1, perPage = 15): Promise<Paginated<R>> {
     const current = Math.max(1, Math.floor(page))
-    const total = await this.count()
-    const data = await this.clone().page(current, perPage).select()
+    const query = this.clone().page(current, perPage)
+    let total: number
+    let data: R[]
+    if (inTransaction(this.connectionName)) {
+      total = await this.count()
+      data = total > 0
+        ? await query.select()
+        : []
+    }
+    else {
+      [total, data] = await Promise.all([
+        this.count(),
+        query.select(),
+      ])
+    }
     return {
       data,
       total,
@@ -641,15 +760,25 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
 
   // ---------------------------------------------------------------- 写入
 
-  /** 插入一条或多条，返回插入后的完整记录（MySQL 通过主键回查） */
-  async insert(values: Insert<T> | Array<Insert<T>>): Promise<Array<Row<T>>> {
+  /**
+   * 插入一条或多条，返回插入后的完整记录（MySQL 通过主键回查）；
+   * `insert(values, { returning: false })` 不返回行，只返回插入的条数。值可以是 drizzle SQL 表达式
+   */
+  async insert(values: InsertValues<T> | Array<InsertValues<T>>, options: InsertOptions & { returning: false }): Promise<number>
+  async insert(values: InsertValues<T> | Array<InsertValues<T>>, options?: InsertOptions & { returning?: true }): Promise<Array<Row<T>>>
+  async insert(values: InsertValues<T> | Array<InsertValues<T>>, options: InsertOptions = {}): Promise<Array<Row<T>> | number> {
     const list = Array.isArray(values)
       ? values
       : [values]
-    if (!list.length)
-      return []
+    if (!list.length) {
+      return options.returning === false
+        ? 0
+        : []
+    }
     const session = await this.session()
     const query = session.db.insert(this.table).values(list)
+    if (options.returning === false)
+      return affectedRows(await this.write(() => query))
     if (session.dialect !== 'mysql')
       return this.write(() => query.returning())
 
@@ -661,19 +790,19 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   }
 
   /** insert() 的别名（ThinkPHP 写法） */
-  insertAll(values: Array<Insert<T>>): Promise<Array<Row<T>>> {
+  insertAll(values: Array<InsertValues<T>>): Promise<Array<Row<T>>> {
     return this.insert(values)
   }
 
   /** 插入一条并返回主键值 */
-  async insertGetId(values: Insert<T>): Promise<unknown> {
+  async insertGetId(values: InsertValues<T>): Promise<unknown> {
     const key = this.requirePrimaryKey()
     const [row] = await this.insert(values)
     return (row as Record<string, unknown> | undefined)?.[key]
   }
 
   /** 插入，忽略违反唯一约束的行，返回实际插入的行数 */
-  async insertIgnore(values: Insert<T> | Array<Insert<T>>): Promise<number> {
+  async insertIgnore(values: InsertValues<T> | Array<InsertValues<T>>): Promise<number> {
     const list = Array.isArray(values)
       ? values
       : [values]
@@ -687,38 +816,60 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   }
 
   /**
-   * 插入，冲突时更新（ON CONFLICT DO UPDATE / ON DUPLICATE KEY UPDATE），返回影响行数：
+   * 插入，冲突时更新（ON CONFLICT DO UPDATE / ON DUPLICATE KEY UPDATE），返回影响行数；
+   * `{ returning: true }` 时返回插入或更新后的行（PostgreSQL / SQLite）：
    *
    * ```ts
    * await Db.table(users).upsert({ email: 'ada@example.com', name: 'Ada' }, { target: 'email' })
+   * await Db.table(jobs).upsert(job, { target: 'key', update: { attempts: sql`${jobs.attempts} + 1` }, where: sql`${jobs.status} <> 'done'` })
    * ```
    */
-  async upsert(values: Insert<T> | Array<Insert<T>>, options: UpsertOptions<T> = {}): Promise<number> {
+  async upsert(values: InsertValues<T> | Array<InsertValues<T>>, options: UpsertOptions<T> & { returning: true }): Promise<Array<Row<T>>>
+  async upsert(values: InsertValues<T> | Array<InsertValues<T>>, options?: UpsertOptions<T> & { returning?: false }): Promise<number>
+  async upsert(values: InsertValues<T> | Array<InsertValues<T>>, options: UpsertOptions<T> = {}): Promise<number | Array<Row<T>>> {
     const list = (Array.isArray(values)
       ? values
       : [values]) as Array<Record<string, unknown>>
-    if (!list.length)
-      return 0
+    if (!list.length) {
+      return options.returning
+        ? []
+        : 0
+    }
     const session = await this.session()
     const columns = getTableColumns(this.table)
     const target = ([] as string[]).concat(options.target ?? this.requirePrimaryKey())
-    const update = options.update ?? [
-      ...new Set(list.flatMap(Object.keys)),
-    ].filter(key => key in columns && !target.includes(key))
     const query = session.db.insert(this.table).values(list)
+    const explicit = isPlainObject(options.update)
+      ? options.update as Record<string, unknown>
+      : undefined
+    const update = explicit
+      ? Object.keys(explicit)
+      : (options.update as string[] | undefined) ?? [
+          ...new Set(list.flatMap(Object.keys)),
+        ].filter(key => key in columns && !target.includes(key))
     if (session.dialect === 'mysql') {
-      const set = Object.fromEntries((update.length ? update : target).map(key => [key, sql`values(${sql.identifier(columnName(session.db, columns[key]))})`]))
+      if (options.where)
+        throw new DatabaseError('upsert({ where }) is not supported on MySQL (ON DUPLICATE KEY UPDATE has no WHERE)')
+      if (options.returning)
+        throw new DatabaseError('upsert({ returning: true }) is not supported on MySQL')
+      const set = explicit ?? Object.fromEntries((update.length ? update : target).map(key => [key, sql`values(${sql.identifier(columnName(session.db, columns[key]))})`]))
       return affectedRows(await this.write(() => query.onDuplicateKeyUpdate({ set })))
     }
     const conflict = target.map(key => this.columnOf(key))
-    if (!update.length)
-      return affectedRows(await this.write(() => query.onConflictDoNothing({ target: conflict })))
-    const set = Object.fromEntries(update.map(key => [key, sql`excluded.${sql.identifier(columnName(session.db, columns[key]))}`]))
-    return affectedRows(await this.write(() => query.onConflictDoUpdate({ target: conflict, set })))
+    const statement = update.length
+      ? query.onConflictDoUpdate({
+          target: conflict,
+          set: explicit ?? Object.fromEntries(update.map(key => [key, sql`excluded.${sql.identifier(columnName(session.db, columns[key]))}`])),
+          ...(options.where && { setWhere: options.where }),
+        })
+      : query.onConflictDoNothing({ target: conflict })
+    if (options.returning)
+      return this.write(() => statement.returning())
+    return affectedRows(await this.write(() => statement))
   }
 
   /** 按主键插入或替换（REPLACE 语义），返回影响行数 */
-  replace(values: Insert<T> | Array<Insert<T>>): Promise<number> {
+  replace(values: InsertValues<T> | Array<InsertValues<T>>): Promise<number> {
     return this.upsert(values)
   }
 
@@ -727,9 +878,10 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    *
    * ```ts
    * await Db.table(users).where('status', 0).field({ userId: users.id, name: users.name }).selectInsert(archive)
+   * await query.selectInsert(archive, { ignore: true }) // 忽略违反唯一约束的行
    * ```
    */
-  async selectInsert(target: Table): Promise<number> {
+  async selectInsert(target: Table, options: SelectInsertOptions = {}): Promise<number> {
     const ctx = await this.context(true)
     const selection = this.selection(ctx)
     if (!selection)
@@ -740,19 +892,25 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
         throw new DatabaseError(`selectInsert(): "${key}" is not a column of "${getTableName(target)}"`)
       return sql.identifier(columnName(ctx.db, columns[key]))
     })
-    const query = sql`insert into ${target} (${sql.join(list, sql`, `)}) ${this.buildSelect(ctx, selection).getSQL()}`
+    const select = this.buildSelect(ctx, selection).getSQL()
+    const query = !options.ignore
+      ? sql`insert into ${target} (${sql.join(list, sql`, `)}) ${select}`
+      : ctx.dialect === 'mysql'
+        ? sql`insert ignore into ${target} (${sql.join(list, sql`, `)}) ${select}`
+        // SQLite 的 INSERT … SELECT … ON CONFLICT 需要 SELECT 带 WHERE 才能消除语法歧义：包一层派生表
+        : sql`insert into ${target} (${sql.join(list, sql`, `)}) select * from (${select}) as ${sql.identifier('selected')} where true on conflict do nothing`
     return affectedRows(await this.write(() => ctx.dialect === 'sqlite'
       ? ctx.db.run(query)
       : ctx.db.execute(query)))
   }
 
   /** 数据中带主键值时更新该行，否则插入；返回影响行数 */
-  async save(values: Insert<T> | Partial<Insert<T>>): Promise<number> {
+  async save(values: InsertValues<T> | Partial<InsertValues<T>>): Promise<number> {
     const key = primaryKeyOf(this.table)
     const data = values as Record<string, unknown>
     if (key && data[key] !== undefined && data[key] !== null && await this.clone().useWriter().where(key as never, data[key] as never).exists())
       return this.clone().update(data)
-    return (await this.insert(values as Insert<T>)).length
+    return (await this.insert(values as InsertValues<T>)).length
   }
 
   /** 设置待更新的数据（与 update() 的参数合并） */
@@ -779,28 +937,18 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   }
 
   /**
-   * 按当前条件更新，返回影响行数。
-   * 没有条件但数据中带主键时，按主键更新：`update({ id: 1, name: 'Ada' })`
+   * 按当前条件更新，返回影响行数；`{ returning: true }` 时返回更新后的行（PostgreSQL / SQLite）。
+   * 没有条件但数据中带主键时，按主键更新：`update({ id: 1, name: 'Ada' })`。
+   * 值为 undefined 的键会被忽略，全部忽略后没有数据时抛出 DatabaseError
    */
-  async update(values: Partial<Insert<T>> | Record<string, unknown> = {}, options: WriteOptions = {}): Promise<number> {
-    let data: Record<string, unknown> = {
-      ...this.pending,
-      ...values,
-    }
-    const key = primaryKeyOf(this.table)
-    const byKey = !this.hasConditions && key !== undefined && data[key] !== undefined
-    const query = byKey
-      ? this.clone().where(key as never, data[key] as never)
-      : this
-    if (byKey) {
-      const { [key]: _, ...rest } = data
-      data = rest
-    }
-    if (!Object.keys(data).length)
-      throw new DatabaseError('update() called without data')
-    const ctx = await query.context(true)
-    const where = query.writableWhere('update', options, ctx)
-    return affectedRows(await query.write(() => ctx.db.update(query.table).set(data).where(where)))
+  async update(values: UpdateValues<T>, options: UpdateOptions & { returning: true }): Promise<Array<Row<T>>>
+  async update(values?: UpdateValues<T>, options?: UpdateOptions & { returning?: false }): Promise<number>
+  async update(values: UpdateValues<T> = {}, options: UpdateOptions = {}): Promise<number | Array<Row<T>>> {
+    const { statement } = await this.updateStatement(values, options)
+    const result: any = await this.write(() => statement)
+    return options.returning
+      ? result
+      : affectedRows(result)
   }
 
   /**
@@ -808,10 +956,8 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * 也可按主键删除：`delete(1)`、`delete([1, 2])`
    */
   async delete(target: WriteOptions | unknown = {}): Promise<number> {
-    const [query, options] = this.deleteTarget(target)
-    const ctx = await query.context(true)
-    const where = query.writableWhere('delete', options, ctx)
-    return affectedRows(await query.write(() => ctx.db.delete(query.table).where(where)))
+    const { statement } = await this.deleteStatement(target)
+    return affectedRows(await this.write(() => statement))
   }
 
   /** 立即执行的原子自增，返回影响行数 */
@@ -838,10 +984,37 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     return this.buildSelect(ctx).as(alias)
   }
 
-  /** 生成的 SQL 与参数（调试用，ThinkPHP 的 fetchSql） */
-  async toSQL(): Promise<{ sql: string, params: unknown[] }> {
-    const ctx = await this.context()
-    return this.buildSelect(ctx).toSQL()
+  /**
+   * 生成的 SQL 与参数（调试用，ThinkPHP 的 fetchSql），不执行：
+   * - `toSQL()`：查询
+   * - `toSQL('insert', values)`、`toSQL('update', values)`、`toSQL('delete')`：与对应写操作执行的语句相同
+   */
+  async toSQL(action?: 'select'): Promise<SqlPreview>
+  async toSQL(action: 'insert', values: InsertValues<T> | Array<InsertValues<T>>, options?: InsertOptions): Promise<SqlPreview>
+  async toSQL(action: 'update', values?: UpdateValues<T>, options?: UpdateOptions): Promise<SqlPreview>
+  async toSQL(action: 'delete', target?: WriteOptions | unknown): Promise<SqlPreview>
+  async toSQL(action: 'select' | 'insert' | 'update' | 'delete' = 'select', values?: unknown, options?: unknown): Promise<SqlPreview> {
+    const preview = (statement: { toSQL: () => SqlPreview }): SqlPreview => {
+      const { sql, params } = statement.toSQL()
+      return { sql, params }
+    }
+    switch (action) {
+      case 'insert': {
+        const session = await this.session()
+        const query = session.db.insert(this.table).values(([] as unknown[]).concat(values))
+        return preview(session.dialect === 'mysql' || (options as InsertOptions | undefined)?.returning === false
+          ? query
+          : query.returning())
+      }
+      case 'update':
+        return preview((await this.updateStatement((values ?? {}) as UpdateValues<T>, (options ?? {}) as UpdateOptions)).statement)
+      case 'delete':
+        return preview((await this.deleteStatement(values ?? {})).statement)
+      default: {
+        const ctx = await this.context()
+        return preview(this.buildSelect(ctx))
+      }
+    }
   }
 
   clone(): this {
@@ -894,7 +1067,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     if (this.offsetValue !== undefined)
       query = query.offset(this.offsetValue)
     if (this.lockMode && ctx.dialect !== 'sqlite')
-      query = query.for(this.lockMode)
+      query = query.for(this.lockMode, lockConfig(this.lockMode, this.lockOptions, ctx.dialect))
     return query
   }
 
@@ -1024,6 +1197,64 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     }
   }
 
+  /**
+   * update() 执行的 drizzle 语句（不执行）。
+   * 包在对象中返回：drizzle 的查询是 thenable，直接从 async 函数返回会被执行
+   */
+  protected async updateStatement(values: UpdateValues<T>, options: UpdateOptions): Promise<{ statement: any }> {
+    // 值为 undefined 的键忽略（与 drizzle 一致），避免全部为 undefined 时由 drizzle 报 “No values to set”
+    let data: Record<string, unknown> = Object.fromEntries(Object.entries({
+      ...this.pending,
+      ...values,
+    }).filter(([, value]) => value !== undefined))
+    const key = primaryKeyOf(this.table)
+    const byKey = !this.hasConditions && key !== undefined && data[key] !== undefined
+    const query = byKey
+      ? this.clone().where(key as never, data[key] as never)
+      : this
+    if (byKey) {
+      const { [key]: _, ...rest } = data
+      data = rest
+    }
+    if (!Object.keys(data).length)
+      throw new DatabaseError('update() called without data')
+    const ctx = await query.context(true)
+    const where = query.writableWhere('update', options, ctx)
+    let statement = ctx.db.update(query.table).set(data).where(where)
+    if (options.returning) {
+      if (ctx.dialect === 'mysql')
+        throw new DatabaseError('update({ returning: true }) is not supported on MySQL')
+      statement = statement.returning()
+    }
+    return { statement }
+  }
+
+  /** delete() 执行的 drizzle 语句（模型查询在软删除时为 update） */
+  protected deleteStatement(target: unknown): Promise<{ statement: any }> {
+    return this.hardDeleteStatement(target)
+  }
+
+  /** 物理删除的 drizzle 语句 */
+  protected async hardDeleteStatement(target: unknown): Promise<{ statement: any }> {
+    const [query, options] = this.deleteTarget(target)
+    const ctx = await query.context(true)
+    const where = query.writableWhere('delete', options, ctx)
+    return {
+      statement: ctx.db.delete(query.table).where(where),
+    }
+  }
+
+  /** value() / column() 取单个字段：field() 定义的别名沿用原表达式，其余按字段解析 */
+  protected pickField(name: string, fields: FieldEntry[]): void {
+    const defined = !name.includes('.') && !name.includes('->') && !(name in getTableColumns(this.source))
+      ? fields.find(field => field.key === name)
+      : undefined
+    if (defined)
+      this.fields.push(defined)
+    else
+      this.field(name as never)
+  }
+
   protected writableWhere(action: string, options: WriteOptions, ctx: BuildContext): SQL | undefined {
     const where = this.scopedWhere(ctx)
     if (!where && !options.all)
@@ -1118,6 +1349,18 @@ function hash(value: string): string {
     result = Math.imul(result, 0x01000193)
   }
   return (result >>> 0).toString(36) + value.length.toString(36)
+}
+
+/** drizzle 的 for() 配置：检查方言是否支持锁模式与选项 */
+function lockConfig(mode: LockMode, options: LockOptions, dialect: string): { skipLocked?: boolean, noWait?: boolean } {
+  if (dialect === 'mysql' && mode !== 'update' && mode !== 'share')
+    throw new DatabaseError(`lock('${mode}') is only supported on PostgreSQL`)
+  if (options.skipLocked && options.noWait)
+    throw new DatabaseError('lock(): skipLocked and noWait cannot be used together')
+  return {
+    ...(options.skipLocked && { skipLocked: true }),
+    ...(options.noWait && { noWait: true }),
+  }
 }
 
 /** 数据库中的列名：连接配置了 casing 时按它转换没有写列名的字段（与 drizzle 生成 SQL 时一致） */

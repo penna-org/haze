@@ -1,11 +1,12 @@
 import type { Application } from '../application'
 import type { CacheRepository } from '../cache/repository'
 import type { Logger } from '../logger'
+import type { QueueRunInServer } from '../server/in-process'
 import type { BatchControl, BatchMeta } from './batch'
 import type { CloudflareQueueConfig } from './drivers/cloudflare'
 import type { RedisQueueConfig } from './drivers/redis'
 import type { ProcessResult, QueueCounts, QueueDriver } from './drivers/types'
-import type { ChainState, DispatchOptions, DispatchResult, FailedJob, JobContext, JobDefinition, JobMessage, JobMiddleware, QueuedCallback, QueuedJob, UniqueJobOptions } from './job'
+import type { ChainState, DispatchArgs, DispatchOptions, DispatchResult, FailedJob, JobContext, JobDefinition, JobMessage, JobMiddleware, QueuedCallback, QueuedJob, UniqueJobOptions } from './job'
 import type { PendingBatch, PendingChain, PendingJob, QueueCallback } from './pending'
 import type { QueueDriverRegistry } from './registry'
 import type { RunState } from './state'
@@ -15,9 +16,10 @@ import { traceJobDispatch, traceJobProcess } from '../observability/otel'
 import { currentTelemetryScope, runInTelemetryScope } from '../observability/scope'
 import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { RedisManager } from '../redis/manager'
-import { getRequestStore } from '../request'
+import { getRequestStore, runInApp } from '../request'
 import { tenantQueueKey } from '../tenancy/context'
 import { tenancyOf } from '../tenancy/manager'
+import { deferUntilCommit } from '../transaction'
 import { jsonReplacer, parseDuration } from '../utils'
 import { Batch, BatchStore } from './batch'
 import { cloudflareQueue } from './drivers/cloudflare'
@@ -61,6 +63,8 @@ export interface QueueConfig {
   batches?: QueueBatchConfig
   /** 全局任务中间件：每个任务执行前都经过（在任务自己的 middleware 之前） */
   middleware?: JobMiddleware[]
+  /** 在 HTTP 服务器进程中消费队列（单进程部署、开发），不需要另外运行 haze queue:work；默认 false */
+  runInServer?: boolean | QueueRunInServer
 }
 
 export const defaultQueueConfig: QueueConfig = {
@@ -251,6 +255,8 @@ export class QueueFake {
 }
 
 interface SendExtra {
+  /** 预先生成的消息 ID（afterCommit 推迟投递时先返回给调用方） */
+  id?: string
   chain?: ChainState
   batch?: string
   callbackOf?: string
@@ -261,7 +267,10 @@ interface SendExtra {
 }
 
 function toJson(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value ?? null, jsonReplacer))
+  // 无载荷的任务（dispatch() 不传载荷）：保持 undefined
+  if (value === undefined)
+    return undefined
+  return JSON.parse(JSON.stringify(value, jsonReplacer))
 }
 
 function uniqueOptions<P>(unique: true | UniqueJobOptions<P>): { key?: (payload: P) => string, for: number, until: 'processing' | 'processed' } {
@@ -282,6 +291,8 @@ const IN_PROCESS_DRIVERS = new Set(['sync', 'memory'])
 export class QueueManager implements BatchControl {
   readonly #jobs = new Map<string, JobDefinition<any>>()
   readonly #names = new WeakMap<JobDefinition<any>, string>()
+  /** 任务的来源（文件路径 / 模块），名字重复时用于报错 */
+  readonly #sources = new Map<string, string | undefined>()
   readonly #drivers = new Map<string, QueueDriver>()
   /** 任务链 / 批次的函数回调（只存在于本进程，按 ID 引用） */
   readonly #closures = new Map<string, (...args: any[]) => unknown>()
@@ -304,15 +315,28 @@ export class QueueManager implements BatchControl {
     }
   }
 
-  /** 注册任务（app/job 自动注册，名字取 defineJob 的 name 或文件名） */
-  register(job: JobDefinition<any>, name?: string): this {
+  /**
+   * 注册任务（app/job 自动注册，名字取 defineJob 的 name 或文件名）。
+   * 不同的任务使用同一个名字时报错（source 为来源，如文件路径，用于错误信息）；同一个定义重复注册时忽略
+   */
+  register(job: JobDefinition<any>, name?: string, source?: string): this {
     if (!isJob(job))
       throw new TypeError('app/job/*.ts must export default defineJob(...)')
     const jobName = job.name ?? name
     if (!jobName)
       throw new Error('A job needs a name: defineJob({ name }) or a file in app/job')
+    const existing = this.#jobs.get(jobName)
+    if (existing && existing !== job) {
+      const sources = [
+        this.#sources.get(jobName),
+        source,
+      ].map(item => item ?? 'registered at runtime')
+      throw new Error(`Duplicate job name "${jobName}": defined in ${sources[0]} and ${sources[1]}. Rename one of the files or set defineJob({ name })`)
+    }
     this.#jobs.set(jobName, job)
     this.#names.set(job, jobName)
+    if (!existing)
+      this.#sources.set(jobName, source)
     return this
   }
 
@@ -383,6 +407,21 @@ export class QueueManager implements BatchControl {
     return this.#batches
   }
 
+  /**
+   * 唯一任务的锁在投递进程取得、在执行任务的进程释放：进程内的缓存存储（memory）配合其它进程消费的连接
+   * （database / redis 等）时，worker 释放不了投递进程的锁，之后的投递会被悄悄跳过，提示一次
+   */
+  #warnProcessLocalLock(cache: CacheRepository, connection: string, job: string): void {
+    const driver = this.config.connections[connection]?.driver
+    if (cache.store.driver !== 'memory' || !driver || IN_PROCESS_DRIVERS.has(driver))
+      return
+    const key = `unique:${cache.name}:${connection}`
+    if (this.#warned.has(key))
+      return
+    this.#warned.add(key)
+    this.app.logger.warn(`Queue: unique job "${job}" takes its lock in the in-process cache store "${cache.name}" (memory), but connection "${connection}" (${driver} driver) runs jobs in a worker process that cannot release it; later dispatches would be skipped until the lock expires. Use a shared store such as redis (store in config/queue.ts)`)
+  }
+
   #atomicStore(name: string | undefined): CacheRepository {
     const repository = this.app.make(CacheManager).store(name)
     if (!repository.store.atomic && !this.#warned.has(repository.name)) {
@@ -406,15 +445,38 @@ export class QueueManager implements BatchControl {
     }
   }
 
-  /** 投递任务（job 为定义或已注册的任务名），返回任务 ID（唯一任务被跳过时为持有锁的任务 ID） */
-  async dispatch<P>(job: JobDefinition<P> | string, payload: P, options: DispatchOptions = {}): Promise<string> {
+  /**
+   * 投递任务（job 为定义或已注册的任务名），返回任务 ID（唯一任务被跳过时为持有锁的任务 ID）。
+   * 不需要载荷的任务（载荷类型为 void / undefined）可以省略 payload
+   */
+  async dispatch<P>(job: JobDefinition<P> | string, ...args: DispatchArgs<P>): Promise<string> {
+    const [payload, options = {}] = args as [P, DispatchOptions?]
     const { definition, name } = this.#definition(job)
-    return (await this.#send(definition, name, payload, options)).id
+    return (await this.#dispatchTop(definition, name, payload, options)).id
   }
 
   /** 投递 `Job.with(payload)`，返回 `{ id, skipped }` */
   dispatchPending(job: PendingJob<any>): Promise<DispatchResult> {
-    return this.#send(job.definition, this.nameOf(job.definition), job.payload, job.options)
+    return this.#dispatchTop(job.definition, this.nameOf(job.definition), job.payload, job.options)
+  }
+
+  /**
+   * 直接投递（dispatch / Job.with().dispatch()）：afterCommit 时处于事务中则推迟到提交后（回滚时丢弃），
+   * 先返回预先生成的任务 ID 与 `deferred: true`
+   */
+  async #dispatchTop(definition: JobDefinition<any>, name: string, payload: unknown, options: DispatchOptions): Promise<DispatchResult> {
+    if (!(options.afterCommit ?? definition.afterCommit))
+      return this.#send(definition, name, payload, options)
+    const id = crypto.randomUUID()
+    const send = (): Promise<DispatchResult> => this.#send(definition, name, payload, options, { id })
+    if (deferUntilCommit(send, this.app.logger.child({ job: name, jobId: id }))) {
+      return {
+        id,
+        skipped: false,
+        deferred: true,
+      }
+    }
+    return send()
   }
 
   async #send(definition: JobDefinition<any>, name: string, payload: unknown, options: DispatchOptions = {}, extra: SendExtra = {}): Promise<DispatchResult> {
@@ -458,12 +520,12 @@ export class QueueManager implements BatchControl {
       }
       this.#fake.dispatched.push(record)
       return {
-        id: crypto.randomUUID(),
+        id: extra.id ?? crypto.randomUUID(),
         skipped: false,
       }
     }
     const message: JobMessage & { tries: number } = {
-      id: crypto.randomUUID(),
+      id: extra.id ?? crypto.randomUUID(),
       job: name,
       payload: toJson(payload),
       queue,
@@ -489,6 +551,7 @@ export class QueueManager implements BatchControl {
     // 唯一任务：以消息 ID 为持有者取锁（键带当前租户前缀），锁被占用时跳过本次投递
     if (unique) {
       const cache = this.cache()
+      this.#warnProcessLocalLock(cache, connection, name)
       const lock = cache.lock(`queue:unique:${uniqueId}`, unique.for, message.id)
       if (!(await lock.get()))
         return { id: await cache.store.get(lock.key) ?? '', skipped: true }
@@ -777,6 +840,11 @@ export class QueueManager implements BatchControl {
    * 唯一锁的释放、任务链的下一个任务、批次计数与 release() 的重新投递都在这里完成，所有驱动通用
    */
   async process(message: JobMessage, attempt: number): Promise<ProcessResult> {
+    // 在所属应用的上下文中执行：任务中的门面（Queue、Events、Db、useApp()、config()、inject()）解析到这个应用
+    return runInApp(this.app, () => this.#processTraced(message, attempt))
+  }
+
+  async #processTraced(message: JobMessage, attempt: number): Promise<ProcessResult> {
     if (!telemetryActive())
       return traceJobProcess(message, attempt, () => this.#processInTenant(message, attempt))
     const startTime = Date.now()
@@ -875,6 +943,7 @@ export class QueueManager implements BatchControl {
       : parseDuration(definition.timeout) * 1000
     let timer: ReturnType<typeof setTimeout> | undefined
     let result: ProcessResult
+    const started = performance.now()
     try {
       // 执行次数已用完（例如 worker 崩溃后被重新领取的任务）：不再执行
       if (attempt > tries)
@@ -902,6 +971,8 @@ export class QueueManager implements BatchControl {
       result = state.released === undefined
         ? { status: 'ok' }
         : { status: 'released', delay: state.released }
+      if (result.status === 'ok')
+        logger.debug(`Job "${message.job}" done in ${Math.round(performance.now() - started)}ms (attempt ${attempt}/${tries})`)
     }
     catch (error) {
       if (attempt < tries) {
@@ -1076,6 +1147,8 @@ export class QueueManager implements BatchControl {
   /** 开始消费（haze queue:work / worker.mjs queue） */
   async work(options: WorkOptions = {}): Promise<QueueWorker> {
     const driver = this.connection(options.connection)
+    if (driver.driver === 'sync')
+      throw new Error(`Queue connection "${options.connection ?? this.config.default}" uses the sync driver, which runs jobs when they are dispatched and needs no worker`)
     const stop = await driver.consume(this.#consumeOptions(options.queues ?? ['default'], options.concurrency ?? 1, options.resolve))
     return { stop }
   }

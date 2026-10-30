@@ -25,6 +25,8 @@ const KNOWN: Record<string, string> = {
   'Service Unavailable': '503',
   'Invalid signature.': 'invalid_signature',
   'Invalid or expired signature': 'invalid_signature',
+  // @hazejs/orm 的 UniqueConstraintException
+  '数据已存在（违反唯一约束）': 'unique_violation',
   'The application is down for maintenance. Please check back soon.': 'maintenance',
 }
 

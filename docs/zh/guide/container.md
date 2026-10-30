@@ -168,6 +168,15 @@ export default defineProvider({
 
 提供者也可以写成实现了这些方法的类。用 `npx haze make:provider Redis` 生成。
 
+提供者按顺序启动：先是[模块](./modules)的提供者，再是项目的。需要项目提供者在 `boot` 中准备好的资源（例如已建立的数据库连接）时，用 `app.onBooted(callback)` 等全部提供者启动完成后再执行；应用已经启动完成时立即执行：
+
+```ts
+// modules/shop/app/provider/ShopProvider.ts
+export default defineProvider({
+  boot: app => app.onBooted(() => app.make(OrderBinding).register()),
+})
+```
+
 ### 从应用中解析
 
 `app.make(key)` 从根容器解析，`ctx.make(key)` 从当前请求的子容器解析。框架已经绑定了核心对象，可以在任何地方注入：`Application`、`Container`、`Config`、`Logger`、`Router`、`ExceptionHandler`、`ResponseFormatter`，以及缓存、存储、队列、邮件、事件等管理器。

@@ -57,6 +57,11 @@ export interface AppConfig {
   bodyLimit: string | number
   /** 位于可信反向代理之后：客户端 IP / 协议取 X-Forwarded-For / X-Forwarded-Proto，默认 false */
   trustProxy: boolean
+  /**
+   * 收到 SIGTERM / SIGINT 后等待在途请求的最长时间（秒或 `'10s'`），默认 10 秒；
+   * 超时后强制断开仍然打开的连接（WebSocket、SSE、keep-alive），再释放应用
+   */
+  shutdownTimeout?: string | number
   /** 默认 Cookie 选项（默认 httpOnly、SameSite=Lax、非 debug 时 Secure） */
   cookie?: CookieOptions
 }

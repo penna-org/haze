@@ -1,4 +1,5 @@
-import type { DispatchOptions, JobDefinition } from '../queue/job'
+import type { Application } from '../application'
+import type { DispatchArgs, DispatchOptions, JobDefinition } from '../queue/job'
 import type { MaybePromise } from '../utils'
 import { Cron } from 'croner'
 import { parseDuration } from '../utils'
@@ -202,12 +203,21 @@ export class ScheduledTask {
   }
 }
 
+/** s.job() 到期时的投递方式（Scheduler 传入所属应用的 QueueManager） */
+export type ScheduleDispatcher = (job: JobDefinition<any>, payload: unknown, options: DispatchOptions) => Promise<unknown>
+
 /** 定义定时任务的构造器 */
 export class Schedule {
   readonly tasks: ScheduledTask[] = []
 
-  /** nameOf：已注册任务的名字（app/job 的文件名） */
-  constructor(private readonly nameOf: (job: JobDefinition<any>) => string = job => job.name ?? 'anonymous') {}
+  /**
+   * nameOf：已注册任务的名字（app/job 的文件名）；
+   * dispatch：s.job() 的投递方式，默认 `job.dispatch()`（解析到当前上下文的应用）
+   */
+  constructor(
+    private readonly nameOf: (job: JobDefinition<any>) => string = job => job.name ?? 'anonymous',
+    private readonly dispatch: ScheduleDispatcher = (job, payload, options) => job.dispatch(payload, options),
+  ) {}
 
   #add(task: ScheduledTask): ScheduledTask {
     if (this.tasks.some(item => item.name === task.name))
@@ -226,20 +236,34 @@ export class Schedule {
     return this.call(name, fn).cron(expression)
   }
 
-  /** 到期时投递任务到队列 */
-  job<P>(job: JobDefinition<P>, payload: P, options: DispatchOptions & { name?: string } = {}): ScheduledTask {
-    const name = options.name ?? `job:${this.nameOf(job)}`
-    return this.#add(new ScheduledTask(name, () => job.dispatch(payload, options), 'job'))
+  /**
+   * 到期时投递任务到队列（只负责投递，执行由队列 worker 完成）；无载荷的任务可以省略 payload：`s.job(PruneTokens).daily()`
+   */
+  job<P>(job: JobDefinition<P>, ...args: DispatchArgs<P, DispatchOptions & { name?: string }>): ScheduledTask {
+    const [payload, { name: taskName, ...options } = {}] = args as [P, (DispatchOptions & { name?: string })?]
+    const name = taskName ?? `job:${this.nameOf(job)}`
+    return this.#add(new ScheduledTask(name, () => this.dispatch(job, payload, options), 'job'))
   }
 }
 
+/** defineSchedule 的回调：第二个参数为所属应用（`s.call(...).skip(() => app.make(AppEnv).isLocal)`） */
+export type ScheduleDefine = (schedule: Schedule, app: Application) => void
+
 export interface ScheduleDefinition {
   readonly [kSchedule]: true
-  readonly define: (schedule: Schedule) => void
+  readonly define: ScheduleDefine
 }
 
-/** schedule/*.ts 的默认导出 */
-export function defineSchedule(define: (schedule: Schedule) => void): ScheduleDefinition {
+/**
+ * schedule/*.ts 的默认导出：
+ *
+ * ```ts
+ * export default defineSchedule((s, app) => {
+ *   s.job(PruneTokens).daily().skip(() => app.config.get('app.env') === 'local')
+ * })
+ * ```
+ */
+export function defineSchedule(define: ScheduleDefine): ScheduleDefinition {
   return { [kSchedule]: true, define }
 }
 

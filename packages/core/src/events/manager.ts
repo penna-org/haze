@@ -1,15 +1,19 @@
 import type { Application } from '../application'
-import type { EventDefinition, ListenerDefinition, ListenerHandler } from './event'
+import type { EmitArgs, EventDefinition, ListenerDefinition, ListenerHandler } from './event'
 import { BroadcastManager } from '../broadcast/manager'
 import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { defineJob } from '../queue/job'
 import { QueueManager } from '../queue/manager'
+import { runInApp } from '../request'
+import { deferUntilCommit } from '../transaction'
 import { useEventManager } from './context'
 import { isEvent, isListener } from './event'
 
 interface RegisteredListener {
   name: string
   definition: ListenerDefinition<any>
+  /** 来源（文件路径 / 模块），名字重复时用于报错 */
+  source?: string
 }
 
 export interface EmittedEvent {
@@ -66,14 +70,26 @@ export class EventManager {
     return this
   }
 
-  /** 注册监听器（app/listener 自动注册）；排队监听器同时注册为队列任务 `listener:<name>` */
-  registerListener(listener: unknown, name?: string): this {
+  /**
+   * 注册监听器（app/listener 自动注册）；排队监听器同时注册为队列任务 `listener:<name>`。
+   * 不同的监听器使用同一个名字时报错（source 为来源，如文件路径，用于错误信息）
+   */
+  registerListener(listener: unknown, name?: string, source?: string): this {
     if (!isListener(listener))
       throw new TypeError('app/listener/*.ts must export default defineListener(...)')
     const listenerName = listener.name ?? name ?? `listener${this.#listeners.size}`
+    const existing = [
+      ...this.#listeners.values(),
+    ].flat().find(item => item.name === listenerName)
+    if (existing) {
+      if (existing.definition === listener)
+        return this
+      const sources = [existing.source, source].map(item => item ?? 'registered at runtime')
+      throw new Error(`Duplicate listener name "${listenerName}": defined in ${sources[0]} and ${sources[1]}. Rename one of the files or set defineListener(..., { name })`)
+    }
     for (const event of listener.events) {
       const list = this.#listeners.get(event) ?? []
-      list.push({ name: listenerName, definition: listener })
+      list.push({ name: listenerName, definition: listener, source })
       this.#listeners.set(event, list)
     }
     const queue = listener.options.queue
@@ -127,8 +143,27 @@ export class EventManager {
     return (this.#listeners.get(event) ?? []).map(item => item.name)
   }
 
-  /** 触发：同步监听器按注册顺序执行（返回 false 时停止），排队监听器投递到队列 */
-  async emit<P>(event: EventDefinition<P>, payload: P): Promise<void> {
+  /**
+   * 触发：同步监听器按注册顺序执行（返回 false 时停止），排队监听器投递到队列。
+   * 一个监听器抛错（或排队监听器投递失败）时记录错误日志并继续执行其余监听器，emit() 本身不因此失败。
+   * 事件声明了 `afterCommit` 且处于数据库事务中时，推迟到最外层事务提交后触发（回滚时丢弃）
+   */
+  async emit<P>(event: EventDefinition<P>, ...args: EmitArgs<P>): Promise<void> {
+    const payload = args[0] as P
+    if (event.afterCommit && deferUntilCommit(() => this.#emit(event, payload), this.app.logger.child({
+      event: this.nameOf(event),
+    }))) {
+      return
+    }
+    return this.#emit(event, payload)
+  }
+
+  /** 在所属应用的上下文中执行监听器：其中的门面（Queue、Db、useApp()、config()、inject()）解析到这个应用 */
+  #emit<P>(event: EventDefinition<P>, payload: P): Promise<void> {
+    return runInApp(this.app, () => this.#dispatch(event, payload))
+  }
+
+  async #dispatch<P>(event: EventDefinition<P>, payload: P): Promise<void> {
     const name = this.nameOf(event)
     if (this.#fake?.fakes(event)) {
       this.#fake.emitted.push({ event: name, payload, definition: event })
@@ -143,21 +178,29 @@ export class EventManager {
     const logger = this.app.logger.child({ event: name })
     for (const { name: listener, definition } of listeners) {
       const queue = definition.options.queue
-      if (queue) {
-        const delay = queue === true
-          ? undefined
-          : queue.delay
-        await this.app.make(QueueManager).dispatch(`listener:${listener}`, { event: name, payload }, { delay })
-        continue
+      try {
+        if (queue) {
+          const delay = queue === true
+            ? undefined
+            : queue.delay
+          await this.app.make(QueueManager).dispatch(`listener:${listener}`, { event: name, payload }, { delay })
+          continue
+        }
+        const result = await definition.handle(payload, {
+          event: name,
+          app: this.app,
+          logger: logger.child({ listener }),
+          attempt: 1,
+        })
+        if (result === false)
+          break
       }
-      const result = await definition.handle(payload, {
-        event: name,
-        app: this.app,
-        logger,
-        attempt: 1,
-      })
-      if (result === false)
-        break
+      catch (error) {
+        // 错误隔离：记录后继续执行其余监听器
+        logger.error(queue
+          ? `Failed to queue listener "${listener}"`
+          : `Listener "${listener}" failed`, error)
+      }
     }
   }
 
@@ -181,7 +224,7 @@ export class EventManager {
  * ```
  */
 export const Events = {
-  emit: <P>(event: EventDefinition<P>, payload: P): Promise<void> => useEventManager().emit(event, payload),
+  emit: <P>(event: EventDefinition<P>, ...args: EmitArgs<P>): Promise<void> => useEventManager().emit(event, ...args),
   on: <P>(event: EventDefinition<P>, handle: ListenerHandler<P>): (() => void) => useEventManager().on(event, handle),
   fake: (events?: EventDefinition<any>[]): EventFake => useEventManager().fake(events),
   restore: (): void => useEventManager().restore(),
