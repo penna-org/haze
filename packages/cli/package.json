@@ -42,15 +42,15 @@
     "vite": "^8.0.0"
   },
   "dependencies": {
-    "@hazejs/vite": "workspace:*",
+    "@hazejs/vite": "workspace:^",
     "citty": "catalog:",
     "consola": "catalog:"
   },
   "devDependencies": {
-    "@hazejs/auto-import": "workspace:*",
-    "@hazejs/core": "workspace:*",
-    "@hazejs/microservices": "workspace:*",
-    "@hazejs/orm": "workspace:*",
+    "@hazejs/auto-import": "workspace:^",
+    "@hazejs/core": "workspace:^",
+    "@hazejs/microservices": "workspace:^",
+    "@hazejs/orm": "workspace:^",
     "vite": "catalog:"
   }
 }

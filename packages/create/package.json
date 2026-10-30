@@ -30,6 +30,8 @@
     },
     "./package.json": "./package.json"
   },
+  "main": "./dist/scaffold.mjs",
+  "types": "./dist/scaffold.d.mts",
   "bin": {
     "create-hazejs": "./bin/create-hazejs.mjs"
   },
