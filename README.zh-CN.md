@@ -122,7 +122,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | 文件与邮件 | 磁盘：local / S3（AWS SDK v3、分片上传、预签名）/ R2 / memory，签名临时链接；邮件：SMTP / Resend / Postmark / Mailgun / SES，排队发送，布局辅助 |
 | AI | `@hazejs/ai`：OpenAI、Anthropic、Gemini、Azure、Bedrock、Workers AI 与 11 个 OpenAI 兼容厂商，不依赖厂商 SDK；流式输出、工具循环、结构化输出、Embedding 与 RAG、带记忆的 Agent、图像、语音、MCP 客户端与服务端、Vue / React 的 `useChat`、`AI.fake()` |
 | 工具 | `haze` 命令行：`dev`、`build`、`preview`、`start`、`test`、`route:list`、`module:list`、`typegen`、`make:*`、`db:*`、`queue:*`、`schedule:*`、`openapi`、`repl`、`key:generate`，以及 `app/command` 下的自定义命令 |
-| 可观测性 | 健康检查、OpenTelemetry 链路与指标、日志通道（文件、HTTP、JSON）、`/__haze` 开发面板与队列面板 |
+| 可观测性 | 健康检查、OpenTelemetry 链路与指标、日志通道（文件、HTTP、JSON）、`/__haze` 开发面板与队列面板；`@hazejs/devtools` 提供模块联动图、请求瀑布图、AI 与任务面板，以及供编码代理使用的 MCP 端点 |
 | 部署 | node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda，提供迁移与 worker 入口 |
 
 与其它 Node.js 框架的对比和后续规划见[路线图](https://penna-org.github.io/haze/zh/roadmap)。
@@ -142,6 +142,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | [`@hazejs/search`](./packages/search) | 模型全文搜索 |
 | [`@hazejs/graphql`](./packages/graphql) | 基于 HTTP 与 WebSocket 的 GraphQL |
 | [`@hazejs/microservices`](./packages/microservices) | 基于 Redis、NATS、gRPC 的服务间通信 |
+| [`@hazejs/devtools`](./packages/devtools) | `haze dev` 的开发者工具：模块联动图、请求瀑布图、AI 与任务面板、MCP |
 | [`create-hazejs`](./packages/create) | 项目脚手架（api / vue / react 模板） |
 
 ## 文档

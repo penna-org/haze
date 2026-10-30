@@ -25,6 +25,8 @@ Start the development server. Code changes take effect on the next request; the 
 
 If the project has a `vite.config.*`, `haze dev` starts Vite with that config instead (the `haze()` plugin mounts the backend), using Vite's port. See [Full-stack with Vite](./fullstack).
 
+When [`@hazejs/devtools`](./devtools) is installed, the dev server also prints a DevTools URL.
+
 ### `haze build`
 
 Build for production. `NODE_ENV` defaults to `production`.
@@ -101,6 +103,15 @@ Print the [OpenAPI](./openapi) 3.1 document for the application to stdout. The d
 | Option | Description |
 | --- | --- |
 | `--output`, `-o` | Write the document to a file instead, for example `-o openapi.json` |
+
+### `haze devtools:report`
+
+Write a [static DevTools report](./devtools#static-report) of the app's structure (overview, module graph, routes, container and events). Requires `@hazejs/devtools`.
+
+| Option | Description |
+| --- | --- |
+| `--out`, `-o` | Output directory. Defaults to `.haze/devtools-report` |
+| `--base` | Path prefix the report is served under. Defaults to `/` |
 
 ### `haze repl`
 

@@ -75,7 +75,7 @@ Whatever a controller returns is wrapped in a uniform envelope — `{ code: 0, m
 | Realtime | [WebSocket](./websocket) via crossws, [Socket.IO](./socket-io) via `@hazejs/socket.io`, and [broadcasting](./broadcasting) with private and presence channels and the `@hazejs/core/echo` client |
 | Files | [File storage](./storage) on local disks, S3 and R2 |
 | Localization | [Translation files](./localization) in `lang/`, per-request locale detection, translated validation and framework messages, typed keys |
-| Observability | [Health checks](./observability#health-checks), OpenTelemetry traces and metrics, and a dev dashboard at `/__haze` with a queue tab — see [Observability](./observability) |
+| Observability | [Health checks](./observability#health-checks), OpenTelemetry traces and metrics, and a dev dashboard at `/__haze` with a queue tab — see [Observability](./observability). [DevTools](./devtools) add a module graph, request waterfalls, AI and task panels, and an MCP endpoint for coding agents |
 | Architecture | Reusable [modules](./modules) (local `modules/<name>/` folders or npm packages with routes, config and migrations), [multiple apps](./multi-app) in one project, [multi-tenancy](./tenancy) (database per tenant or a tenant column, isolated cache and storage), [microservices](./microservices) over Redis, NATS or gRPC with `@hazejs/microservices` |
 | Integrations | [AI](./ai) with `@hazejs/ai` (text, streaming, tools, embeddings, MCP) and [GraphQL](./graphql) with `@hazejs/graphql` |
 | Tooling | The `haze` [CLI](./cli): dev server, build, preview, 23 `make:*` generators, `db:*`, `queue:*`, `schedule:*`, `search:*`, `openapi`, `repl`, your own commands, and generated types for config keys, routes, policy abilities and translation keys |

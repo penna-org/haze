@@ -29,6 +29,16 @@ features:
   - icon: 🧩
     title: Vite 全栈
     details: 在任意 Vite 项目（Vue、React、Svelte 或无框架）中加入 haze()：同一个仓库，开发时同一个端口，生产环境一次构建。
+  - icon: 🔭
+    title: 开发者工具
+    details: 看清模块、事件、任务与定时任务之间的联动，用瀑布图追踪每个请求，回看并试运行 AI 调用、随时执行任务；编码代理也能通过 MCP 查询同样的信息。
+    link: /zh/guide/devtools
+    linkText: 查看开发者工具
+  - icon: 🤖
+    title: 内置 AI
+    details: 无需 SDK 依赖即可接入 OpenAI、Anthropic、Gemini 等厂商：流式输出、工具调用、结构化输出、向量嵌入、Agent 与 MCP，另有面向 Vue 与 React 的 useChat。
+    link: /zh/guide/ai
+    linkText: 查看 AI 指南
   - icon: 🌍
     title: 随处部署
     details: 提供 node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda 预设，原生依赖自动追踪进产物，可独立运行。

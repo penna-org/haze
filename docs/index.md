@@ -29,6 +29,16 @@ features:
   - icon: 🧩
     title: Full-stack with Vite
     details: Add haze() to any Vite project — Vue, React, Svelte or plain. One repository, one port in development, one build for production.
+  - icon: 🔭
+    title: DevTools
+    details: See how modules, events, jobs and schedules connect, follow each request as a waterfall, replay AI calls and run tasks on demand — and let coding agents ask the same questions over MCP.
+    link: /guide/devtools
+    linkText: Open DevTools guide
+  - icon: 🤖
+    title: AI built in
+    details: OpenAI, Anthropic, Gemini and more with no SDK dependencies — streaming, tools, structured output, embeddings, agents and MCP, plus useChat for Vue and React.
+    link: /guide/ai
+    linkText: Read the AI guide
   - icon: 🌍
     title: Deploy anywhere
     details: Presets for node, bun, deno, docker, cloudflare, vercel, netlify and aws-lambda. Native dependencies are traced, so the output runs on its own.

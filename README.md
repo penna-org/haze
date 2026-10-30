@@ -122,7 +122,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | Files & mail | Disks: local / S3 (AWS SDK v3, multipart, presigned) / R2 / memory with signed URLs; mail: SMTP / Resend / Postmark / Mailgun / SES, queued sending, layout helpers |
 | AI | `@hazejs/ai`: OpenAI, Anthropic, Gemini, Azure, Bedrock, Workers AI and 11 OpenAI-compatible providers with no SDK dependencies — streaming, tool loops, structured output, embeddings & RAG, agents with memory, images, speech, MCP client/server, `useChat` for Vue/React, `AI.fake()` |
 | Tooling | `haze` CLI: `dev`, `build`, `preview`, `start`, `test`, `route:list`, `module:list`, `typegen`, `make:*`, `db:*`, `queue:*`, `schedule:*`, `openapi`, `repl`, `key:generate`, and your own commands in `app/command` |
-| Observability | Health checks, OpenTelemetry traces and metrics, log channels (file, HTTP, JSON), dev dashboard at `/__haze` with a queue dashboard |
+| Observability | Health checks, OpenTelemetry traces and metrics, log channels (file, HTTP, JSON), dev dashboard at `/__haze` with a queue dashboard; `@hazejs/devtools` adds a module graph, request waterfalls, AI and task panels, and an MCP endpoint for coding agents |
 | Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda — with migration and worker entries |
 
 See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](https://penna-org.github.io/haze/roadmap).
@@ -142,6 +142,7 @@ See how this compares with other Node.js frameworks, and what is coming next, in
 | [`@hazejs/search`](./packages/search) | Full-text search for models |
 | [`@hazejs/graphql`](./packages/graphql) | GraphQL over HTTP and WebSocket |
 | [`@hazejs/microservices`](./packages/microservices) | Messaging between services over Redis, NATS and gRPC |
+| [`@hazejs/devtools`](./packages/devtools) | DevTools for `haze dev`: module graph, request waterfalls, AI and task panels, MCP |
 | [`create-hazejs`](./packages/create) | Project scaffolding (api / vue / react templates) |
 
 ## Documentation

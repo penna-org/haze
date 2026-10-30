@@ -25,6 +25,8 @@ npx haze make:model --help   # 查看某个命令的选项
 
 如果项目中存在 `vite.config.*`，`haze dev` 会改用该配置启动 Vite（由 `haze()` 插件挂载后端），端口也使用 Vite 的端口。详见 [Vite 全栈](./fullstack)。
 
+安装了 [`@hazejs/devtools`](./devtools) 时，开发服务器还会打印开发者工具的地址。
+
 ### `haze build`
 
 构建生产产物，`NODE_ENV` 默认为 `production`。
@@ -101,6 +103,15 @@ npx haze test run tests/user     # 只运行一次，并按文件过滤
 | 选项 | 说明 |
 | --- | --- |
 | `--output`、`-o` | 写入文件，例如 `-o openapi.json` |
+
+### `haze devtools:report`
+
+生成应用结构的[开发者工具静态报告](./devtools#static-report)（概览、模块联动图、路由、容器与事件）。需要安装 `@hazejs/devtools`。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--out`、`-o` | 输出目录，默认 `.haze/devtools-report` |
+| `--base` | 部署时的路径前缀，默认 `/` |
 
 ### `haze repl`
 

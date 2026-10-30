@@ -215,6 +215,10 @@ In development, open `http://localhost:3000/__haze` (in full-stack projects, the
 
 Everything is linked to the request that caused it, including jobs that run later and the mail they send. Click a request to see its queries, jobs, mail and logs together. New entries stream in live over Server-Sent Events. When debug mode renders the error page, it links to the request in the dashboard.
 
+::: tip
+For a module graph, request waterfalls, AI and task panels, and an MCP endpoint for coding agents, install [DevTools](./devtools). They read the same records and embed this dashboard.
+:::
+
 The dashboard is a single self-contained page: no CDN, no build step. It is served before global middleware and is **only ever enabled in development**. In production and tests it isn't installed, even if the config says `enabled: true`.
 
 ```ts

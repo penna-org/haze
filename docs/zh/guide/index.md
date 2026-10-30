@@ -75,7 +75,7 @@ export class PostController {
 | 实时通信 | 基于 crossws 的 [WebSocket](./websocket)、`@hazejs/socket.io` 提供的 [Socket.IO](./socket-io)，以及支持私有频道、在线频道和 `@hazejs/core/echo` 客户端的[广播](./broadcasting) |
 | 文件 | 本地磁盘、S3、R2 [文件存储](./storage) |
 | 多语言 | `lang/` 下的[翻译文件](./localization)、按请求识别语言、校验错误与框架消息的翻译、带类型的翻译键 |
-| 可观测性 | [健康检查](./observability#health-checks)、OpenTelemetry 链路与指标，以及位于 `/__haze`、带队列面板的开发面板，见[可观测性](./observability) |
+| 可观测性 | [健康检查](./observability#health-checks)、OpenTelemetry 链路与指标，以及位于 `/__haze`、带队列面板的开发面板，见[可观测性](./observability)。[开发者工具](./devtools)提供模块联动图、请求瀑布图、AI 与任务面板，以及供编码代理使用的 MCP 端点 |
 | 架构 | 可复用的[模块](./modules)（本地 `modules/<name>/` 目录或带路由、配置与迁移的 npm 包）、一个项目内的[多应用](./multi-app)、[多租户](./tenancy)（每个租户一个数据库或共用数据库加租户列，缓存与存储相互隔离）、`@hazejs/microservices` 提供的基于 Redis、NATS、gRPC 的[微服务](./microservices) |
 | 集成 | `@hazejs/ai` 提供的 [AI](./ai)（文本生成、流式输出、工具、Embedding、MCP）与 `@hazejs/graphql` 提供的 [GraphQL](./graphql) |
 | 工具链 | `haze` [命令行](./cli)：开发服务器、构建、预览、23 个 `make:*` 生成器、`db:*`、`queue:*`、`schedule:*`、`search:*`、`openapi`、`repl`、自定义命令，以及为配置键、路由、授权能力和翻译键生成的类型 |
