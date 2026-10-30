@@ -63,9 +63,10 @@ describe.each(frameworks)('$name + haze()', (framework) => {
     expect(await wsExchange(`${base.replace(/^http/, 'ws')}/api/ws`, 'ping', 2)).toEqual(['{"type":"connected"}', '{"type":"pong"}'])
     // Socket.IO（/socket.io/）：长轮询与升级都在同一个 Vite 端口上
     expect(await socketIoFirst(`${base}/chat`, 'online')).toBe(1)
-    expect(await socketIoFirst(`${base}/chat`, 'online', {
+    // 上一个（轮询）客户端的断开在服务端异步处理：等在线数回到 1
+    await expect.poll(() => socketIoFirst(`${base}/chat`, 'online', {
       transports: ['websocket'],
-    })).toBe(1)
+    }), { timeout: 5000, interval: 200 }).toBe(1)
 
     // 热替换：修改命名空间后，新连接使用新代码
     project!.edit('server/app/socket/chat.ts', `chat.emit('online', chat.sockets.size)\n    socket.on`, `chat.emit('online', chat.sockets.size + 100)\n    socket.on`)
