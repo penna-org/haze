@@ -1,9 +1,3 @@
-import type { ControllerMiddleware, HttpContext } from '@hazejs/core'
-import type { UserIdParams } from '~/app/validate/user'
-import { inject, validate } from '@hazejs/core'
-import { UserService } from '~/app/service/UserService'
-import { CreateUserSchema, UpdateUserSchema } from '~/app/validate/user'
-
 type WithId = HttpContext<{ params: typeof UserIdParams }>
 
 /** 控制层：接收参数 → 调用服务 → 返回数据（统一响应格式由框架包装） */

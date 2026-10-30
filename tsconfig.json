@@ -48,6 +48,9 @@
       ],
       "@hazejs/devtools": [
         "./packages/devtools/src/index.ts"
+      ],
+      "@hazejs/auto-import": [
+        "./packages/auto-import/src/index.ts"
       ]
     }
   },
@@ -55,7 +58,6 @@
     "packages/*/src",
     "packages/*/test",
     "packages/vite/client.d.ts",
-    "playground",
     "*.ts"
   ],
   "exclude": [

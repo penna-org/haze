@@ -258,9 +258,13 @@ export interface StubVariables {
   dirPath?: string
 }
 
+/** 写入前处理生成的代码（开启自动导入时去掉会被自动导入的 import） */
+export type PostProcess = (code: string, file: string) => string
+
 export interface MakeOptions {
   root: string
   srcDir: string
+  postProcess?: PostProcess
   kind: KindName
   name: string
   force?: boolean
@@ -330,7 +334,7 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
   const stubName = options.variant ?? kind.stub
   const { content, custom } = readStub(options.root, stubName)
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, render(content, vars))
+  await writeFile(file, processed(options, render(content, vars), file))
   return {
     file,
     stub: stubName,
@@ -341,6 +345,12 @@ export async function make(options: MakeOptions): Promise<MakeResult> {
         ? kind.hint?.(vars)?.replace('route/*.ts', `app/${kebabCase(options.app)}/route/*.ts`)
         : kind.hint?.(vars),
   }
+}
+
+function processed(options: { postProcess?: PostProcess }, code: string, file: string): string {
+  return options.postProcess
+    ? options.postProcess(code, file)
+    : code
 }
 
 /** `--module <name>` 对应的目录（相对 srcDir），模块需已存在 */
@@ -356,6 +366,7 @@ function localModuleDir(srcDir: string, name: string, app: string | undefined): 
 export interface MakeModuleOptions {
   root: string
   srcDir: string
+  postProcess?: PostProcess
   name: string
   force?: boolean
 }
@@ -388,7 +399,7 @@ export async function makeModule(options: MakeModuleOptions): Promise<{ files: s
   for (const [stub, path] of files) {
     const file = join(moduleDir, path)
     await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, render(readStub(options.root, stub).content, vars))
+    await writeFile(file, processed(options, render(readStub(options.root, stub).content, vars), file))
     written.push(file)
   }
   return {
@@ -420,6 +431,7 @@ export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
 export interface MakeModelOptions {
   root: string
   srcDir: string
+  postProcess?: PostProcess
   name: string
   /** 表名，默认为名称的复数下划线形式（OrderItem → order_items） */
   table?: string
@@ -458,7 +470,7 @@ export async function makeModel(options: MakeModelOptions): Promise<{ model: str
   const schema = join(options.srcDir, vars.schemaDir, `${tableName}.ts`)
   const writeSchema = !mongo && !existsSync(schema)
   await mkdir(dirname(model), { recursive: true })
-  await writeFile(model, render(readStub(options.root, mongo ? 'model.mongodb' : 'model').content, vars as unknown as StubVariables))
+  await writeFile(model, processed(options, render(readStub(options.root, mongo ? 'model.mongodb' : 'model').content, vars as unknown as StubVariables), model))
   if (writeSchema) {
     await mkdir(dirname(schema), { recursive: true })
     await writeFile(schema, render(readStub(options.root, `schema.${options.dialect ?? 'sqlite'}`).content, vars as unknown as StubVariables))

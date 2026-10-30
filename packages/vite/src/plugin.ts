@@ -2,6 +2,7 @@ import type { Buffer } from 'node:buffer'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { EnvironmentModuleNode, Plugin, UserConfig } from 'vite'
+import type { AutoImportConfig, AutoImportHost } from './auto-import'
 import type { DevtoolsConfig, DevtoolsInstance, DevtoolsModule } from './devtools'
 import type { AppHost, ReloadResult } from './host'
 import type { ModulePackage } from './modules'
@@ -13,6 +14,7 @@ import { nodeUpgradeHandler, registerNodeServer } from '@hazejs/core'
 import { colors } from 'consola/utils'
 import { toNodeHandler } from 'srvx/node'
 import { normalizePath, transformWithOxc } from 'vite'
+import { createAutoImportHost, resolveAutoImportConfig } from './auto-import'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME, VIRTUAL_MODULES } from './constants'
 import { importDevtools, loadDevtools } from './devtools'
@@ -45,6 +47,8 @@ export interface HazePluginOptions {
   externals?: ExternalsOptions
   /** 开发时的 DevTools（需安装 `@hazejs/devtools`；默认读取 haze.config.ts，否则开启） */
   devtools?: boolean | DevtoolsConfig
+  /** 自动导入（需安装 `@hazejs/auto-import`；默认读取 haze.config.ts，否则关闭） */
+  autoImport?: boolean | AutoImportConfig
   /**
    * 不集成 Vite 开发服务器与前端构建（不挂载中间件、不配置 client / ssr 构建）。
    * 由 `haze dev / build` 与 `@hazejs/testing` 使用。
@@ -98,6 +102,7 @@ interface Settings {
   vercel: VercelOptions | undefined
   externals: ExternalsOptions
   devtools: boolean | DevtoolsConfig
+  autoImport: AutoImportConfig | false
 }
 
 const RESOLVED_PREFIX = '\0'
@@ -114,8 +119,11 @@ const virtualIds = new Set<string>(Object.values(VIRTUAL_MODULES))
  * - 纯后端项目：由 `hazejs` 命令行内部使用
  * - Vue 等前端项目：在 vite.config.ts 中加入 `haze()`，开发时把 `/api/**` 交给后端（同端口、热替换），
  *   `vite build` 一次产出 `dist/client` 与 `dist/server`
+ *
+ * 返回两个插件：主插件（带 `api`）与自动导入。自动导入需要在 TS 转换之后执行，
+ * 而主插件的 transform 必须先于 TS 转换（后端 JSX），一个插件只能有一个 transform 钩子
  */
-export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
+export function haze(options: HazePluginOptions = {}): [main: Plugin<HazePluginApi>, autoImport: Plugin] {
   const listeners = new Set<(event: ReloadEvent) => void>()
   const settings: Settings = {
     root: process.cwd(),
@@ -133,8 +141,12 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
     vercel: undefined,
     externals: {},
     devtools: true,
+    autoImport: false,
   }
   let lastBuild: BuildInfo | undefined
+  let isPreview = false
+  /** 开启了自动导入时在 configResolved 中创建（扫描在后台进行，transform 时等待） */
+  let autoImport: AutoImportHost | undefined
   let unsupported = new Set<string>()
   /** 全量打包时，未安装的驱动也替换为空模块（ORM 以字面量导入全部驱动） */
   let stubMissing = false
@@ -180,7 +192,7 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
     },
   } as Partial<Plugin>
 
-  return {
+  const main: Plugin<HazePluginApi> = {
     name: PLUGIN_NAME,
     api,
     ...devtoolsHook,
@@ -207,6 +219,8 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       settings.vercel = options.vercel ?? fileConfig?.vercel
       settings.externals = options.externals ?? fileConfig?.externals ?? {}
       settings.devtools = options.devtools ?? fileConfig?.devtools ?? true
+      settings.autoImport = resolveAutoImportConfig(options.autoImport ?? fileConfig?.autoImport)
+      isPreview = Boolean(env.isPreview)
       settings.orm = Boolean(findInstalled('@hazejs/orm', base))
       settings.modulePackages = findModulePackages(base)
 
@@ -358,6 +372,16 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       settings.root = normalizePath(config.root)
       isDev = config.command === 'serve'
       viteDevtools = isDev && Boolean((config as { devtools?: unknown }).devtools)
+      // 预览只运行构建产物，不需要自动导入
+      autoImport = settings.autoImport && !isPreview
+        ? createAutoImportHost({
+            root: settings.root,
+            srcDir: settings.srcDir,
+            config: settings.autoImport,
+            typegen: settings.typegen,
+            warn: message => config.logger.warn(message),
+          })
+        : undefined
     },
 
     async configureServer(server) {
@@ -527,16 +551,21 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       }
     },
 
-    hotUpdate({ type, file, modules }) {
+    async hotUpdate({ type, file, modules }) {
       if (this.environment.name !== 'ssr')
         return
       // 生成的类型声明不触发重载
       if (file.startsWith(`${settings.root}/.haze/`) || file.endsWith('.d.ts'))
         return
 
+      // 自动导入的名单变化：已转换的模块中可能用到了新增 / 删除的名字，全部重新转换
+      const autoImportChanged = Boolean(autoImport && SOURCE_RE.test(file) && await autoImport.update(file, type))
+      if (autoImportChanged)
+        this.environment.moduleGraph.invalidateAll()
+
       const isEnvFile = dirname(file) === settings.root && basename(file).startsWith('.env')
       const isNewSource = type !== 'update' && file.startsWith(`${settings.srcDir}/`) && SOURCE_RE.test(file)
-      if (!modules.length && !isEnvFile && !isNewSource)
+      if (!modules.length && !isEnvFile && !isNewSource && !autoImportChanged)
         return
 
       // 新增 / 删除文件时重新生成 glob 清单
@@ -551,6 +580,21 @@ export function haze(options: HazePluginOptions = {}): Plugin<HazePluginApi> {
       return [] as EnvironmentModuleNode[]
     },
   }
+
+  // 普通顺序：在 Vite 内置的 TS 转换之后执行，只在类型位置出现的名字不产生运行时导入
+  const autoImportPlugin: Plugin = {
+    name: `${PLUGIN_NAME}:auto-import`,
+    transform: {
+      handler(code, id) {
+        // 只处理后端代码（全栈项目的前端在 client 环境）
+        if (!autoImport || this.environment?.name === 'client')
+          return
+        return autoImport.transform(code, id)
+      },
+    },
+  }
+
+  return [main, autoImportPlugin]
 }
 
 function manifestCode(settings: Settings, dev: boolean): string {

@@ -62,6 +62,7 @@
     "srvx": "catalog:"
   },
   "devDependencies": {
+    "@hazejs/auto-import": "workspace:*",
     "@hazejs/core": "workspace:*",
     "deno": "catalog:",
     "miniflare": "catalog:",

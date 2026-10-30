@@ -1,5 +1,3 @@
-import * as v from 'valibot'
-
 export const UserIdParams = v.object({
   id: v.pipe(v.string(), v.transform(Number), v.integer('用户 ID 必须是整数')),
 })

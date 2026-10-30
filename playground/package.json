@@ -15,6 +15,7 @@
     "valibot": "catalog:"
   },
   "devDependencies": {
+    "@hazejs/auto-import": "workspace:*",
     "@hazejs/cli": "workspace:*",
     "@hazejs/devtools": "workspace:*",
     "@hazejs/testing": "workspace:*",

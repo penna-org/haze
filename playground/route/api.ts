@@ -1,9 +1,4 @@
 import { generateText } from '@hazejs/ai'
-import { defineRoutes } from '@hazejs/core'
-import { HomeController } from '~/app/controller/HomeController'
-import { UserController } from '~/app/controller/UserController'
-import UserRegistered from '~/app/event/UserRegistered'
-import { UserIdParams } from '~/app/validate/user'
 
 export default defineRoutes((r) => {
   r.get('/', [HomeController, 'index']).name('home')

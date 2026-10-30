@@ -1,0 +1,6 @@
+export { type AutoImportContext, createAutoImport, DEFAULT_DIRS, type TransformResult } from './context'
+export { generateDts, writeDts } from './dts'
+export { detectPresets, loadPreset, PRESET_SUBPATH } from './presets'
+export { defaultExportName, type FileExports, scanFileExports, type ScannedExport } from './scan'
+export { stripAutoImports, type StripOptions } from './strip'
+export type { AutoImportConflict, AutoImportEntry, AutoImportOptions, AutoImportPreset, ImportItem, ImportSource } from './types'

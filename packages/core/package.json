@@ -55,6 +55,10 @@
       "types": "./dist/jsx-dev-runtime.d.mts",
       "default": "./dist/jsx-dev-runtime.mjs"
     },
+    "./auto-imports": {
+      "types": "./dist/auto-imports.d.mts",
+      "default": "./dist/auto-imports.mjs"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.mjs",

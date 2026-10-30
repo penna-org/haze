@@ -21,7 +21,7 @@
     "build": "pnpm -r --filter './packages/**' run build",
     "test": "pnpm build && vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p playground/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm --dir playground exec haze typegen && tsc --noEmit -p playground/tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "changeset": "changeset",

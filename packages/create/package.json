@@ -51,6 +51,7 @@
   "devDependencies": {
     "@faker-js/faker": "catalog:",
     "@hazejs/ai": "workspace:*",
+    "@hazejs/auto-import": "workspace:*",
     "@hazejs/cli": "workspace:*",
     "@hazejs/core": "workspace:*",
     "@hazejs/oauth": "workspace:*",

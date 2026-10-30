@@ -38,7 +38,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
   const inside = relative(root, outDir)
   if (inside && !inside.startsWith('..') && !isAbsolute(inside))
     await rm(outDir, { recursive: true, force: true })
-  const plugin = haze({
+  const plugins = haze({
     srcDir: config.srcDir,
     outDir,
     port: config.port,
@@ -47,6 +47,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
     cloudflare: config.cloudflare,
     vercel: config.vercel,
     externals: config.externals,
+    autoImport: config.autoImport,
     standalone: true,
   })
 
@@ -56,7 +57,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
     mode: 'production',
     envDir: false,
     logLevel: 'warn',
-    plugins: [plugin],
+    plugins,
     build: {
       minify: options.minify ?? false,
       sourcemap: options.sourcemap ?? true,
@@ -64,7 +65,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
   } satisfies InlineConfig))
   await builder.buildApp()
 
-  const info = plugin.api!.lastBuild()
+  const info = plugins[0].api!.lastBuild()
   if (!info)
     throw new Error('Build did not produce a server bundle')
   return { ...info, outDir }

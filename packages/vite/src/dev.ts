@@ -26,6 +26,8 @@ export interface DevServerOptions {
   debounce?: number
   /** DevTools（需安装 `@hazejs/devtools`），默认读取 haze.config.ts；false 关闭 */
   devtools?: boolean | DevtoolsConfig
+  /** 生成类型（`.haze/types`），默认读取 haze.config.ts；`haze typegen` 总是生成 */
+  typegen?: boolean
 }
 
 export interface DevServer {
@@ -51,11 +53,12 @@ export interface DevServer {
 export async function createDevServer(options: DevServerOptions = {}): Promise<DevServer> {
   const root = resolve(options.root ?? process.cwd())
   const config = await loadHazeConfig(root)
-  const plugin = haze({
+  const plugins = haze({
     srcDir: config.srcDir,
     port: config.port,
     host: config.host,
-    typegen: config.typegen,
+    typegen: options.typegen ?? config.typegen,
+    autoImport: config.autoImport,
     standalone: true,
   })
 
@@ -78,10 +81,10 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
         ignored: [`${normalizePath(config.outDir)}/**`, `${normalizePath(root)}/.haze/**`],
       },
     },
-    plugins: [plugin],
+    plugins,
   } satisfies InlineConfig))
 
-  const host = createAppHost({ vite, api: plugin.api!, debounce: options.debounce })
+  const host = createAppHost({ vite, api: plugins[0].api!, debounce: options.debounce })
   // 在首次加载之前创建，DevTools 能收到首次加载的结果
   const devtools = options.listen === false
     ? undefined

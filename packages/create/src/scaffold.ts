@@ -27,6 +27,11 @@ export interface ScaffoldOptions {
    * 默认只在目标目录不位于已有 pnpm workspace 中时生成，避免嵌套 workspace
    */
   pnpmWorkspace?: boolean
+  /**
+   * 开启自动导入：haze.config.ts 中加入 `autoImport: true`，开发依赖加入 `@hazejs/auto-import`。
+   * 模板中已有的 import 保持不变（仍然有效），`haze make:*` 新生成的文件会省略可自动导入的 import
+   */
+  autoImport?: boolean
 }
 
 export interface ScaffoldResult {
@@ -54,6 +59,8 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   const source = join(templatesDir, options.template)
   if (!existsSync(source))
     throw new Error(`Unknown template "${options.template}". Available: ${Object.keys(TEMPLATES).join(', ')}`)
+  if (options.autoImport && !existsSync(join(source, 'haze.config.ts')))
+    throw new Error(`The ${options.template} template does not support autoImport (no haze.config.ts)`)
 
   if (existsSync(root) && readdirSync(root).length) {
     if (!options.force)
@@ -85,6 +92,8 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     if (target)
       renameSync(file, join(file, '..', target))
   }
+  if (options.autoImport)
+    enableAutoImport(root, variables.version)
   if (options.pnpmWorkspace ?? !findPnpmWorkspace(dirname(root)))
     writeFileSync(join(root, 'pnpm-workspace.yaml'), PNPM_WORKSPACE)
 
@@ -93,6 +102,28 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     name,
     files: walk(root).map(file => relative(root, file)).sort(),
   }
+}
+
+const HAZE_CONFIG_START = 'export default defineHazeConfig({\n'
+
+/** haze.config.ts 加入 `autoImport: true`，开发依赖加入 `@hazejs/auto-import`，类型检查前生成类型 */
+function enableAutoImport(root: string, version: string): void {
+  const configFile = join(root, 'haze.config.ts')
+  const config = readFileSync(configFile, 'utf8')
+  if (!config.includes(HAZE_CONFIG_START))
+    throw new Error(`Cannot enable autoImport: ${configFile} does not start with \`${HAZE_CONFIG_START.trim()}\``)
+  writeFileSync(configFile, config.replace(HAZE_CONFIG_START, `${HAZE_CONFIG_START}  // 控制器、服务、事件与 @hazejs/core 的常用 API 无需手写 import（需要 @hazejs/auto-import）\n  autoImport: true,\n`))
+
+  const pkgFile = join(root, 'package.json')
+  const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { scripts?: Record<string, string>, devDependencies?: Record<string, string> }
+  // 自动导入的类型声明（.haze/types/auto-imports.d.ts）不进入 git，类型检查前先生成
+  if (pkg.scripts?.typecheck && !pkg.scripts.typecheck.includes('haze typegen'))
+    pkg.scripts.typecheck = `haze typegen && ${pkg.scripts.typecheck}`
+  pkg.devDependencies = Object.fromEntries(Object.entries({
+    ...pkg.devDependencies,
+    '@hazejs/auto-import': version,
+  }).sort(([a], [b]) => a.localeCompare(b)))
+  writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`)
 }
 
 /** 向上查找所在的 pnpm workspace 根目录 */

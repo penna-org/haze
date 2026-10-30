@@ -1,4 +1,4 @@
-import { Http, HttpManager, Logger } from '@hazejs/core'
+import { HttpManager } from '@hazejs/core'
 import { useTestApp } from '@hazejs/testing'
 import { describe, expect, it } from 'vitest'
 

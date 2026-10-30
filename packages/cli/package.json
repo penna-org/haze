@@ -47,6 +47,7 @@
     "consola": "catalog:"
   },
   "devDependencies": {
+    "@hazejs/auto-import": "workspace:*",
     "@hazejs/core": "workspace:*",
     "@hazejs/microservices": "workspace:*",
     "@hazejs/orm": "workspace:*",

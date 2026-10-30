@@ -11,7 +11,8 @@ export default defineCommand({
   async run({ args }) {
     const root = resolveRoot(args.root)
     const { srcDir } = await loadHazeConfig(root)
-    const server = await createDevServer({ root, listen: false })
+    // 开启了自动导入时，插件在启动时写入 .haze/types/auto-imports.d.ts
+    const server = await createDevServer({ root, listen: false, typegen: true })
     try {
       if (!server.app)
         throw new Error('Application failed to start')
