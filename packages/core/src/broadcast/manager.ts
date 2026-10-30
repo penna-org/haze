@@ -12,7 +12,6 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import { RedisManager } from '../redis/manager'
 import { getRequestStore } from '../request'
 import { appKey, sign, verify } from '../security/key'
-import { parseDuration } from '../utils'
 import { defineWebSocket } from '../websocket/handler'
 import { memoryBus, redisBus } from './bus'
 import { ChannelRegistry, isValidChannel, parseChannel } from './channels'
@@ -464,52 +463,17 @@ export class BroadcastManager {
       throw new BadRequestException('Too many channels')
     const results = await Promise.all(channels.map(async channel => [channel, await this.authorize(ctx, channel)] as const))
     const id = crypto.randomUUID()
-    const encoder = new TextEncoder()
-    const heartbeat = parseDuration(this.config.heartbeat ?? 25) * 1000
-    let handle: BroadcastConnection | undefined
-    let timer: ReturnType<typeof setInterval> | undefined
-    let closed = false
-    const close = (): void => {
-      if (closed)
-        return
-      closed = true
-      clearInterval(timer)
-      void handle?.close()
-    }
-    const stream = new ReadableStream<Uint8Array>({
-      start: async (controller) => {
-        const write = (text: string): void => {
-          if (closed)
-            return
-          try {
-            controller.enqueue(encoder.encode(text))
-          }
-          catch {
-            close()
-          }
-        }
-        const send = (envelope: BroadcastEnvelope): void => write(`data: ${JSON.stringify(envelope)}\n\n`)
-        handle = this.connect({ id, transport: 'sse', send })
-        send({
-          event: 'haze:connected',
-          data: { socket_id: id },
-        })
-        for (const [channel, authorized] of results)
-          send(subscribeEnvelope(channel, await handle.subscribe({ channel, authorized })))
-        timer = setInterval(write, heartbeat, ': ping\n\n')
-      },
-      cancel: close,
-    })
-    ctx.req.signal?.addEventListener('abort', close, { once: true })
-    return new Response(stream, {
-      headers: {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache, no-transform',
-        'connection': 'keep-alive',
-        // 关闭 Nginx 的响应缓冲
-        'x-accel-buffering': 'no',
-      },
-    })
+    return ctx.sse(async (stream) => {
+      const send = (envelope: BroadcastEnvelope): void => stream.send({ data: envelope })
+      const handle = this.connect({ id, transport: 'sse', send })
+      stream.onClose(() => void handle.close())
+      send({
+        event: 'haze:connected',
+        data: { socket_id: id },
+      })
+      for (const [channel, authorized] of results)
+        send(subscribeEnvelope(channel, await handle.subscribe({ channel, authorized })))
+    }, { heartbeat: this.config.heartbeat ?? 25 })
   }
 
   /**

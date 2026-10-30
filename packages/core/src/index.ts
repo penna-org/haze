@@ -103,6 +103,8 @@ export { defineResource, isResource, merge, PendingResource, when, whenLoaded, w
 export type { ApiResource, ApiResourceOptions, CursorPaginatedResource, MissingValue, PaginatedResource, ResourceData, ResourceTransform, ResourceValue } from './http/resource'
 export { isFormattable, isRaw, raw } from './http/response'
 export type { RawValue } from './http/response'
+export { encodeSseEvent, eventStream } from './http/sse'
+export type { SseEvent, SseOptions, SseSource, SseStream } from './http/sse'
 export { createStaticMiddleware } from './http/static'
 export type { StaticOptions } from './http/static'
 export { formDataToObject, UploadedFile } from './http/upload'

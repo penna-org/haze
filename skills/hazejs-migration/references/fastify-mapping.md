@@ -193,14 +193,13 @@ Put it first in the route's middleware list so it also records requests rejected
 // File download with Range / ETag
 return new Response(Readable.toWeb(await driver.open(key, range)) as ReadableStream<Uint8Array>, { status: 206, headers })
 
-// SSE with disconnect handling
-const abort = new AbortController()
-ctx.http.req.signal.addEventListener('abort', () => abort.abort(), { once: true })
-const stream = new ReadableStream<Uint8Array>({
-  start(controller) { /* enqueue encoded `event: …\ndata: …\n\n`, close when done */ },
-  cancel: () => abort.abort(),
+// SSE: heartbeat, disconnect cleanup and anti-buffering headers are built in
+return ctx.sse(async (stream) => {
+  const upstream = await fetch(aiGatewayUrl, { signal: stream.signal }) // aborted when the client disconnects
+  for await (const event of parse(upstream.body!))
+    stream.send({ event: event.type, data: event })
+  stream.close()
 })
-return new Response(stream, { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' } })
 ```
 
 ## socket.io on the same port
