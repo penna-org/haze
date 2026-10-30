@@ -109,6 +109,7 @@ r.post('/webhooks/stripe', [WebhookController, 'stripe']).meta({ envelope: false
 | `ctx.created(data)` | Status 201, returns `data` so you can `return ctx.created(...)` |
 | `ctx.noContent()` | Status 204 |
 | `ctx.redirect(location, status = 302)` | Redirect response |
+| `ctx.sse(source, options?)` | Server-Sent Events response (see [below](#server-sent-events)) |
 
 ```ts
 // app/controller/PostController.ts
@@ -148,6 +149,52 @@ export class FeedController {
 ```
 
 For files on a storage disk, `Storage.download(path, name)` builds the response for you. See [File Storage](./storage).
+
+### Server-Sent Events
+
+`ctx.sse()` returns a `text/event-stream` response that skips the envelope. Pass an async iterable to send each event and close when it ends, or a function to keep the connection open until you call `close()`:
+
+```ts
+// app/controller/ReportController.ts
+import type { HttpContext } from '@hazejs/core'
+
+export class ReportController {
+  progress(ctx: HttpContext) {
+    return ctx.sse(async function* () {
+      for (let percent = 0; percent <= 100; percent += 25) {
+        yield { event: 'progress', data: { percent } }
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }())
+  }
+
+  orders(ctx: HttpContext) {
+    return ctx.sse((stream) => {
+      const off = orders.subscribe(order => stream.send({ event: 'order', id: order.id, data: order }))
+      stream.onClose(off) // client disconnected, close() called, or the source failed
+    })
+  }
+}
+```
+
+An event has `event`, `data`, `id` and `retry` (milliseconds). Strings in `data` are sent as-is, other values are JSON-encoded, and multi-line data becomes several `data:` lines. The stream object also has `comment(text)`, `closed`, and a `signal` that aborts on close, which you can pass to an upstream `fetch`.
+
+The helper takes care of the details that are easy to miss:
+
+- A `: ping` comment every 15 seconds keeps proxies from dropping the connection.
+- When the client disconnects, the stream closes, `onClose` hooks run and an iterable's `return()` is called, so `finally` blocks in generators run.
+- `cache-control: no-cache, no-transform` and `x-accel-buffering: no` stop proxies and Nginx from buffering. The `compress` and `cacheResponse` middleware pass event streams through untouched.
+- If the source throws, the error is logged and the stream closes.
+
+| Option | Description |
+|--------|-------------|
+| `heartbeat` | Ping interval, e.g. `'30s'` or seconds. `false` turns it off. Defaults to `15`. |
+| `status` | Response status, `200` by default. |
+| `headers` | Extra headers. They override the defaults. |
+| `signal` | Disconnect signal. Defaults to `ctx.req.signal`. |
+| `onError` | Called when the source fails. Defaults to logging the error. |
+
+Outside a request, `eventStream(source, options)` from `@hazejs/core` builds the same response, and `encodeSseEvent(event)` returns the encoded text of one event. To read an SSE stream from another service, use [`Http.get(url).sse()`](./http-client#streaming). For AI chat streams, `streamText().toResponse()` already uses this format (see [AI](./ai)). Serverless platforms close long-lived responses when the function times out.
 
 ### HTML views
 

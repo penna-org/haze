@@ -47,6 +47,9 @@ export const cacheResponse: MiddlewareHandler = async (ctx, next, ttlArg = '60',
   }
 
   ctx.onResponse(async (response) => {
+    // 流式事件不会结束，读取整个 body 会一直挂起
+    if (/^text\/event-stream/i.test(response.headers.get('content-type') ?? ''))
+      return
     const cacheControl = response.headers.get('cache-control') ?? ''
     const headers = new Headers(response.headers)
     headers.set('x-cache', 'MISS')

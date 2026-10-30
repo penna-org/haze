@@ -2,6 +2,7 @@ import type { Middleware as H3Middleware } from 'h3'
 import type { Application } from '../../application'
 import type { RouteBuilder } from '../../routing/builder'
 import type { DashboardEntryType, DashboardStore } from './store'
+import { eventStream } from '../../http/sse'
 import { QueueManager } from '../../queue/manager'
 import { DASHBOARD_ENTRY_TYPES } from './store'
 import { renderDashboardPage } from './ui'
@@ -147,53 +148,13 @@ export function queueDashboard(r: RouteBuilder, options: QueueDashboardOptions =
 
 // ---- 开发面板 ------------------------------------------------------------------
 
-const SSE_HEARTBEAT = 15_000
-
-/** 计时器不阻止进程退出（Node） */
-function unref(timer: unknown): void {
-  (timer as { unref?: () => void }).unref?.()
-}
-
-function eventStream(store: DashboardStore, signal: AbortSignal | undefined): Response {
-  const encoder = new TextEncoder()
-  let cleanup = (): void => {}
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const send = (chunk: string): void => {
-        try {
-          controller.enqueue(encoder.encode(chunk))
-        }
-        catch {
-          cleanup()
-        }
-      }
-      send(': connected\n\n')
-      const unsubscribe = store.subscribe(entry => send(`event: entry\nid: ${entry.id}\ndata: ${JSON.stringify(entry)}\n\n`))
-      const heartbeat = setInterval(send, SSE_HEARTBEAT, ': ping\n\n')
-      unref(heartbeat)
-      cleanup = () => {
-        unsubscribe()
-        clearInterval(heartbeat)
-      }
-      signal?.addEventListener('abort', () => {
-        cleanup()
-        try {
-          controller.close()
-        }
-        catch {}
-      })
-    },
-    cancel() {
-      cleanup()
-    },
-  })
-  return new Response(stream, {
-    headers: {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-store',
-      'connection': 'keep-alive',
-      'x-accel-buffering': 'no',
-    },
+function entryStream(store: DashboardStore, signal: AbortSignal | undefined): Response {
+  return eventStream((stream) => {
+    stream.comment('connected')
+    stream.onClose(store.subscribe(entry => stream.send({ event: 'entry', id: entry.id, data: entry })))
+  }, {
+    signal,
+    headers: { 'cache-control': 'no-store' },
   })
 }
 
@@ -254,7 +215,7 @@ export function dashboardMiddleware(app: Application, store: DashboardStore, bas
 
     switch (resource) {
       case 'stream':
-        return eventStream(store, (request as { signal?: AbortSignal }).signal)
+        return entryStream(store, (request as { signal?: AbortSignal }).signal)
       case 'stats':
         return json({
           counts: store.counts(),

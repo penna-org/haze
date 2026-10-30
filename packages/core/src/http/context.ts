@@ -11,6 +11,7 @@ import type { Tenant } from '../tenancy/config'
 import type { Component, ViewNode } from '../view/jsx'
 import type { ViewResponseInit } from '../view/view'
 import type { CookieOptions } from './cookie'
+import type { SseOptions, SseSource } from './sse'
 import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, getRequestURL, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
 import { Gate } from '../auth/gate'
@@ -27,6 +28,7 @@ import { currentTenant } from '../tenancy/context'
 import { parseSize } from '../utils'
 import { contextView } from '../view/view'
 import { defaultCookieOptions } from './cookie'
+import { eventStream } from './sse'
 import { formDataToObject, UploadedFile } from './upload'
 
 /** 响应发出前的处理（ctx.onResponse），可返回新的 Response 替换 */
@@ -425,6 +427,29 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
   view<P>(component: Component<P> | string, props?: P, init?: ViewResponseInit): Promise<Response>
   view(input: ViewNode | Component<any> | string, propsOrInit?: unknown, init?: ViewResponseInit): Promise<Response> {
     return contextView(this, input, propsOrInit as Record<string, unknown> | undefined, init)
+  }
+
+  /**
+   * Server-Sent Events 响应（`text/event-stream`，不经过统一响应格式）。客户端断开时自动关闭，
+   * 默认每 15 秒发送心跳，源出错时记录日志并关闭：
+   *
+   * ```ts
+   * return ctx.sse(async function* () {
+   *   yield { event: 'progress', data: { percent: 50 } }
+   * }())
+   *
+   * return ctx.sse((stream) => {
+   *   const off = orders.subscribe(order => stream.send({ event: 'order', data: order }))
+   *   stream.onClose(off)
+   * })
+   * ```
+   */
+  sse(source: SseSource, options: SseOptions = {}): Response {
+    return eventStream(source, {
+      signal: this.req.signal,
+      onError: error => this.logger.error('SSE stream failed', error),
+      ...options,
+    })
   }
 
   redirect(location: string, status = 302): HTTPResponse {

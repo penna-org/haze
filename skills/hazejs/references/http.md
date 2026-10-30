@@ -204,7 +204,7 @@ A per-route throttle bucket without one named limiter per route: put the route p
 | `guest` / `guest:guard` | 403 for authenticated users | `config/auth.ts` |
 | `can:ability[,Model[,param]]` | Gate check; with `param` loads the model by route param (404 if missing) | `app/policy/*.ts` |
 | `verified`, `abilities:a,b`, `ability:a,b` | Verified email; API token has all / any abilities | see auth guides |
-| `cacheResponse:ttl[,user]` | Caches 200 GET/HEAD responses by URL (`user` = per user); `X-Cache: HIT/MISS`; skips `no-store`/`private` | `config/cache.ts` `responseStore` |
+| `cacheResponse:ttl[,user]` | Caches 200 GET/HEAD responses by URL (`user` = per user); `X-Cache: HIT/MISS`; skips `no-store`/`private` and `text/event-stream` | `config/cache.ts` `responseStore` |
 | `signed` / `signed:utm_source,...` | Verifies a signed URL (listed query params ignored); 403 otherwise | `APP_KEY` |
 
 ### Throttle and bucket keys
@@ -302,6 +302,7 @@ export const PostIdParams = v.object({ id: v.pipe(v.string(), v.transform(Number
 | String, stream, binary, `Response`, `ctx.redirect(url, status = 302)` | Sent as-is |
 | `raw(value)` | `value` without envelope |
 | JSX node / `ctx.view(...)` | `text/html`, no envelope |
+| `ctx.sse(source, options?)` | `text/event-stream`, no envelope |
 
 ```ts
 // config/app.ts
@@ -347,15 +348,17 @@ export class ExportController {
     return ctx.redirect('/settings') // must be returned
   }
 
-  events() { // SSE: plain Response with a stream (compress skips text/event-stream)
-    const encoder = new TextEncoder()
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ hello: 'world' })}\n\n`))
-        controller.close()
-      },
-    })
-    return new Response(stream, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } })
+  events(ctx: HttpContext) { // SSE: async iterable → one event per item, closes when it ends
+    return ctx.sse(async function* () {
+      yield { event: 'progress', id: 1, data: { percent: 50 } } // { event?, data?, id?, retry? }; non-string data is JSON
+    }())
+  }
+
+  live(ctx: HttpContext) { // function → stays open until stream.close() or client disconnect
+    return ctx.sse((stream) => {
+      const off = orders.subscribe(order => stream.send({ event: 'order', data: order }))
+      stream.onClose(off) // runs on disconnect / close() / source error
+    }, { heartbeat: '30s' }) // options: heartbeat (15s, false = off), status, headers, signal, onError
   }
 }
 ```
@@ -513,6 +516,7 @@ Static serving runs **after** global middleware (so `secureHeaders`/`cors` apply
 - The `{ code, message, data }` envelope is **on by default**; success `code` is `0`, not the HTTP status. Clients must unwrap `data`. `raw()` / `envelope: false` do not change the error shape.
 - Strings, `Response`s and streams bypass the envelope — returning `JSON.stringify(x)` sends a string, not an enveloped object.
 - `ctx.redirect()` must be **returned**; calling it alone does nothing.
+- Use `ctx.sse()` instead of a hand-built `ReadableStream`: it sends heartbeats, closes and runs `onClose` on disconnect, and sets the anti-buffering headers. A generator source sees `return()` only after its current `await` settles, so pass `stream.signal` to long upstream calls.
 - Middleware `await next()` sees the raw handler value, not a `Response`. Use `ctx.onResponse`/interceptors for headers on the final response.
 - Controllers are request-scoped, but services are **singletons** by default — never store per-request data (user, ctx) on a service field; use `useContext()` or pass it.
 - `inject()` only works during construction of container-built classes, inside `container.call()`, or during a request. Top-level calls throw.

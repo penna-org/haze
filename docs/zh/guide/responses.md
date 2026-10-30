@@ -109,6 +109,7 @@ r.post('/webhooks/stripe', [WebhookController, 'stripe']).meta({ envelope: false
 | `ctx.created(data)` | 状态码 201，并原样返回 `data`，可以直接 `return ctx.created(...)` |
 | `ctx.noContent()` | 状态码 204 |
 | `ctx.redirect(location, status = 302)` | 重定向 |
+| `ctx.sse(source, options?)` | Server-Sent Events 响应（见[下文](#server-sent-events)） |
 
 ```ts
 // app/controller/PostController.ts
@@ -148,6 +149,52 @@ export class FeedController {
 ```
 
 存储磁盘上的文件可以用 `Storage.download(path, name)` 直接生成下载响应，详见 [文件存储](./storage)。
+
+### Server-Sent Events
+
+`ctx.sse()` 返回 `text/event-stream` 响应，不经过统一响应格式。传入异步可迭代对象时，逐条发送事件，迭代结束即关闭连接；传入函数时，连接一直保持，直到调用 `close()`：
+
+```ts
+// app/controller/ReportController.ts
+import type { HttpContext } from '@hazejs/core'
+
+export class ReportController {
+  progress(ctx: HttpContext) {
+    return ctx.sse(async function* () {
+      for (let percent = 0; percent <= 100; percent += 25) {
+        yield { event: 'progress', data: { percent } }
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }())
+  }
+
+  orders(ctx: HttpContext) {
+    return ctx.sse((stream) => {
+      const off = orders.subscribe(order => stream.send({ event: 'order', id: order.id, data: order }))
+      stream.onClose(off) // 客户端断开、调用 close() 或源出错时触发
+    })
+  }
+}
+```
+
+一条事件可以有 `event`、`data`、`id` 和 `retry`（毫秒）四个字段。`data` 为字符串时原样发送，其他值按 JSON 编码，多行数据会拆成多条 `data:`。stream 对象还提供 `comment(text)`、`closed`，以及一个在关闭时中止的 `signal`，可以直接传给上游的 `fetch`。
+
+下面这些容易遗漏的细节，helper 都已处理：
+
+- 每 15 秒发送一次 `: ping` 注释，避免代理断开空闲连接。
+- 客户端断开时关闭流，执行 `onClose` 钩子，并调用迭代器的 `return()`，所以生成器里的 `finally` 会执行。
+- 设置 `cache-control: no-cache, no-transform` 和 `x-accel-buffering: no`，避免代理和 Nginx 缓冲；`compress` 和 `cacheResponse` 中间件对事件流直接放行。
+- 源抛出异常时记录日志，然后关闭流。
+
+| 选项 | 说明 |
+|------|------|
+| `heartbeat` | 心跳间隔，如 `'30s'` 或秒数；`false` 关闭。默认 `15`。 |
+| `status` | 响应状态码，默认 `200`。 |
+| `headers` | 额外的响应头，会覆盖默认值。 |
+| `signal` | 断开信号，默认 `ctx.req.signal`。 |
+| `onError` | 源出错时调用，默认记录日志。 |
+
+在请求之外，可以用 `@hazejs/core` 的 `eventStream(source, options)` 构造同样的响应；`encodeSseEvent(event)` 返回单条事件的编码文本。读取其他服务的 SSE 流用 [`Http.get(url).sse()`](./http-client#流式响应)。AI 对话流的 `streamText().toResponse()` 本身就是这种格式（见 [AI](./ai)）。Serverless 平台会在函数超时时关闭长连接。
 
 ### HTML 视图
 
