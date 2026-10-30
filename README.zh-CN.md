@@ -22,7 +22,7 @@ hazejs 把 Laravel / ThinkPHP 式的开发效率和现代 Vite 工具链放进�
 
 > **状态：** 预发布（`0.x`）。`@hazejs/*` 各包与 `create-hazejs` 已发布到 npm，但在 `1.0` 之前，次版本之间的 API 仍可能调整。
 >
-> 📖 **[阅读文档](https://penna-org.github.io/haze/zh/)**
+> 📖 **[阅读文档](https://haze.yanyu.me/zh/)**
 
 ## 亮点
 
@@ -125,7 +125,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | 可观测性 | 健康检查、OpenTelemetry 链路与指标、日志通道（文件、HTTP、JSON）、`/__haze` 开发面板与队列面板；`@hazejs/devtools` 提供模块联动图、请求瀑布图、AI 与任务面板，以及供编码代理使用的 MCP 端点 |
 | 部署 | node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda，提供迁移与 worker 入口 |
 
-与其它 Node.js 框架的对比和后续规划见[路线图](https://penna-org.github.io/haze/zh/roadmap)。
+与其它 Node.js 框架的对比和后续规划见[路线图](https://haze.yanyu.me/zh/roadmap)。
 
 ## 包
 
@@ -147,8 +147,8 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 
 ## 文档
 
-- **[文档站](https://penna-org.github.io/haze/zh/)**：每个模块的指南，中英双语
-- [路线图与框架对比](https://penna-org.github.io/haze/zh/roadmap)
+- **[文档站](https://haze.yanyu.me/zh/)**：每个模块的指南，中英双语
+- [路线图与框架对比](https://haze.yanyu.me/zh/roadmap)
 - [设计文档](./docs/design.md)（含每个里程碑的实施记录）
 
 ## 参与贡献

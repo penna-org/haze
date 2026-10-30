@@ -22,7 +22,7 @@ hazejs gives you the productivity of Laravel / ThinkPHP and the ergonomics of a 
 
 > **Status:** pre-release (`0.x`). The `@hazejs/*` packages and `create-hazejs` are published on npm, but APIs may still change between minor versions until `1.0`.
 >
-> 📖 **[Read the documentation](https://penna-org.github.io/haze/)**
+> 📖 **[Read the documentation](https://haze.yanyu.me/)**
 
 ## Highlights
 
@@ -125,7 +125,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | Observability | Health checks, OpenTelemetry traces and metrics, log channels (file, HTTP, JSON), dev dashboard at `/__haze` with a queue dashboard; `@hazejs/devtools` adds a module graph, request waterfalls, AI and task panels, and an MCP endpoint for coding agents |
 | Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda — with migration and worker entries |
 
-See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](https://penna-org.github.io/haze/roadmap).
+See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](https://haze.yanyu.me/roadmap).
 
 ## Packages
 
@@ -147,8 +147,8 @@ See how this compares with other Node.js frameworks, and what is coming next, in
 
 ## Documentation
 
-- **[Documentation site](https://penna-org.github.io/haze/)** — guides for every module, in English and 简体中文
-- [Roadmap & comparison](https://penna-org.github.io/haze/roadmap)
+- **[Documentation site](https://haze.yanyu.me/)** — guides for every module, in English and 简体中文
+- [Roadmap & comparison](https://haze.yanyu.me/roadmap)
 - [Design notes](./docs/design.md) (Chinese, includes per-milestone implementation records)
 
 ## Contributing

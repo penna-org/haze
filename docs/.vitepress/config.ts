@@ -104,7 +104,7 @@ function sidebar(lang: 0 | 1, prefix: string): DefaultTheme.SidebarItem[] {
 export default defineConfig({
   title: 'hazejs',
   description: 'A batteries-included TypeScript backend framework for Node.js, Bun, Deno and the edge',
-  base: '/haze/',
+  // 部署在自定义域名 haze.yanyu.me 的根路径（GitHub Pages）
   cleanUrls: true,
   lastUpdated: true,
   // 内部设计记录只在仓库中阅读
@@ -112,7 +112,7 @@ export default defineConfig({
   // 文档中的本地地址（如 Mailpit 的 http://localhost:8025）不做死链检查
   ignoreDeadLinks: 'localhostLinks',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/haze/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
     ['meta', { name: 'theme-color', content: '#6d5dfc' }],
   ],
   themeConfig: {
