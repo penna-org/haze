@@ -15,6 +15,7 @@ const main = defineCommand({
     dir: { type: 'positional', description: '项目目录', required: false },
     template: { type: 'string', alias: 't', description: `模板：${Object.keys(TEMPLATES).join(' | ')}` },
     force: { type: 'boolean', description: '目标目录非空时覆盖', default: false },
+    autoImport: { type: 'boolean', description: '开启自动导入（控制器、服务、框架 API 等无需手写 import）' },
   },
   async run({ args }) {
     const interactive = process.stdin.isTTY && !process.env.CI
@@ -35,7 +36,24 @@ const main = defineCommand({
     }
     template ??= 'api'
 
-    const result = scaffold({ dir, template, force: args.force })
+    // 模块包由其它项目使用，不开启自动导入
+    let autoImport = template === 'module'
+      ? false
+      : args.autoImport as boolean | undefined
+    if (autoImport === undefined && interactive) {
+      autoImport = await consola.prompt('开启自动导入？（控制器、服务、框架 API 等无需手写 import）', {
+        type: 'confirm',
+        initial: false,
+        cancel: 'reject',
+      })
+    }
+
+    const result = scaffold({
+      dir,
+      template,
+      force: args.force,
+      autoImport,
+    })
     const pm = detectPackageManager()
     const cd = relative(process.cwd(), result.root) || '.'
 

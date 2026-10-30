@@ -1,3 +1,5 @@
+export { autoImportsFile, createImportStripper, importAutoImport } from './auto-import'
+export type { AutoImportConfig } from './auto-import'
 export { buildServer } from './build'
 export type { BuildServerOptions, BuildServerResult } from './build'
 export { defineHazeConfig, findViteConfig, loadHazeConfig } from './config'

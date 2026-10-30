@@ -1,6 +1,3 @@
-import type { HttpContext } from '@hazejs/core'
-import { ExceptionHandler, ValidationException } from '@hazejs/core'
-
 export default class Handler extends ExceptionHandler {
   protected override dontReport = [ValidationException]
 

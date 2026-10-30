@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url)
 let counter = 0
 
 /** 生成到 test/.tmp 下，依赖沿目录向上解析到 packages/create/node_modules */
-export function createProject(template: TemplateName): ScaffoldResult & {
+export function createProject(template: TemplateName, options: { autoImport?: boolean } = {}): ScaffoldResult & {
   edit: (file: string, from: string, to: string) => void
   write: (file: string, content: string) => void
   read: (file: string) => string
@@ -25,6 +25,7 @@ export function createProject(template: TemplateName): ScaffoldResult & {
     template,
     name: `demo-${template}`,
     force: true,
+    ...options,
   })
   return {
     ...result,

@@ -1,5 +1,3 @@
-import { Config, inject, Router } from '@hazejs/core'
-
 export class HomeController {
   private config = inject(Config)
   private router = inject(Router)

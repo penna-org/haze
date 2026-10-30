@@ -5,6 +5,7 @@ export default defineConfig({
     'src/index.ts',
     'src/adapters/cloudflare.ts',
     'src/client.ts',
+    'src/auto-imports.ts',
     'src/broadcast/echo.ts',
     'src/jsx-runtime.ts',
     'src/jsx-dev-runtime.ts',

@@ -1,6 +1,3 @@
-import { defineProvider, Logger } from '@hazejs/core'
-import { UserRepository } from '~/app/repository/UserRepository'
-
 export default defineProvider({
   register(container) {
     container.singleton(UserRepository)

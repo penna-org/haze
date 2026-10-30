@@ -42,6 +42,10 @@
       "types": "./dist/mongo/index.d.mts",
       "default": "./dist/mongo/index.mjs"
     },
+    "./auto-imports": {
+      "types": "./dist/auto-imports.d.mts",
+      "default": "./dist/auto-imports.mjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [

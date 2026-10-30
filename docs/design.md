@@ -1975,3 +1975,32 @@ monorepo 内的测试覆盖不到、由这次检查发现的两个问题：
 - `onlyTrashed()` / `withTrashed()` 也不算条件：`Post.onlyTrashed().forceDelete()`、`restore()` 需要 `{ all: true }`（`restore()` 走 `withTrashed().update()`，修复前就会拒绝）。
 - 行为变化：以上调用现在抛出 `DatabaseError`，按补丁版本发布并在 changeset 中注明。
 - 测试：`advanced.test.ts`（SQLite / D1 / PGlite：软删除与全局作用域的 update / delete / forceDelete / restore）、`tenancy.test.ts`（belongsToTenant）、`mongo.test.ts`（软删除）。修复前前两者失败；Mongo 用例在本机无法下载 mongod 未运行，用不连接数据库的脚本确认了修复前后的检查行为。
+
+### 自动导入实施记录（2026-10-30）
+
+目标：类似 unplugin-auto-import，控制器、服务、事件等以及框架常用 API 无需手写 import，用户可以配置哪些名字自动导入，类型提示不能丢。单独成包 `@hazejs/auto-import`，`haze.config.ts` 的 `autoImport` 开启（默认关闭）。
+
+**为什么一处接入就够**：dev、build、Vitest（`defineHazeTestConfig`）与所有加载应用的命令都经过 `haze()` 插件。
+
+**运行时注入**
+- 识别与注入用 unimport（正则解析，跳过本地声明与已有导入），扫描与类型声明自己实现。
+- 扫描用 Vite 8 自带的 oxc `parseSync`：区分值与只有类型的导出（只有类型的不注入，避免运行时导入不存在的导出），跟随相对路径的再导出，按“最初声明的位置”去重（index.ts 再导出不算重名）。匿名默认导出取文件名（`send-receipt.ts` → `sendReceipt`，`index.ts` 取目录名）。
+- 必须在 TS 转换之后注入：只在类型位置出现的类（`private users: UserService` 配合 `inject()`）不能产生运行时导入。主插件的 transform 是 `pre`（后端 JSX 要先于 oxc），一个插件只有一个 transform，因此 `haze()` 改为返回 `[主插件, 自动导入插件]`；`plugins: [haze()]` 不受影响，`haze().api` 需改为 `haze()[0].api`。
+- 只作用于 ssr 环境与项目根目录下的文件（含 srcDir 之外的 tests/），跳过 `.haze/` 与 `exclude`（默认 `database/schema/**`，drizzle-kit 自己加载）。
+- 开发时文件新增 / 修改 / 删除导致名单变化：`moduleGraph.invalidateAll()` 后整体重载（之前转换时还不存在的名字需要重新注入）。
+
+**类型声明**（`.haze/types/auto-imports.d.ts`，已用 tsc 在 bundler / nodenext、skipLibCheck 开关下验证）
+- 只用 `const X: typeof import()` 时类不能用作类型；同名 const 与 `export type {}` 冲突（TS1362）。
+- 值：在声明文件顶层 `export { X, default as Y } from '…'`，再 `import * as self from './auto-imports.js'`（引用自身），`declare global { export import X = self.X }`。别名同时带值、类型与命名空间含义，泛型约束（含引用源文件私有类型的）原样保留；默认导出借自身的具名再导出起别名（`self.default` 是保留字）。命名空间导入单独 `import * as`（`export * as` 不能用于 `export =` 的模块，如 @types/node）。
+- 只有类型：源模块以 `export type {}` 导出时别名报 TS1380，改为 `declare global` 中 `// @ts-ignore` + `export type { X } from`（与 Nuxt 相同），泛型同样保留。
+- 写入时机：插件初始化（typegen 开启时）、名单变化、`haze typegen`（总是生成）。仓库的 `pnpm typecheck` 先在 playground 运行 `haze typegen`；根 tsconfig 不再包含 playground（避免 playground 的全局声明掩盖包源码中漏写的 import）。
+
+**预设**
+- 各包以 `<包名>/auto-imports` 子路径提供（`@hazejs/core`、`@hazejs/orm`），默认使用项目 package.json 中提供了预设的 `@hazejs/*` 包，`presets` 显式指定，`[]` 关闭；优先级：项目目录 > imports > 预设。
+- 名单按文档、模板与 playground 的实际导入频率挑选。不收录：`Storage` / `Lock`（@types/node 的全局类型，全局声明冲突）、`t` / `raw` / `when` / `cache` / `can` 等过于通用的小写名字、orm 的 `Session`（与 core 重名）。
+
+**生成代码与迁移**：`stripImports()` 去掉与自动导入完全相同（同模块、同导出、同名）的手写导入，`haze make:*` 写入前调用；playground 用它整体迁移（21 个文件）。`create-hazejs --auto-import` 在 haze.config.ts 中加入 `autoImport: true`、加入开发依赖，并把 `typecheck` 改为先运行 `haze typegen`（模板代码中的 import 保持不变）。
+
+**测试**：auto-import 包（扫描、注入、真实 Vite SSR 执行、用 TS 编译器 API 检查声明并以 `@ts-expect-error` 防止类型退化为 any、预设与 core / orm 导出一致、与 @types/node 无全局冲突、stripImports）；vite `auto-import.test.ts`（开发服务器、类型位置不注入、schema 排除、后加的名字触发重新转换、未开启时不生成、生产构建）；cli `make.test.ts`；create 模板开启后 `haze typegen` + tsc + 模板自身 20 个用例。
+
+**已知限制**：由其它工具加载的文件（haze.config.ts、vite.config.ts、vitest.config.ts、database/schema）中漏写 import 只在运行时报错；unimport 的正则检测不识别函数参数的遮蔽（会多注入一个未使用的导入，无害）；依赖包 `export *` 的名字无法列出；只有类型的声明依赖 `@ts-ignore`；模板代码本身没有去掉 import。

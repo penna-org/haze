@@ -1,0 +1,54 @@
+{
+  "name": "@hazejs/auto-import",
+  "type": "module",
+  "version": "0.4.0",
+  "description": "Auto imports for hazejs: use controllers, services, events and library APIs without import statements, with full type support",
+  "license": "MIT",
+  "homepage": "https://github.com/penna-org/haze/tree/main/packages/auto-import#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penna-org/haze.git",
+    "directory": "packages/auto-import"
+  },
+  "bugs": {
+    "url": "https://github.com/penna-org/haze/issues"
+  },
+  "keywords": [
+    "hazejs",
+    "haze",
+    "nodejs",
+    "typescript",
+    "auto-import",
+    "unimport"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "dependencies": {
+    "picomatch": "catalog:",
+    "tinyglobby": "catalog:",
+    "unimport": "catalog:"
+  },
+  "devDependencies": {
+    "@types/picomatch": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

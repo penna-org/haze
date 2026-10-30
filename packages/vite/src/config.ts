@@ -1,4 +1,5 @@
 import type { UserConfig } from 'vite'
+import type { AutoImportConfig } from './auto-import'
 import type { DevtoolsConfig } from './devtools'
 import type { ExternalsOptions } from './presets/deps'
 import type { CloudflareOptions, PresetName, VercelOptions } from './presets/types'
@@ -28,6 +29,11 @@ export interface HazeConfig {
   externals?: ExternalsOptions
   /** 开发时的 DevTools（需安装 `@hazejs/devtools`），默认开启；false 关闭 */
   devtools?: boolean | DevtoolsConfig
+  /**
+   * 自动导入（需安装 `@hazejs/auto-import`）：控制器、服务、事件等无需手写 import，
+   * 类型声明生成到 `.haze/types/auto-imports.d.ts`。默认关闭；true 使用默认目录
+   */
+  autoImport?: boolean | AutoImportConfig
   /** 透传给 Vite 的配置（插件、别名等） */
   vite?: UserConfig
 }
@@ -44,6 +50,7 @@ export interface ResolvedHazeConfig {
   vercel: VercelOptions | undefined
   externals: ExternalsOptions | undefined
   devtools: boolean | DevtoolsConfig
+  autoImport: boolean | AutoImportConfig
   vite: UserConfig
   configFile: string | undefined
 }
@@ -90,6 +97,7 @@ export async function loadHazeConfig(root: string, mode = 'development'): Promis
     vercel: config.vercel,
     externals: config.externals,
     devtools: config.devtools ?? true,
+    autoImport: config.autoImport ?? false,
     vite: config.vite ?? {},
     configFile,
   }

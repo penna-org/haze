@@ -14,6 +14,7 @@ const guide: Array<{ text: Title, items: Array<[slug: string, title: Title]> }> 
       ['getting-started', ['Getting Started', '快速开始']],
       ['directory-structure', ['Directory Structure', '目录结构']],
       ['configuration', ['Configuration', '配置']],
+      ['auto-import', ['Auto Imports', '自动导入']],
     ],
   },
   {

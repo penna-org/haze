@@ -1,8 +1,5 @@
-import { Logger } from '@hazejs/core'
 import { createTestApp, useTestApp } from '@hazejs/testing'
 import { describe, expect, it } from 'vitest'
-import { UserRepository } from '~/app/repository/UserRepository'
-import { ErrorCode } from '~/app/service/UserService'
 
 // 每个用例一个全新的应用实例
 const t = useTestApp({

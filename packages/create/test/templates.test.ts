@@ -67,6 +67,37 @@ describe('scaffold', () => {
   })
 })
 
+describe('auto import option', () => {
+  it('enables autoImport so new code can skip imports, with types', async () => {
+    project = createProject('api', { autoImport: true })
+    expect(project.read('haze.config.ts')).toContain('  autoImport: true,\n')
+    const pkg = JSON.parse(project.read('package.json'))
+    expect(pkg.devDependencies['@hazejs/auto-import']).toBe(`^${createVersion}`)
+    expect(pkg.scripts.typecheck).toBe('haze typegen && tsc --noEmit')
+
+    // 没有任何 import：defineRoutes 来自 @hazejs/core 的预设，控制器与校验规则来自项目目录
+    project.write('route/auto.ts', [
+      `export default defineRoutes((r) => {`,
+      `  r.post('/api/auto', [GreetingController, 'store']).validate({ body: GreetSchema })`,
+      `})`,
+      ``,
+    ].join('\n'))
+    const typegen = await run(binOf('@hazejs/cli', 'haze'), ['typegen'], project.root)
+    expect(typegen.code, typegen.output).toBe(0)
+    expect(typegen.output).not.toContain('conflicts')
+    const tsc = await run(binOf('typescript', 'tsc'), ['--noEmit', '-p', 'tsconfig.json'], project.root)
+    expect(tsc.output).toBe('')
+
+    const tests = await run(binOf('vitest'), ['run'], project.root)
+    expect(tests.output, tests.output).toContain('20 passed')
+    expect(tests.code).toBe(0)
+  })
+
+  it('is only available for templates with haze.config.ts', () => {
+    expect(() => createProject('module', { autoImport: true })).toThrow(/does not support autoImport/)
+  })
+})
+
 describe('api template', () => {
   it('typechecks and passes its own tests', async () => {
     project = createProject('api')

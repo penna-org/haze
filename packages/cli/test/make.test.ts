@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { createImportStripper } from '@hazejs/vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { KINDS, make, makeAuthTables, makeModel, makeModule, makeNotificationsTable, makeQueueTables } from '../src/make/generator'
 import { camelCase, commandName, kebabCase, parseName, plural } from '../src/make/naming'
@@ -73,6 +74,57 @@ describe('make', () => {
       expect(rel(result.file), kind).toBe(expected[kind])
       expect(readFileSync(result.file, 'utf8'), kind).not.toMatch(/\{\{\s*\w+\s*\}\}/)
     }
+  })
+
+  it('omits imports that would be auto-imported when autoImport is enabled', async () => {
+    mkdirSync(join(srcDir, 'app/model'), { recursive: true })
+    writeFileSync(join(root, 'package.json'), JSON.stringify({
+      dependencies: { '@hazejs/core': 'workspace:*', '@hazejs/orm': 'workspace:*' },
+    }))
+    writeFileSync(join(srcDir, 'app/model/Post.ts'), 'export class Post {}\n')
+    const postProcess = await createImportStripper({ root, srcDir, autoImport: true })
+
+    // 框架 API（预设）与项目中的模型都会被自动导入
+    const policy = readFileSync((await make({
+      root,
+      srcDir,
+      kind: 'policy',
+      name: 'Post',
+      postProcess,
+    })).file, 'utf8')
+    expect(policy).not.toMatch(/^import /m)
+    expect(policy).toMatch(/^\/\*\*/)
+    // 只去掉会被自动导入的说明符
+    const resource = readFileSync((await make({
+      root,
+      srcDir,
+      kind: 'resource',
+      name: 'Post',
+      postProcess,
+    })).file, 'utf8')
+    expect(resource).toMatch(/^import \{ when \} from '@hazejs\/core'\n/)
+    // 依赖包的导入（未配置）保持不变
+    const test = readFileSync((await make({
+      root,
+      srcDir,
+      kind: 'test',
+      name: 'Post',
+      postProcess,
+    })).file, 'utf8')
+    expect(test).toContain(`import { describe, expect, it } from 'vitest'`)
+
+    // drizzle-kit 加载的 database/schema 不处理，模型中指向它的导入保留
+    const { model, schema } = await makeModel({
+      root,
+      srcDir,
+      name: 'Comment',
+      postProcess,
+    })
+    expect(readFileSync(model, 'utf8')).toMatch(/^import \{ comments \} from '~\/database\/schema\/comments'\n/)
+    expect(readFileSync(schema!, 'utf8')).toMatch(/^import /)
+
+    // 未开启时不处理
+    expect(await createImportStripper({ root, srcDir, autoImport: false })).toBeUndefined()
   })
 
   it('renders the resource controller with route hints', async () => {

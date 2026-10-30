@@ -3,7 +3,7 @@ import type { KindName } from '../make/generator'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
-import { loadHazeConfig } from '@hazejs/vite'
+import { createImportStripper, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand, runCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'
@@ -31,10 +31,11 @@ function makeCommand(kind: KindName): CommandDef<any> {
     },
     async run({ args }) {
       const root = resolveRoot(args.root)
-      const { srcDir } = await loadHazeConfig(root)
+      const { srcDir, autoImport } = await loadHazeConfig(root)
       const result = await make({
         root,
         srcDir,
+        postProcess: await createImportStripper({ root, srcDir, autoImport }),
         kind,
         name: args.name,
         force: args.force,
@@ -93,7 +94,7 @@ export const makeModelCommand = defineCommand({
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const { srcDir } = await loadHazeConfig(root)
+    const { srcDir, autoImport } = await loadHazeConfig(root)
     const dialect = (args.dialect ?? detectDialect(root)) as 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
     if (![
       'sqlite',
@@ -106,6 +107,7 @@ export const makeModelCommand = defineCommand({
     const result = await makeModel({
       root,
       srcDir,
+      postProcess: await createImportStripper({ root, srcDir, autoImport }),
       name: args.name,
       table: args.table,
       dialect,
@@ -240,10 +242,11 @@ export const makeModuleCommand = defineCommand({
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const { srcDir } = await loadHazeConfig(root)
+    const { srcDir, autoImport } = await loadHazeConfig(root)
     const result = await makeModule({
       root,
       srcDir,
+      postProcess: await createImportStripper({ root, srcDir, autoImport }),
       name: args.name,
       force: args.force,
     })
