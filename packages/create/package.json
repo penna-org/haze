@@ -1,7 +1,7 @@
 {
   "name": "create-hazejs",
   "type": "module",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Create a hazejs project (API, Vue or React full-stack)",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/create#readme",

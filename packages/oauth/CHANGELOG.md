@@ -1,5 +1,12 @@
 # @hazejs/oauth
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [[`a7d7a1b`](https://github.com/penna-org/haze/commit/a7d7a1b2c351570511883fe28cc743e2b86f5c0f)]:
+  - @hazejs/core@0.4.0
+
 ## 0.3.0
 
 ### Patch Changes

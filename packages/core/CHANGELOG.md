@@ -1,5 +1,11 @@
 # @hazejs/core
 
+## 0.4.0
+
+### Minor Changes
+
+- [`a7d7a1b`](https://github.com/penna-org/haze/commit/a7d7a1b2c351570511883fe28cc743e2b86f5c0f) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - `ctx.sse(source, options?)` returns a Server-Sent Events response. The source is an async iterable (one event per item, closes when it ends) or a function that keeps the stream open until `stream.close()`. It sends a `: ping` heartbeat every 15 seconds, closes and runs `stream.onClose()` hooks when the client disconnects, logs and closes on source errors, and sets `cache-control: no-cache, no-transform` and `x-accel-buffering: no`. `eventStream()` and `encodeSseEvent()` are exported for use outside a request. Broadcasting's `/broadcasting/sse` and the dev dashboard stream now use it, and `cacheResponse` no longer buffers `text/event-stream` responses.
+
 ## 0.3.0
 
 ### Minor Changes
