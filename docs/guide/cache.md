@@ -42,7 +42,21 @@ export default defineCacheConfig(() => ({
 | `responseStore` | Store used by `cacheResponse`; defaults to `default` |
 | `serializer` | `'typed'` (default), `'json'` or a custom serializer; each store can override it. See [Serialization](#serialization) |
 
-Store names and drivers end up in the generated config types, so `Cache.store('redis')` is typed as a Redis store and a misspelled store name fails type checking (see [Typing](#typing)).
+Store names and drivers end up in the generated config types, so `Cache.store('redis')` is typed as a Redis store and a misspelled store name fails type checking (see [Typing](#typing)). `connection` is checked against the connection names of `config/redis.ts`.
+
+A store can be added conditionally with a spread; when the condition is false the store does not exist, and using it throws `Cache store "locks" is not defined`:
+
+```ts
+const redis = Boolean(env('REDIS_URL'))
+
+export default defineCacheConfig({
+  default: 'memory',
+  stores: {
+    memory: { driver: 'memory' },
+    ...(redis ? { locks: { driver: 'redis', connection: 'default' } } : {}),
+  },
+})
+```
 
 ## Drivers
 

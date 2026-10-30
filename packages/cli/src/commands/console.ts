@@ -6,6 +6,7 @@ import process from 'node:process'
 import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { appCore } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 
 type Core = typeof import('@hazejs/core')
@@ -55,9 +56,9 @@ export async function loadUserCommands(argv: string[], builtin: Set<string>): Pr
   }
   try {
     server = await createDevServer({ root, listen: false })
-    const core = await server.import<Core>('@hazejs/core')
     if (!server.app)
       throw new Error('Application failed to start')
+    const core = await appCore(server, root)
     const commands: Record<string, CommandDef<any>> = {}
     for (const { name, command, file, module } of await server.app.commands()) {
       if (builtin.has(name)) {

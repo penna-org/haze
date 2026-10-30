@@ -5,6 +5,7 @@ import process from 'node:process'
 import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { importFromApp } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 
 /** 用到的 @hazejs/search 接口（避免 CLI 依赖该包的类型） */
@@ -46,7 +47,7 @@ async function withSearch(rootArgValue: string, model: string | undefined, run: 
       throw new Error('Application failed to start')
     let search: SearchModule
     try {
-      search = await server.import<SearchModule>('@hazejs/search')
+      search = await importFromApp<SearchModule>(server, root, '@hazejs/search')
     }
     catch {
       consola.error('@hazejs/search is not installed. Run `pnpm add @hazejs/search` first.')

@@ -50,7 +50,11 @@ Start the built server (an in-memory database such as PGlite is ideal) and check
 | streaming | `curl -N` an SSE endpoint; headers present, events arrive incrementally |
 | sockets | connect with the real client (websocket and polling), rejected handshake with a bad token |
 | uploads / downloads | multipart upload, Range request (206), ETag (304) |
-| shutdown | `kill -TERM` → exits promptly, no errors in the log |
+| shutdown | `kill -TERM` → exits promptly, no errors in the log — also **with a browser / socket.io client connected** (must exit within `app.shutdownTimeout`) |
+
+## 4b. Deployment topology
+
+Tests and a single process do not exercise the production shape. If the project ships Docker, build the image and run the real topology (database + Redis + one-shot `migrate` + `app` + `queue` + `scheduler`): empty database to ready, migrations a second time (0 run), restart `app` (sessions survive), a job in the `queue` container pushing a realtime notification to a browser on `app`, SIGTERM with open WebSockets. In the reference port, a provider reading tables during `migrate.mjs` and the shutdown hang with open WebSockets showed up only here. Likewise, run the `haze` commands (`schedule:list`, `queue:work`) in the real app, where `@hazejs/*` is installed in `node_modules`: the CLI loading a second copy of `@hazejs/core` never reproduced in the framework's workspace-linked tests.
 
 ## 5. Browser walkthrough
 

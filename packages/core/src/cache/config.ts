@@ -50,8 +50,14 @@ export const defaultCacheConfig: CacheConfig = {
  * `config/cache.ts` 的默认导出；存储名与驱动会进入生成的类型
  * （`Cache.store('redis')` 为 RedisCacheRepository，拼错存储名时报错）
  */
-export function defineCacheConfig<const S extends Record<string, CacheStoreConfig>>(
-  config: CacheConfig<keyof S & string> & { stores: S } | (() => CacheConfig<keyof S & string> & { stores: S }),
-): CacheConfig<keyof S & string> & { stores: S } | (() => CacheConfig<keyof S & string> & { stores: S }) {
+export function defineCacheConfig<const S extends Record<string, CacheStoreConfig | undefined>>(
+  config: CacheConfigInput<S> | (() => CacheConfigInput<S>),
+): CacheConfigInput<S> | (() => CacheConfigInput<S>) {
   return config
 }
+
+/**
+ * defineCacheConfig 的参数：stores 允许按条件展开的存储（`...(redis ? { locks: {...} } : {})`，
+ * 未展开时该存储不存在，使用时报“未定义”）
+ */
+export type CacheConfigInput<S extends Record<string, CacheStoreConfig | undefined>> = Omit<CacheConfig<keyof S & string>, 'stores'> & { stores: S }

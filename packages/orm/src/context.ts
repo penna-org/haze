@@ -3,7 +3,7 @@ import type { Dialect, Driver } from './config'
 import type { Connection, DatabaseManager } from './connection'
 import type { AnyDatabase } from './types'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { getRequestStore } from '@hazejs/core'
+import { getContextApp, registerAfterCommitHandler } from '@hazejs/core'
 import { DatabaseError } from './errors'
 import { forcedWriter, hasWritten } from './routing'
 
@@ -36,13 +36,14 @@ export function withDatabaseManager<R>(value: DatabaseManager, callback: () => R
 
 /**
  * 当前的 DatabaseManager（未配置时为 undefined，不抛错），依次为：withDatabaseManager() 指定的、
- * 请求所属应用的、最近启动的应用的
+ * 当前上下文所属应用的（请求、队列任务、定时任务、事件监听器）、最近启动的应用的
  */
 export function currentDatabaseManager(): DatabaseManager | undefined {
   const explicit = scoped.getStore()
   if (explicit)
     return explicit
-  const app = getRequestStore()?.app
+  // 请求所属的应用，或队列任务 / 定时任务 / 事件监听器所属的应用（core 的 runInApp()）
+  const app = getContextApp()
   return (app && managers.get(app)) ?? manager
 }
 
@@ -81,6 +82,17 @@ interface TxState {
     end: (commit: boolean) => void
     finished: Promise<void>
   }
+  /** 外部开启、经 joinTransaction() 加入的事务 */
+  joined?: boolean
+  /** afterCommit 回调：本层提交后移交外层，最外层提交后执行，回滚时丢弃 */
+  callbacks?: CommitCallback[]
+}
+
+/** 一个 afterCommit 回调（同时处于多个连接的事务中时，全部提交后才执行，任一回滚即丢弃） */
+interface CommitCallback {
+  run: () => Promise<void>
+  remaining: number
+  discarded: boolean
 }
 
 /** 事务上下文：`<DatabaseManager>:<连接名>` → 当前事务（同一进程中多个应用的同名连接互不影响） */
@@ -101,6 +113,89 @@ function active(state: TxState | undefined): TxState | undefined {
   while (state?.closed)
     state = state.parent
   return state
+}
+
+/** 事务回滚：丢弃登记在这一层的 afterCommit 回调 */
+function discardCallbacks(state: TxState): void {
+  for (const callback of state.callbacks ?? [])
+    callback.discarded = true
+  state.callbacks = undefined
+}
+
+/**
+ * 事务提交：保存点（有外层事务）把回调移交外层；最外层提交后依次执行
+ * （joinTransaction() 加入的外部事务没有外层时，在其回调成功返回后执行）
+ */
+async function commitCallbacks(state: TxState): Promise<void> {
+  const callbacks = state.callbacks ?? []
+  state.callbacks = undefined
+  const parent = active(state.parent)
+  if (parent) {
+    (parent.callbacks ??= []).push(...callbacks)
+    return
+  }
+  for (const callback of callbacks) {
+    if (callback.discarded || --callback.remaining > 0)
+      continue
+    await callback.run()
+  }
+}
+
+/**
+ * 登记 afterCommit 回调：当前上下文处于事务中时（指定 connection 时只看该连接，否则为任意连接）
+ * 登记到最内层事务并返回 true；不在事务中时返回 false
+ */
+export function deferAfterCommit(run: () => Promise<void>, connection?: string): boolean {
+  const store = transactions.getStore()
+  if (!store?.size)
+    return false
+  let states: TxState[]
+  if (connection === undefined) {
+    states = [
+      ...new Set([
+        ...store.values(),
+      ].map(active).filter((state): state is TxState => state !== undefined)),
+    ]
+  }
+  else {
+    const databases = useDatabaseManager()
+    const state = active(store.get(txKey(databases, databases.resolveName(connection))))
+    states = state
+      ? [state]
+      : []
+  }
+  if (!states.length)
+    return false
+  const callback: CommitCallback = { run, remaining: states.length, discarded: false }
+  for (const state of states)
+    (state.callbacks ??= []).push(callback)
+  return true
+}
+
+// core 的 afterCommit()、任务与事件的 afterCommit 通过这个钩子判断是否处于事务中（globalThis 上的集合，重复注册无影响）
+registerAfterCommitHandler(callback => deferAfterCommit(callback))
+
+/**
+ * 事务提交后执行（ThinkPHP / Laravel 的 afterCommit）：处于事务中时推迟到最外层事务提交后执行
+ * （保存点回滚、整个事务回滚时丢弃），不在事务中时立即执行。推迟执行的回调在 `Db.transaction()` /
+ * `Db.commit()` 返回前执行，抛出的错误只记录日志（事务已经提交）。指定 connection 时只看该连接的事务
+ */
+export async function afterCommit(callback: () => unknown, connection?: string): Promise<void> {
+  const run = async (): Promise<void> => {
+    try {
+      await callback()
+    }
+    catch (error) {
+      const logger = getContextApp()?.logger
+      if (logger)
+        logger.error('afterCommit callback failed', error)
+      else
+        console.error('afterCommit callback failed', error)
+    }
+  }
+  if (deferAfterCommit(run, connection))
+    return
+  await callback()
 }
 
 export interface Session {
@@ -185,7 +280,28 @@ export function joinTransaction<R>(tx: AnyDatabase, callback: () => R, connectio
   const key = txKey(databases, databases.resolveName(connection))
   const store = transactions.getStore()
   const parent = active(store?.get(key))
-  return transactions.run(new Map(store).set(key, { db: tx, parent, closed: false }), callback)
+  const state: TxState = {
+    db: tx,
+    parent,
+    closed: false,
+    joined: true,
+  }
+  const result = transactions.run(new Map(store).set(key, state), callback)
+  // 外部事务的提交时机未知：回调成功返回后视为提交（外部随即提交），失败时视为回滚
+  if (result instanceof Promise) {
+    return result.then(async (value) => {
+      state.closed = true
+      await commitCallbacks(state)
+      return value
+    }, (error: unknown) => {
+      state.closed = true
+      discardCallbacks(state)
+      throw error
+    }) as R
+  }
+  state.closed = true
+  void commitCallbacks(state)
+  return result
 }
 
 function assertTransactional(name: string, driver: Driver): void {
@@ -207,11 +323,30 @@ export async function transaction<R>(callback: (tx: AnyDatabase) => Promise<R>, 
   const key = txKey(databases, session.name)
   const store = transactions.getStore()
   const parent = active(store?.get(key))
-  const run = (tx: AnyDatabase): Promise<R> =>
-    transactions.run(new Map(store).set(key, { db: tx, parent, closed: false }), () => callback(tx))
-  return parent
-    ? session.db.transaction(run)
-    : session.db.transaction(run, config)
+  let state: TxState | undefined
+  const run = (tx: AnyDatabase): Promise<R> => {
+    state = { db: tx, parent, closed: false }
+    return transactions.run(new Map(store).set(key, state), () => callback(tx))
+  }
+  let result: R
+  try {
+    result = await (parent
+      ? session.db.transaction(run)
+      : session.db.transaction(run, config))
+  }
+  catch (error) {
+    if (state) {
+      state.closed = true
+      discardCallbacks(state)
+    }
+    throw error
+  }
+  // 已提交（保存点已释放）：afterCommit 回调移交外层，或在最外层提交后执行
+  if (state) {
+    state.closed = true
+    await commitCallbacks(state)
+  }
+  return result
 }
 
 /** 回滚手动事务时从 drizzle 回调中抛出 */
@@ -281,8 +416,10 @@ async function finish(commit: boolean, connection?: string): Promise<void> {
   if (!state?.manual)
     throw new DatabaseError(`No transaction started with startTrans() on connection "${name}"`)
   state.manual.end(commit)
+  let committed = false
   try {
     await state.manual.finished
+    committed = commit
   }
   finally {
     state.closed = true
@@ -290,7 +427,11 @@ async function finish(commit: boolean, connection?: string): Promise<void> {
       store!.set(key, state.parent)
     else
       store!.delete(key)
+    if (!committed)
+      discardCallbacks(state)
   }
+  if (committed)
+    await commitCallbacks(state)
 }
 
 /** 提交 startTrans() 开启的事务 */

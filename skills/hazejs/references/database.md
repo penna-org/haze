@@ -189,7 +189,8 @@ await user.allowField(['name', 'bio']).save(input)
 await user.force().save()                                                    // touch updatedAt with no changes
 await post.inc('views').save()                                               // also dec()
 await user.delete(); await User.destroy([1, 2, 3]); await User.destroy({ status: 0 })
-await User.update({ status: 0 }, { role: 'guest' })   // loads + saves each model (events fire)
+await User.update({ status: 0 }, { role: 'guest' })   // loads + saves each model (events fire; N+1, not atomic)
+await User.updateById(id, { body: bigJson })          // one UPDATE by PK: updatedAt + lock version, no events, no select
 await User.saveAll([{ id: 1, name: 'Ada' }, { name: 'Bob' }])   // upsert-ish, in a transaction
 user.isDirty('name'); user.getDirty(); user.getOriginal(); user.getData(); await user.refresh(); user.exists
 ```
@@ -204,7 +205,9 @@ Events (instance methods, may be async): `onBeforeWrite`, `onAfterWrite`, `onBef
 
 Serialization: `toJSON()` / `toArray()` applies accessors, `hidden`, `visible`, `append`, and loaded relations. Per call: `user.hidden(['email'])`, `user.visible(['id', 'name', 'posts.title'])`, `user.append([...])`, `user.hidden(['phone'], true)` (merge). Per query: `User.query().visible(['id', 'name']).select()`.
 
-Errors: `ModelNotFoundException` (404), `UniqueConstraintException` (409, all drivers), `OptimisticLockException` (409).
+`user.getData()` is typed as the table row. `Model.create()` / `insert()` values may be drizzle `sql` expressions. `optimLock` leaves the version column to its DB default on create.
+
+Errors: `ModelNotFoundException` (404), `UniqueConstraintException` (409, `code: 'unique_violation'`, all drivers; carries `constraint` / `table` / `columns` / `detail` from the driver; message translated via `http.unique_violation`), `OptimisticLockException` (409).
 
 ## Query builder (`Db`)
 
@@ -223,20 +226,26 @@ await Db.table(users).whereRaw('age > ? and status = ?', [18, 1]).select()
 await Db.table(articles).where('meta->author->name', 'Ada').field('title', 'meta->city as city').select()
 await Db.table(posts).whereTime('createdAt', 'today').count()             // whereDay/Week/Month/Year/BetweenTime
 await Post.query().when(keyword, (q, v) => q.whereLike('title', `%${v}%`)).order('id', 'desc').paginate(page, 20)
+await Db.table(users).where(and(eq(users.tenantId, t), kw ? like(users.name, kw) : undefined)).select() // where(undefined) is ignored
+await Db.table(users).whenDefined(enabled, (q, v) => q.where('enabled', v)).select() // skips only undefined/null (when() also skips false/'')
 
 await Db.table(posts).join(users, 'posts.userId', 'users.id').field('posts.title', 'users.name as author').select()
+await Db.table(logs).leftJoin(users, 'logs.userId', 'users.id').field({ log: logs, name: users.name }).select() // { log: row, name: string | null }
 await Db.table(users).whereIn('id', Db.table(posts).field('userId').where('views', '>', 100)).select() // subquery
 await Db.table(settings).cache('10m').select()                           // via the cache module
 
 const id = await Db.table(users).insertGetId({ name: 'Bob', email: 'bob@example.com' })
 await Db.table(users).upsert({ email: 'a@x.io', name: 'Ada' }, { target: 'email' })
+await Db.table(jobs).upsert(job, { target: 'key', update: { attempts: sql`${jobs.attempts} + 1` }, where: sql`...`, returning: true }) // PG/SQLite
+const rows = await Db.table(users).where('id', 1).update({ name: 'Ada', bio: undefined }, { returning: true }) // undefined keys dropped; PG/SQLite
+await Db.table(logs).insert(entries, { returning: false })                // count only
 await Db.table(posts).where('id', 1).inc('views').dec('stock', 2).update()
 await Db.table(users).where('status', 0).delete()
 await Db.table(logs).delete({ all: true })                                // unconditional writes need { all: true }
 const rows = await Db.execute(sql`select count(*) as n from users`)       // always an array (alias Db.query)
 const db = await Db.drizzle()                                             // raw drizzle (tx-aware)
 await Db.connect(); Db.drizzleSync()                                      // sync access once connected (e.g. repository `get db()`)
-await Db.withManager(app.make(DatabaseManager), () => work())            // pin code outside requests to one app (several apps per process, e.g. tests)
+await Db.withManager(app.make(DatabaseManager), () => work())            // pin code outside requests to one app (several apps per process, e.g. tests); jobs / listeners / scheduled tasks already use their own app; runInApp(app, fn) from core pins every facade
 await Db.connection('analytics').table(events).count()
 ```
 
@@ -249,9 +258,9 @@ await Db.connection('analytics').table(events).count()
 | `paginate(page, perPage = 15)` | `{ data, total, page, perPage, lastPage }` |
 | `paginateX(perPage, { lastId, key, sort })` | `{ data, perPage, lastId, hasMore }` (no COUNT) |
 | `chunk(size, rows => false?)` / `cursor(size)` / `lazy(size)` | batched processing / async iterator |
-| `toSQL()` | SQL + params |
+| `toSQL()` / `toSQL('insert' \| 'update' \| 'delete', ...)` | SQL + params (writes previewed, not run) |
 
-Insert helpers: `insert`, `insertAll`, `insertGetId`, `insertIgnore`, `upsert` (`update: ['col']` to restrict), `replace`, `save`, `selectInsert(table)`. Query `update()` / `delete()` are single statements: they respect soft deletes + global scopes but **skip model events and timestamps**.
+Insert helpers: `insert`, `insertAll`, `insertGetId`, `insertIgnore`, `upsert` (`update: ['col']` or `{ col: value | sql }`, `where`, `returning`), `replace`, `save`, `selectInsert(table, { ignore? })`. Query `update()` / `delete()` are single statements: they respect soft deletes + global scopes but **skip model events and timestamps** (drizzle `$onUpdate` columns still apply). `value()` / `column()` accept `field()` aliases and are typed. `exists()` is `select 1 … limit 1`; `paginate()` runs count + page in parallel outside transactions. `order(sql\`…\`, 'desc')` takes a direction. Row locks: `lock('update' | 'share' | 'no key update' | 'key share', { skipLocked, noWait })`.
 
 ## Relations
 
@@ -313,6 +322,10 @@ Db.inTransaction()
 
 // a library that opens its own drizzle transaction: make Db / Model calls inside it join that tx
 await db.transaction(tx => Db.joinTransaction(tx, () => Order.create({ total })))
+// (afterCommit callbacks registered inside run when this callback resolves — before the library's real COMMIT)
+
+// side effects only after COMMIT (dropped on rollback, immediate outside a tx; savepoints hand over to the outer tx)
+await Db.afterCommit(() => OrderPlaced.emit({ id })) // Db.connection('x').afterCommit() = that connection only
 ```
 
 Nested calls (either style, mixable) use savepoints: an inner failure only undoes inner work. Options (outermost only): `isolationLevel`, `accessMode` (PG/MySQL), `deferrable` (PG), `withConsistentSnapshot` (MySQL), `behavior: 'deferred' | 'immediate' | 'exclusive'` (SQLite).
@@ -403,7 +416,13 @@ No migrations (create indexes via `(await Mongo.db()).collection(...).createInde
 
 - **Schema files import only from `drizzle-orm`** (and `@hazejs/orm/columns`). No `~` alias, no models — drizzle-kit loads them outside Vite.
 - **Model statics need `override`** (`static override hidden = [...]`) because they are declared on the base class.
-- **Bulk query `update()`/`delete()` skip model events and timestamps**; static `User.update()` / `User.destroy()` / `saveAll()` load and save each model instead. Both refuse to run with no condition unless `{ all: true }`.
+- **Bulk query `update()`/`delete()` skip model events and timestamps**; static `User.update()` / `User.destroy()` / `saveAll()` load and save each model instead (N+1, not atomic). Both refuse to run with no condition unless `{ all: true }`. For a conditional atomic write, check the count from `User.where(...).update()`.
+- **Model queries are fully typed**: `User.where('typo', 1)` is a compile error and `User.query().column('name')` is `string[]`. If an older codebase compiled only because keys were `string`, fix the column names rather than casting.
+- **`join(table, condition)` needs a definite `SQL`** — unlike `where()`, it does not accept `undefined`, and drizzle's `and()` / `or()` are typed `SQL | undefined`; assert (`and(a, b)!`) or build the condition from parts you know exist.
+- **Builders are mutable** (`where()` returns `this`): wrap a reusable base query in a function, don't branch from a shared variable.
+- **Joins without `field()`** return rows grouped by SQL table name (`{ sys_users: {...} }`) while the type still says main-table row — always `field()` when joining with `Db.table()`. Nullable typing after `leftJoin` only works when `field()` is in the same chain.
+- **Composite primary keys** are not supported by models (`find(id)`, `save()` updates, `destroy`); use `Db.table()` and pass `upsert({ target: [...] })`.
+- `create()` timestamps come from the app clock, not the column's `defaultNow()`.
 - **`find()` on a builder vs model**: `Db.table(t).find()` returns the first row; `User.find(1)` looks up by PK. `findOrFail` throws a 404 exception — fine in controllers, surprising in jobs.
 - **Manual `startTrans()`** is bound to the async context of the calling function; calling `commit()` from a different call chain throws. Prefer `Db.transaction()`.
 - **D1 has no interactive transactions**: `transaction()` / `startTrans()` throw; use `(await Db.drizzle()).batch([...])`. `saveAll()`, `relation.saveAll()` and `sync()` run without a transaction on D1. `read`/`write` on `d1` or `mongodb` throw.

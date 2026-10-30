@@ -2,13 +2,13 @@ import type { MiddlewareHandler } from '../middleware/types'
 import type { Tenant } from './config'
 import type { TenancyManager } from './manager'
 import { useApp } from '../application'
-import { getRequestStore } from '../request'
+import { getContextApp } from '../request'
 import { currentTenancy, runWithoutTenant } from './context'
 import { tenancyOf, TenantNotFoundException } from './manager'
 
 /** 当前应用的多租户管理器：请求内取请求所属应用，否则取最近启动的应用 */
 export function useTenancy(): TenancyManager {
-  return tenancyOf(getRequestStore()?.app ?? useApp())
+  return tenancyOf(getContextApp() ?? useApp())
 }
 
 /**

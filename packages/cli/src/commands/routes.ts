@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
@@ -11,16 +12,22 @@ export default defineCommand({
     json: { type: 'boolean', description: '以 JSON 输出', default: false },
   },
   async run({ args }) {
-    const server = await createDevServer({
-      root: resolveRoot(args.root),
-      listen: false,
-    })
+    // --json：stdout 只输出 JSON（启动日志、热更新提示改写到 stderr），可以直接重定向到文件或交给 jq
+    const restore = args.json
+      ? stdoutToStderr()
+      : undefined
+    let server: Awaited<ReturnType<typeof createDevServer>> | undefined
     try {
+      server = await createDevServer({
+        root: resolveRoot(args.root),
+        listen: false,
+      })
       if (!server.app)
         throw new Error('Application failed to start')
       const routes = server.app.router.list()
       if (args.json) {
-        consola.log(JSON.stringify(routes, null, 2))
+        restore?.()
+        process.stdout.write(`${JSON.stringify(routes, null, 2)}\n`)
         return
       }
       // 多应用时额外显示所属应用与域名，有模块时显示来源模块
@@ -64,7 +71,17 @@ export default defineCommand({
       consola.log(colors.dim(`\n${routes.length} route(s)`))
     }
     finally {
-      await server.close()
+      restore?.()
+      await server?.close()
     }
   },
 })
+
+/** 把写到 stdout 的内容改写到 stderr，返回恢复函数 */
+function stdoutToStderr(): () => void {
+  const write = process.stdout.write
+  process.stdout.write = ((...args: Parameters<typeof write>) => process.stderr.write(...(args as Parameters<typeof process.stderr.write>))) as typeof write
+  return () => {
+    process.stdout.write = write
+  }
+}

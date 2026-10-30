@@ -8,6 +8,7 @@
   <a href="https://github.com/penna-org/haze/actions/workflows/ci.yml"><img src="https://github.com/penna-org/haze/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933" alt="Node >= 22.12">
+  <a href="https://www.npmjs.com/package/@hazejs/core"><img src="https://img.shields.io/npm/v/@hazejs/core?label=npm" alt="npm version"></a>
   <img src="https://img.shields.io/badge/status-pre--release-orange" alt="pre-release">
 </p>
 
@@ -19,7 +20,7 @@
 
 hazejs gives you the productivity of Laravel / ThinkPHP and the ergonomics of a modern Vite toolchain in one coherent TypeScript framework. It is built on [h3 v2](https://h3.dev), so the same app runs on Node, Bun, Deno, Docker, Cloudflare Workers, Vercel, Netlify and AWS Lambda — and it can serve your Vue / React / any-Vite frontend from the same port, with one build.
 
-> **Status:** pre-release (`0.x`). APIs may still change. Packages are not on npm yet — see [Contributing](./CONTRIBUTING.md) to try it from source.
+> **Status:** pre-release (`0.x`). The `@hazejs/*` packages and `create-hazejs` are published on npm, but APIs may still change between minor versions until `1.0`.
 >
 > 📖 **[Read the documentation](https://penna-org.github.io/haze/)**
 

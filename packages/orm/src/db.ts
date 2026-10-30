@@ -3,7 +3,7 @@ import type { SessionOptions, TransactionConfig } from './context'
 import type { QueryOptions } from './query/builder'
 import type { AnyDatabase } from './types'
 import { sql } from 'drizzle-orm'
-import { commit, inTransaction, joinTransaction, resolveSession, resolveSessionSync, rollback, startTrans, transaction, useDatabaseManager, withDatabaseManager } from './context'
+import { afterCommit, commit, inTransaction, joinTransaction, resolveSession, resolveSessionSync, rollback, startTrans, transaction, useDatabaseManager, withDatabaseManager } from './context'
 import { QueryBuilder } from './query/builder'
 import { useWriter, withinScope } from './routing'
 
@@ -32,6 +32,7 @@ export interface ScopedDb {
   drizzle: (options?: Pick<SessionOptions, 'read'>) => Promise<AnyDatabase>
   drizzleSync: () => AnyDatabase
   joinTransaction: <R>(tx: AnyDatabase, callback: () => R) => R
+  afterCommit: (callback: () => unknown) => Promise<void>
   connect: () => Promise<void>
 }
 
@@ -66,6 +67,11 @@ function scoped(connection?: string): ScopedDb {
      * 回调中的 Db / Model 查询都在这个事务中，提交与回滚由外部负责
      */
     joinTransaction: <R>(tx: AnyDatabase, callback: () => R): R => joinTransaction(tx, callback, connection),
+    /**
+     * 事务提交后执行：处于事务中时推迟到最外层事务提交后（回滚时丢弃），不在事务中时立即执行。
+     * `Db.afterCommit()` 看当前上下文中任意连接的事务，`Db.connection(name).afterCommit()` 只看该连接
+     */
+    afterCommit: (callback: () => unknown): Promise<void> => afterCommit(callback, connection),
     /** 建立连接（首次查询时也会自动建立）；之后可以同步取用 drizzleSync() */
     connect: async (): Promise<void> => void (await useDatabaseManager().connection(connection)),
   }

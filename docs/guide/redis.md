@@ -83,6 +83,8 @@ connections: {
 
 The dev server (and `haze typegen`) infers the type of `config/redis.ts` together with the other config files. Once generated, `connection: 'cahce'` in `config/cache.ts` or `Redis.connection('cahce')` fails type checking. Without `config/redis.ts`, connection names are plain strings.
 
+The connection names are generated into their own interface (`GeneratedRedisConnections`) rather than read from the whole generated config, so other config files can refer to them (`connection: 'default'` in `config/cache.ts`) without a circular type. The generated imports carry the file extension (`import("../../config/redis.ts")`), so they also resolve with `moduleResolution: "nodenext"` in an ESM project.
+
 ## Using Redis directly
 
 The `Redis` facade runs commands on the default connection; `Redis.connection(name)` switches connection:

@@ -5,7 +5,7 @@ import type { NotifiableKey, NotificationDefinition, PendingNotification } from 
 import type { DatabaseNotification, NotificationQuery, NotificationStore } from './store'
 import { defineJob } from '../queue/job'
 import { QueueManager } from '../queue/manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { defaultPrepare, registeredChannel, renderMethod } from './channel'
 import { broadcastChannel, databaseChannel, mailChannel } from './channels/basic'
 import { dingtalkChannel, feishuChannel, wecomChannel } from './channels/robots'
@@ -366,7 +366,7 @@ export function setNotificationManager(manager: NotificationManager | undefined,
 
 /** 当前应用的通知管理器：请求内取请求容器，否则取最近启动的应用 */
 export function useNotificationManager(): NotificationManager {
-  const manager = (token && getRequestStore()?.container.make(token as never)) as NotificationManager | undefined ?? fallback
+  const manager = (token && getContextContainer()?.make(token as never)) as NotificationManager | undefined ?? fallback
   if (!manager)
     throw new Error('Notifications are not available: the application has not booted')
   return manager

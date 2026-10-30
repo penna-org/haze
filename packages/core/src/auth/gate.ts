@@ -7,6 +7,23 @@ const kAbilities = Symbol.for('hazejs.abilities')
 const kGuest = Symbol.for('hazejs.guest')
 const kResponse = Symbol.for('hazejs.gate.response')
 
+/**
+ * Gate 拒绝已登录用户时抛出的 403：带上被拒绝的能力与 deny() 给出的原因，
+ * 异常处理器可据此改写消息（如列出缺少的权限码、按语言本地化）
+ */
+export class AuthorizationException extends ForbiddenException {
+  /** 被拒绝的能力（authorizeAny 时为全部候选） */
+  readonly abilities: string[]
+  /** deny('原因') 给出的原因；没有时消息为默认的“无权执行此操作” */
+  readonly reason: string | undefined
+
+  constructor(abilities: string[], reason?: string) {
+    super(reason ?? '无权执行此操作')
+    this.abilities = abilities
+    this.reason = reason
+  }
+}
+
 /** 能力函数的明确结果：`allow()` / `deny('原因')` */
 export interface GateResponse {
   readonly [kResponse]: true
@@ -272,7 +289,7 @@ export class Gate {
       return
     if (result.guest)
       throw new UnauthorizedException(result.message ?? '未登录或登录已过期')
-    throw new ForbiddenException(result.message ?? '无权执行此操作')
+    throw new AuthorizationException([ability], result.message)
   }
 
   /** 拥有其中任一能力即通过；全部被拒绝时抛出（未登录 401，已登录 403，消息取自最后一个） */
@@ -287,7 +304,7 @@ export class Gate {
     }
     if (last!.guest)
       throw new UnauthorizedException(last!.message ?? '未登录或登录已过期')
-    throw new ForbiddenException(last!.message ?? '无权执行此操作')
+    throw new AuthorizationException([...abilities], last!.message)
   }
 
   /** 绑定用户（请求之外：任务、脚本） */

@@ -42,7 +42,7 @@ export default SendInvoice
 
 | 选项 | 说明 |
 | --- | --- |
-| `name` | 任务名，默认取文件名 |
+| `name` | 任务名，默认取文件名。两个不同的任务同名（例如 `app/job/Cleanup.ts` 与 `app/job/admin/Cleanup.ts`，或模块的任务与项目的任务）时启动报错，错误信息给出两个文件；重命名其中一个或设置 `name` |
 | `tries` | 最多执行次数，默认 `1`（不重试） |
 | `backoff` | 重试前等待：秒数、`'5m'`、按重试次数取值的数组（不足时取最后一个），或 `'exponential'`（2^n 秒）。默认 `0` |
 | `timeout` | 秒数或 `'30s'`；超时视为失败，并中止 `job.signal` |
@@ -50,6 +50,7 @@ export default SendInvoice
 | `connection` | `config/queue.ts` 中的连接，默认取其 `default` |
 | `unique` | `true` 或 `{ key, for, until }`：同一任务已在队列中时跳过本次投递，见[唯一任务](#unique-jobs) |
 | `middleware` | 任务中间件，例如 `rateLimited(...)`，见[任务中间件](#job-middleware) |
+| `afterCommit` | 在数据库事务中投递时，等最外层事务提交后再投递（回滚时丢弃），见[事务提交后投递](#after-commit) |
 | `handle(payload, job)` | 任务逻辑 |
 | `failed(payload, error, job)` | 最后一次失败后调用 |
 
@@ -69,6 +70,10 @@ export default SendInvoice
 | `release(delay?)` | 放回队列，`delay`（秒数或 `'30s'`，默认 0）后再执行。不算失败，也不消耗执行次数 |
 | `batch()` | 任务所属的[批次](#batches)（执行前读取的快照），不属于批次时为 `undefined` |
 
+任务在所属应用的上下文中执行：`handle`、中间件与 `failed` 中的门面（`Queue`、`Events`、`Cache`、`Db`、`Mail`…）、`useApp()`、`config()` 与 `inject()` 都解析到这个应用，与请求中解析到当前应用相同。同一进程中有多个应用（测试、多应用部署）时这一点很重要；不再需要 `Db.withManager(job.app.make(DatabaseManager), next)` 这样的全局任务中间件。脚本中可以用 `runInApp(app, fn)` 同样固定应用。
+
+任务成功执行时记录一条 debug 日志，包含任务名、耗时与执行次数（`Job "SendInvoice" done in 12ms (attempt 1/3)`）；重试记 warn，最终失败记 error。
+
 ## 投递任务
 
 ```ts
@@ -80,6 +85,18 @@ await SendInvoice.dispatch({ invoiceId: 42 }, { queue: 'high', connection: 'redi
 ```
 
 `dispatch()` 返回任务 ID。payload 以 JSON 传递，建议传 ID，不要传模型实例。
+
+载荷类型为 `void` / `undefined`（或没有声明载荷）的任务投递时可以不传载荷：
+
+```ts
+const PruneTokens = defineJob({
+  async handle() { /* ... */ },
+})
+
+await PruneTokens.dispatch()
+await PruneTokens.dispatch(undefined, { delay: '1h' })
+await PruneTokens.with().onQueue('low').dispatch()
+```
 
 `Job.with(payload)` 得到待投递的任务：任务链、批量与回调都用它，也可以直接投递。它的 `dispatch()` 返回 `{ id, skipped }`，`skipped` 表示[唯一任务](#unique-jobs)已在队列中：
 
@@ -99,6 +116,28 @@ await Queue.failed() // 默认连接上的失败任务
 await Queue.retry() // 重新投递全部失败任务（也可传 id）
 await Queue.idle() // 等待 memory 队列清空
 ```
+
+### 事务提交后投递 {#after-commit}
+
+在数据库事务中投递的任务可能在事务提交前就开始执行（读不到事务中的写入），也可能在事务回滚后照样执行。`afterCommit` 把投递推迟到最外层事务提交之后，回滚时丢弃；不在事务中时立即投递：
+
+```ts
+const SendReceipt = defineJob({
+  afterCommit: true, // 这个任务的每次投递
+  async handle(payload: { orderId: number }) { /* ... */ },
+})
+
+await Db.transaction(async () => {
+  const order = await Order.create({ ... })
+  await SendReceipt.dispatch({ orderId: order.id }) // COMMIT 之后才入队
+  await Notify.with({ id: order.id }).afterCommit().dispatch() // 单次投递
+  await Audit.dispatch({ id: order.id }, { afterCommit: true })
+})
+```
+
+`{ afterCommit: false }` / `.afterCommit(false)` 让单次投递不推迟。推迟的 `Job.with(...).dispatch()` 立即返回 `{ id, skipped: false, deferred: true }`，`id` 为届时使用的任务 ID；唯一锁到真正投递时才检查。推迟的投递在提交之后、`Db.transaction()`（或 `Db.commit()`）返回之前执行；其中的错误（例如 `sync` 连接上任务失败）只记录日志而不抛出，因为事务已经提交。`Queue.fake()` 在提交之后才记录推迟的投递。
+
+需要注册了事务钩子的数据库包：`@hazejs/orm` 会注册（SQL 驱动，见[事务](./transactions#after-commit)）；没有时 `afterCommit` 的任务立即投递。事件也有同样的选项，`@hazejs/core` 的 `afterCommit(fn)` 可以推迟任意回调。
 
 ## 连接
 
@@ -131,7 +170,7 @@ export default defineQueueConfig(() => ({
 
 | 驱动 | 行为 |
 | --- | --- |
-| `sync` | 在 `dispatch()` 中立即执行，失败直接抛给调用方，不重试 |
+| `sync` | 在 `dispatch()` 中立即执行，失败直接抛给调用方，不重试，忽略延迟，见 [sync 连接](#sync-connection) |
 | `memory` | 进程内队列，由当前进程消费（`concurrency`，默认 1），用计时器处理延迟与退避；进程退出时任务丢失。没有 `config/queue.ts` 时的默认值 |
 | `redis` | BullMQ（`pnpm add bullmq ioredis`）。选项：`connection`（[Redis 连接](./redis)，默认为 `default` 连接；BullMQ 拿到去掉 `keyPrefix` 的连接设置，自己建立连接）、`url`（内联地址，优先）、`prefix`（默认 `haze`，BullMQ 使用的键前缀）、`queues`（`queue:failed` / `queue:retry` 遍历的队列，默认 `['default']`）、`keepCompleted`（默认 1000）。需要单独的消费进程 |
 | `database` | SQL 数据库中的一张表，由 `@hazejs/orm` 提供，见[数据库驱动](#database-driver)。需要单独的消费进程 |
@@ -147,6 +186,27 @@ export default defineQueueConfig(() => ({
 | `middleware` | 全局任务中间件，在各任务自己的 `middleware` 之前执行 |
 
 任务链、批量、唯一任务与中间件都在队列管理器中实现，在所有驱动上的行为相同。
+
+### sync 连接 {#sync-connection}
+
+`sync` 在 `dispatch()` 中、在调用方的进程与异步上下文中执行任务，适合开发与简单的测试，与真正的队列有以下不同：
+
+- 忽略 `delay`：立即执行；
+- `job.release()` 无法延后执行，放回的任务被丢弃（记一条警告）；
+- 不重试：`tries` 与 `backoff` 不生效，失败时调用 `failed()` 并抛给 `dispatch()` 的调用方；
+- 不保存任何东西：`queue:failed` 总是为空，也没有可消费的内容（`queue:work` 拒绝、`queue.runInServer` 跳过）。
+
+测试延迟、放回与重试请用 `Queue.fake()` 加 `drain()`（见[测试](#testing)），或 `memory` 连接加 `Queue.idle()`。
+
+### 长任务与 worker 崩溃 {#retry-after}
+
+`database` 驱动把保留时间超过连接 `retryAfter` 的任务视为 worker 崩溃后遗留的任务，交给其它 worker 重新领取。`retryAfter` 是连接的配置而不是任务的配置，因此：
+
+- 让它大于该连接上任务最长的 `timeout`，否则仍在执行的任务可能被再执行一次；
+- 把长任务放到单独的连接（例如第二个 `database` 连接，`retryAfter: '30m'`，队列 `long`），短任务崩溃后仍能很快被重新领取；
+- 重新领取时已经用完执行次数的任务进入失败任务，不再执行。
+
+`redis` 驱动依靠 BullMQ 的 stalled 检测：任务执行期间 worker 持续续期锁，停止续期的任务被移回队列。两种情况下任务都可能在崩溃后执行不止一次，请让任务幂等。
 
 ### 数据库驱动 {#database-driver}
 
@@ -305,6 +365,10 @@ await SyncFeed.dispatch({ feedId: 1 }) // 返回已在队列中的任务 ID
 
 键按当前租户隔离。
 
+::: warning 远程 worker 需要共享存储
+锁由投递的进程取得，由执行任务的进程释放。使用 `memory` 缓存存储、而连接由其它进程消费（`database`、`redis`）时，worker 释放不了 Web 进程中的锁，之后的投递会被跳过，直到锁过期（`for`）。出现这种组合时 hazejs 记录一次警告；请把 `config/queue.ts` 的 `store` 设为 `redis` 等共享存储。
+:::
+
 ## 任务中间件 {#job-middleware}
 
 中间件包住任务的 `handle`。内置中间件的状态保存在队列的缓存 `store` 中：
@@ -360,6 +424,21 @@ node dist/server/worker.mjs queue --queue high,default --concurrency 5   # 构�
 
 `--queue` 按优先级列出队列（默认 `default`）。模板中的 `pnpm queue` 即 `haze queue:work`。构建产物中的 `worker.mjs`（node、bun、deno、docker 预设）收到 `SIGTERM` 后会等待执行中的任务完成再退出。
 
+单实例部署（或开发时）也可以在 Web 进程中直接消费队列：
+
+```ts
+// config/queue.ts
+export default defineQueueConfig({
+  default: 'database',
+  connections: { database: { driver: 'database' } },
+  runInServer: true, // 或 { connection, queues: ['high', 'default'], concurrency: 2 }
+})
+```
+
+HTTP 服务器开始监听时启动（`haze dev`、`haze start`、node 与 docker 产物），应用释放时等执行中的任务完成后停止；测试与命令行不会启动。多实例部署请关闭 `runInServer`，另外运行 `queue:work` 进程。
+
+`runInServer` 只对需要 worker 消费的连接有意义。`memory` 连接已经由 Web 进程消费 `default` 队列，除非列出了其它 `queues` 或 `concurrency`，不再另外启动 worker；`sync` 没有可消费的内容，跳过并记一条警告。`haze queue:work` 对 `sync` 连接直接报错。
+
 ### 失败任务
 
 用完重试次数的任务会被保留，方便排查和重试：
@@ -403,7 +482,7 @@ export default defineHazeConfig({
 
 各预设的说明见 [部署](./deployment)。
 
-## 测试
+## 测试 {#testing}
 
 `Queue.fake()` 只记录投递，不执行任务：
 
@@ -441,6 +520,6 @@ fake.assertPushedUnique(SyncFeed, payload => payload.feedId === 1) // 恰好投�
 fake.assertSkipped(SyncFeed) // 有一次重复投递被跳过
 ```
 
-fake 在内存中模拟唯一锁，`drain()` 执行该任务时释放。`drain()` 执行的任务再投递的任务（例如任务链的下一个）会再次被记录，再调用一次 `drain()` 即可继续。批量中的任务记录在 `fake.batches` 中，不会执行。
+`drain()` 经过真实的执行流程（中间件、`release()`、重试）执行记录的任务，测试延迟与放回的任务请用它；`sync` 连接会忽略延迟、丢弃放回的任务。fake 在内存中模拟唯一锁，`drain()` 执行该任务时释放。`drain()` 执行的任务再投递的任务（例如任务链的下一个）会再次被记录，再调用一次 `drain()` 即可继续。批量中的任务记录在 `fake.batches` 中，不会执行。
 
 `Queue.restore()` 恢复为真实连接。更多内容见 [测试](./testing)。

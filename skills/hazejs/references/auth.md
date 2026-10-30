@@ -220,7 +220,25 @@ r.patch('/posts/:id', [PostController, 'update']).middleware('can:update,Post,id
 // third form: Post.findOrFail(ctx.param('id')) (404 if missing), stored as ctx.get<Post>('post')
 ```
 
-Decision order: global `gate.before()` hooks → policy `before(user, ability, args)` (first non-`undefined` wins) → guests denied unless `allowGuest()` → ability fn → `gate.after()` hooks observe (cannot change) the result.
+Decision order: global `gate.before()` hooks → policy `before(user, ability, args)` (first non-`undefined` wins) → guests denied unless `allowGuest()` → ability fn (or `gate.fallback()` for undefined abilities) → `gate.after()` hooks observe (cannot change) the result.
+
+A denied signed-in user gets an `AuthorizationException` — a `ForbiddenException` (403, same code and default message) with `abilities` (the denied ability, or every candidate for `authorizeAny` / `can:a|b`) and `reason` (the `deny()` message, `undefined` otherwise). Guests still get `401`. Use it in the exception handler to keep an existing error contract or name the missing permission:
+
+```ts
+// app/exception/Handler.ts
+import type { HttpContext } from '@hazejs/core'
+import { AuthorizationException, ExceptionHandler } from '@hazejs/core'
+
+export default class Handler extends ExceptionHandler {
+  override render(error: unknown, ctx: HttpContext) {
+    if (error instanceof AuthorizationException && !error.reason) {
+      ctx.status(403)
+      return { code: 'forbidden', message: ctx.t('errors.missing_permission', { codes: error.abilities.join(', ') }) }
+    }
+    return super.render(error, ctx)
+  }
+}
+```
 
 Global rules / outside requests:
 
@@ -449,12 +467,12 @@ const headers = await issueTestCredentials(t.app, user, 'token', { abilities: ['
 
 - **`APP_KEY` is load-bearing.** It is the default `HS*` JWT secret and keys sessions, signed verification links, 2FA secret encryption and the OAuth state cookie. Rotating it logs everyone out and invalidates links. Must be ≥ 32 chars.
 - **JWT logout does not revoke.** `ctx.auth.jwt().logout()` only forgets the user for the current request. On a token guard, `logout()` *does* revoke the token used.
-- **401 vs 403.** `auth`, `verified` (not logged in), `abilities`/`ability` (no user) and `authorize`/`can:` for guests → `401`. `guest` (already logged in), `verified` (unverified), missing token ability, and denied Gate checks → `403`. `guest` returns 403; it does not redirect.
+- **401 vs 403.** `auth`, `verified` (not logged in), `abilities`/`ability` (no user) and `authorize`/`can:` for guests → `401`. `guest` (already logged in), `verified` (unverified), missing token ability, and denied Gate checks → `403` (denied Gate checks throw `AuthorizationException`; match it, not the message, in handlers). `guest` returns 403; it does not redirect.
 - **`ctx.auth.jwt()` / `.session()` without a name use the request's default guard** and throw `TypeError` if that guard has a different driver. Pass the name (`ctx.auth.session('web')`) when the default is a different driver. `ctx.auth.token()` instead falls back to the first token guard.
 - **`auth:a,b` switches the default guard** for the rest of the request (`shouldUse`). `ctx.auth.user()`, `tokenCan()` and Gate checks then use that guard, so put `abilities:`/`ability:` **after** `auth`.
 - **`tokenCan()` is `true` for jwt/session users.** `abilities:` middleware does not restrict first-party JWT clients; it only scopes PATs.
 - **Gate user comes from `ctx.auth.user()` on the default guard.** Without `config/auth.ts`, everyone is a guest. Guests are denied before the ability runs unless it is wrapped in `allowGuest()`; a `before` hook that returns `true` still wins.
-- **Policies must live in `app/policy/*.ts` and default-export `definePolicy`/`defineAbilities`**; anything else throws at boot. `app/<name>/policy` in multi-app projects is not loaded. Unknown abilities throw (500), they are not "denied".
+- **Policies must live in `app/policy/*.ts` and default-export `definePolicy`/`defineAbilities`**; anything else throws at boot. `app/<name>/policy` in multi-app projects is not loaded. Unknown abilities throw (500), they are not "denied" — unless `gate.fallback()` is registered, which then decides every undefined ability (`undefined` from it = denied).
 - **`can:<ability>,<Model>` needs a registered policy for that model** (class name), and the 3-arg form needs a static `findOrFail()`; the loaded instance is at `ctx.get('<lowerCamelModel>')`.
 - **Class-level abilities**: pass the model class (`ctx.authorize('create', Post)`); the ability then receives only the user.
 - **Default stores are in-memory** (tokens, password resets, 2FA, passkeys): lost on restart and not shared across processes. Use the `database*Store()` helpers from `@hazejs/orm` in real apps.
@@ -485,6 +503,6 @@ api: {
 
 - `ctx.auth.jwt().login(user, { sid }, { expiresIn: '15m' })` — custom claims plus a per-token lifetime.
 - `auth` rejects with `401` and `code: 'unauthenticated'` (no credentials) or `'token_invalid'` (expired / tampered / `rejectClaims`); `auth:optional` (`auth:api,optional`) never rejects. `guard.failure` is `'missing' | 'invalid'`.
-- Permission codes kept with roles: `app.make(Gate).fallback((user, ability) => user?.permissions.includes(ability))` decides every undefined ability (after `before` hooks); `can:a|b` / `ctx.authorizeAny([...])` pass on any.
+- Permission codes kept with roles: `app.make(Gate).fallback((user, ability) => user?.permissions.includes(ability))` in a provider's `boot()` decides every undefined ability (after `before` hooks); `can:a|b` / `ctx.authorizeAny([...])` pass on any; require **all** of several codes with one `can:<code>` per code (`['auth', ...codes.map(c => \`can:${c}\`)]`). Typegen only knows abilities from `app/policy`, so `ctx.can()` with a runtime code may need a cast or a small wrapper.
 - Socket.IO: `authenticate({ headers: auth => ({ 'x-org-id': auth.org }) })`; rejected handshakes carry `error.data = { status, code }`.
 

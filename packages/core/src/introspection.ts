@@ -9,6 +9,7 @@ import { EventManager } from './events/manager'
 import { resolveDashboardConfig } from './observability/observability'
 import { resolveOpenAPIConfig } from './openapi/middleware'
 import { QueueManager } from './queue/manager'
+import { runInApp } from './request'
 import { Schedule } from './schedule/schedule'
 import { Scheduler } from './schedule/scheduler'
 
@@ -237,9 +238,9 @@ function scheduleInfo(app: Application, owned: OwnedItem[]): ScheduleIntrospecti
   for (const item of owned) {
     if (!item.module)
       continue
-    const schedule = new Schedule(job => queue.nameOf(job))
+    const schedule = new Schedule(job => queue.nameOf(job), (job, payload, options) => queue.dispatch(job, payload, options))
     try {
-      (item.value as ScheduleDefinition).define(schedule)
+      runInApp(app, () => (item.value as ScheduleDefinition).define(schedule, app))
     }
     catch {
       continue

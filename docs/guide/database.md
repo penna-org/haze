@@ -320,7 +320,8 @@ export class OrderRepository {
 
 ::: tip Safety nets
 - `update()` and `delete()` without any condition throw. Pass `{ all: true }` to really touch every row.
-- Unique constraint violations on every driver become a `UniqueConstraintException`, rendered as `409`.
+- Unique constraint violations on every driver become a `UniqueConstraintException`, rendered as `409` with `code: 'unique_violation'`; it carries the `constraint`, `table`, `columns` and `detail` the driver reported ([Models → Errors](./models#errors)).
+- Query builders are mutable: build a fresh one per query instead of branching from a shared base ([Query Builder](./query-builder)).
 :::
 
 ## Transactions
@@ -332,7 +333,7 @@ await Db.transaction(async () => {
 })
 ```
 
-Every `Db` and `Model` query inside the callback joins the transaction automatically. Manual `Db.startTrans()` / `Db.commit()` / `Db.rollback()`, nesting with savepoints, isolation levels and row locks are covered in [Transactions](./transactions).
+Every `Db` and `Model` query inside the callback joins the transaction automatically. Manual `Db.startTrans()` / `Db.commit()` / `Db.rollback()`, nesting with savepoints, isolation levels, row locks and `Db.afterCommit()` (run code, dispatch jobs or emit events only after the commit) are covered in [Transactions](./transactions).
 
 ## Multiple connections
 
@@ -365,7 +366,7 @@ Non-default connections keep their migrations in `database/migrations/<name>` un
 
 ### Several applications in one process
 
-Each application gets its own `DatabaseManager` from `databaseProvider()`. Inside a request, `Db` and models use the manager of the application handling it; outside requests (jobs, timers, scripts) they use the most recently booted application, and closing an application restores the previous one. When several applications run side by side — typically in tests — pin code outside requests to one of them with `Db.withManager()`. Everything inside the callback, including timers and promises it creates, uses that manager, and transactions are tracked per manager, so two apps' `main` connections never share a transaction:
+Each application gets its own `DatabaseManager` from `databaseProvider()`. Inside a request, `Db` and models use the manager of the application handling it. Queued jobs, scheduled tasks and event listeners run in the context of their application too, so `Db` inside them uses that application's manager without any setup. Elsewhere outside requests (timers, scripts) they use the most recently booted application, and closing an application restores the previous one. When several applications run side by side — typically in tests — pin such code to one of them with `runInApp(app, fn)` from `@hazejs/core` (which also pins the other facades, `useApp()` and `config()`) or with `Db.withManager()`. Everything inside the callback, including timers and promises it creates, uses that manager, and transactions are tracked per manager, so two apps' `main` connections never share a transaction:
 
 ```ts
 import { DatabaseManager, Db } from '@hazejs/orm'

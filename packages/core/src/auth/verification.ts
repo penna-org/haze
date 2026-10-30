@@ -7,7 +7,7 @@ import type { VerifyEmailPayload } from './mails'
 import { useApp } from '../application'
 import { ForbiddenException, InvalidSignatureException, NotFoundException, UnauthorizedException } from '../exception/exceptions'
 import { Mail } from '../mail/manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { Router } from '../routing/router'
 import { hasValidSignature, signUrl } from '../routing/signed'
 import { safeEqual } from '../security/key'
@@ -116,7 +116,7 @@ export async function verificationUrl(user: unknown): Promise<VerificationLink> 
 }
 
 function routerOf(): Router {
-  return getRequestStore()?.container.make(Router) ?? useApp().router
+  return getContextContainer()?.make(Router) ?? useApp().router
 }
 
 /**

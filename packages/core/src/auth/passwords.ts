@@ -7,7 +7,7 @@ import type { ResolvedProvider } from './support'
 import { CacheManager, useCacheManager } from '../cache/manager'
 import { Mail } from '../mail/manager'
 import { definePersistent } from '../persistent'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { Hash } from '../security/hash'
 import { safeEqual } from '../security/key'
 import { parseDuration } from '../utils'
@@ -51,7 +51,7 @@ export function memoryPasswordResetStore(name = 'default'): PasswordResetStore {
 
 /** 缓存存储（config/cache.ts 中的存储名，默认缓存的默认存储），过期自动清理 */
 export function cachePasswordResetStore(store?: string): PasswordResetStore {
-  const cache = (): CacheRepository => (getRequestStore()?.container.make(CacheManager) ?? useCacheManager()).store(store)
+  const cache = (): CacheRepository => (getContextContainer()?.make(CacheManager) ?? useCacheManager()).store(store)
   const key = (email: string): string => `password-reset:${email}`
   return {
     async get(email) {

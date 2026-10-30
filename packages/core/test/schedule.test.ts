@@ -1,6 +1,6 @@
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
-import { createApplication, defineJob, defineSchedule, Queue, Schedule, Scheduler } from '../src'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createApplication, defineJob, defineSchedule, Queue, QueueManager, Schedule, Scheduler } from '../src'
 
 const log: string[] = []
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -186,5 +186,72 @@ describe('running scheduled tasks', () => {
     const results = await Promise.all(instances.map(app => app.make(Scheduler).runDue(minute)))
     expect(results.flat().filter(run => run.status === 'ok')).toHaveLength(1)
     expect(log).toEqual(['redis-report'])
+  })
+})
+
+describe('runInServer', () => {
+  it('starts the scheduler and the queue worker when the HTTP server listens, and stops them on dispose', async () => {
+    const work = vi.spyOn(Scheduler.prototype, 'work')
+    const consume = vi.spyOn(QueueManager.prototype, 'work')
+    try {
+      const app = await createApplication({
+        mode: 'production',
+        env: false,
+        config: {
+          logger: { level: 'silent' },
+          app: {
+            key: 'k'.repeat(32),
+          },
+          schedule: { runInServer: true },
+          queue: {
+            runInServer: {
+              queues: ['high', 'default'],
+              concurrency: 2,
+            },
+          },
+        },
+      })
+      // 没有监听端口（命令行、测试）时不启动
+      expect(work).not.toHaveBeenCalled()
+      const server = app.serve({ port: 0, hostname: '127.0.0.1', silent: true })
+      await server.ready()
+      await vi.waitFor(() => expect(consume).toHaveBeenCalledWith({
+        queues: ['high', 'default'],
+        concurrency: 2,
+      }))
+      expect(work).toHaveBeenCalledTimes(1)
+      const signal = work.mock.calls[0]![0]!
+      await server.close()
+      await app.dispose()
+      expect(signal.aborted).toBe(true)
+    }
+    finally {
+      work.mockRestore()
+      consume.mockRestore()
+    }
+  })
+
+  it('is off by default', async () => {
+    const work = vi.spyOn(Scheduler.prototype, 'work')
+    try {
+      const app = await createApplication({
+        mode: 'production',
+        env: false,
+        config: {
+          logger: { level: 'silent' },
+          app: {
+            key: 'k'.repeat(32),
+          },
+        },
+      })
+      const server = app.serve({ port: 0, hostname: '127.0.0.1', silent: true })
+      await server.ready()
+      expect(work).not.toHaveBeenCalled()
+      await server.close()
+      await app.dispose()
+    }
+    finally {
+      work.mockRestore()
+    }
   })
 })

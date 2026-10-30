@@ -101,7 +101,7 @@ export default defineRoutes((r) => {
 })
 ```
 
-- Dependencies come from `inject(Class | token)` in field initializers or constructors; no decorators. Classes are singletons unless they declare `static scope = Scope.Request | Scope.Transient`; controllers default to request scope. Non-class values use `createToken<T>('name')` and are bound in a provider (`defineProvider({ register(container) {...}, boot(app) {...}, shutdown(app) {...} })`).
+- Dependencies come from `inject(Class | token)` in field initializers or constructors; no decorators. Classes are singletons unless they declare `static scope = Scope.Request | Scope.Transient`; controllers default to request scope. Non-class values use `createToken<T>('name')` and are bound in a provider (`defineProvider({ register(container) {...}, boot(app) {...}, shutdown(app) {...} })`). Module providers boot before the app's; `app.onBooted(cb)` runs after all of them (see operations.md).
 - Handlers return plain data; the response formatter wraps it as `{ code: 0, message: 'ok', data }` unless `app.response.envelope` is `false`, the route has `.meta({ envelope: false })`, or the handler returns `raw(value)`, a string, or a `Response`.
 - Validation uses any Standard Schema library (Valibot in the templates, Zod 4, ArkType). Failures are **422** with `errors: [{ target, path, message }]`. Validated data is on `ctx.validated`.
 - Throw `HttpException` subclasses (`NotFoundException`, `ForbiddenException`, `BusinessException`, …) and let `app/exception/Handler.ts` (extends `ExceptionHandler`) render them.
@@ -130,3 +130,9 @@ export default defineRoutes((r) => {
 - OpenAPI docs (`/docs`) and the dev dashboard (`/__haze`) are off in production by default; `/health` is always on.
 - In full-stack dev the Vite server forwards only the configured API prefixes and `/__haze` to the backend.
 - `ctx.setCookie()` defaults to `Secure` outside debug — pass `secure: ctx.secure` for plain-http intranet deployments.
+- Singletons are built on first use and controllers per request: a service whose constructor registers side effects must be created at boot (`app.onBooted(() => app.make(Service))`).
+- Route middleware can read the matched route (`ctx.route.meta`, `ctx.route.path`); keep `auth` / `can:` as alias strings so OpenAPI documents 401/403.
+- Gate denials throw `AuthorizationException` (403, `abilities`, `reason`); map it in the exception handler when the API has its own error codes.
+- Event listener errors are logged, not thrown; an expression-bodied listener that returns `false` stops the remaining listeners.
+- Dispatch jobs / emit events from inside a transaction with `afterCommit`; `runInServer` (queue, schedule) is for single-process setups only.
+- `serve()` force-closes WebSockets/SSE after `app.shutdownTimeout` (10 s) on SIGTERM — keep the orchestrator grace period longer. `migrate.mjs` boots every provider, so providers must tolerate an unmigrated database.

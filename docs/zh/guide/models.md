@@ -163,9 +163,39 @@ const user = await User.findOrEmpty(id)                 // 不会是 undefined
 if (user.isEmpty()) { /* ... */ }
 ```
 
-静态的 `update()`、`saveAll()` 和 `destroy()` 会逐个处理模型，因此事件、时间戳和软删除都会生效。需要多次写入保持原子性时使用 `User.transaction(...)`，见[事务](./transactions)。
+静态的 `update()`、`saveAll()` 和 `destroy()` 会逐个处理模型，因此事件、时间戳和软删除都会生效。这也意味着它们**先查出匹配的行再逐条写入**：N+1 条语句、不是原子的，并且读取整行（大 JSON 文档的表很慢）。需要多次写入保持原子性时使用 `User.transaction(...)`，见[事务](./transactions)。按需要选择写法：
 
-其他实例方法：`isDirty(key?)`、`getDirty()`、`getOriginal(key?)`、`getData()`、`refresh()`（从数据库重新读取），以及 `exists` 属性。
+| 需要 | 写法 |
+|------|------|
+| 模型事件、`updatedAt`、只读字段 | `User.update(data, where)` / `User.destroy(ids)`（先加载，再逐个保存 / 删除） |
+| 按主键一条 `UPDATE`，维护 `updatedAt`，不触发事件 | `User.updateById(id, data)` |
+| 带条件的原子操作，并根据影响行数判断是否成功 | `User.where(...).update(data)` / `User.where(...).delete()`（应用软删除与全局作用域）或 `Db.table(t)` |
+
+```ts
+await Article.updateById(1, { body: hugeJson })        // UPDATE ... WHERE id = 1，返回影响行数
+await Article.updateById([1, 2], { status: 0 })
+
+// 条件更新，并判断是否成功
+const claimed = await Job.where('id', id).where('status', 'pending').update({ status: 'running' })
+if (claimed === 0) { /* 已被其他请求领取 */ }
+
+await Article.query().delete(1)                        // 一条语句；开启软删除时为软删除
+```
+
+`updateById()` 忽略值为 `undefined` 的键与[只读字段](#只读字段)，写入 `updatedAt`，把[乐观锁](#乐观锁)版本加 1（不检查版本），遵守软删除、全局作用域与多租户，不触发模型事件。
+
+`create()`（以及新模型的 `save()`）用应用的时钟写入 `createdAt` / `updatedAt`，而不是数据库的时钟——模型赋了值时不会用到列的 `defaultNow()`。在 SQL 中与 `now()` 比较这些时间戳时要注意，或者自己赋值。`create()` 的值可以是 drizzle 的 `sql` 表达式，返回的模型中是写入后的值。
+
+其他实例方法：`isDirty(key?)`、`getDirty()`、`getOriginal(key?)`、`getData()`（原始属性，类型为表的行）、`refresh()`（从数据库重新读取），以及 `exists` 属性。
+
+### 复合主键
+
+模型需要单列主键。表使用复合主键（`primaryKey({ columns: [...] })`）时，`find(id)`、通过 `save()` 更新、`delete()`、`destroy()` 与 `updateById()` 会抛出错误（“has no single-column primary key”）。这类表用 `Db.table()` 查询（或在模型查询上写明条件），`upsert()` 需要写 `target`：
+
+```ts
+await Db.table(userRoles).where({ userId, roleId }).delete()
+await Db.table(userRoles).upsert({ userId, roleId, grantedAt: new Date() }, { target: ['userId', 'roleId'] })
+```
 
 ### 只读字段
 
@@ -183,7 +213,7 @@ export class User extends Model.define(users) {
 
 ```ts
 export class Article extends Model.define(articles) {
-  static override optimLock = true // 需要整数列 lockVersion（默认 0）
+  static override optimLock = true // 需要整数列 lockVersion
 }
 
 const a = await Article.findOrFail(1)
@@ -193,6 +223,8 @@ await a.save()      // lockVersion 0 → 1
 b.title = 'Two'
 await b.save()      // 抛出 OptimisticLockException（409）
 ```
+
+新建模型时版本列交给数据库的默认值（例如 `integer('revision').notNull().default(1)`），只有没有默认值的列才从 `0` 开始。
 
 查询上的批量 `update()` / `delete()` 是一条 SQL 语句：不触发模型事件、不维护时间戳；没有任何条件时会拒绝执行，除非传入 `{ all: true }`。
 
@@ -372,7 +404,18 @@ await User.withCount('posts').has('posts', '>=', 3).select()   // 见模型关�
 ## 异常
 
 - `ModelNotFoundException`：`findOrFail()` 抛出，渲染为 `404`。
-- `UniqueConstraintException`：任意驱动的唯一键冲突，渲染为 `409`。
+- `UniqueConstraintException`：任意驱动的唯一键冲突，渲染为 `409`，`code` 为 `'unique_violation'`。配置了[多语言](./localization#框架消息)时默认消息按 `http.unique_violation` 翻译。异常带有驱动给出的信息：`constraint`（PostgreSQL 的约束、MySQL 的键、MongoDB 的索引）、`table`、`columns`（数据库中的列名；PostgreSQL、SQLite、MongoDB）与 `detail`，例如判断是哪个字段重复：
+
+  ```ts
+  try {
+    await User.create(input)
+  }
+  catch (error) {
+    if (error instanceof UniqueConstraintException && error.columns?.includes('email'))
+      throw new ValidationException([{ path: 'email', message: '邮箱已被注册' }])
+    throw error
+  }
+  ```
 - `OptimisticLockException`：开启[乐观锁](#乐观锁)时保存了过期的模型，渲染为 `409`。
 
 ## MongoDB

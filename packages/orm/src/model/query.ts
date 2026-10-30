@@ -6,9 +6,9 @@ import type { ActiveRecord, EagerLoad, RelationName } from './record'
 import type { AggregateFn, EagerInput } from './relations'
 import { currentTenancy } from '@hazejs/core'
 import { avg, count, eq, getTableColumns, isNotNull, isNull, max, min, sql, sum } from 'drizzle-orm'
-import { ModelNotFoundException } from '../errors'
+import { DatabaseError, ModelNotFoundException } from '../errors'
 import { andAll, QueryBuilder } from '../query/builder'
-import { nowFor, pascalCase } from '../utils'
+import { affectedRows, nowFor, pascalCase } from '../utils'
 import { metaOf } from './meta'
 import { hydrateModel } from './model'
 import { keyOf, loadRelations, relationOf } from './relations'
@@ -35,7 +35,7 @@ const aggregates: Record<AggregateFn, (column: Column | SQL) => SQL> = {
 }
 
 /** 模型查询：结果为模型实例，自动应用软删除与全局作用域，支持预加载关联与作用域 */
-export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & Table, M> {
+export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M>, M> {
   readonly model: ModelClass<M>
   protected trashed: TrashedMode = 'without'
   protected eager: EagerInput[] = []
@@ -45,7 +45,7 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & T
   protected visibility: { hidden?: string[], visible?: string[], append?: string[] } = {}
 
   constructor(model: ModelClass<M>) {
-    super(metaOf(model).table as TableOf<M> & Table, { connection: model.connection })
+    super(metaOf(model).table as TableOf<M>, { connection: model.connection })
     this.model = model
   }
 
@@ -230,21 +230,10 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & T
     return super.paginate(page, perPage)
   }
 
-  /** 批量删除：启用软删除时只标记删除时间；也可按主键删除 `delete([1, 2])` */
-  override async delete(target: { all?: boolean } | unknown = {}): Promise<number> {
-    const [query, options] = this.deleteTarget(target)
-    const { softDelete, columns } = metaOf(this.model)
-    if (softDelete && query.trashed !== 'only') {
-      return query.update({
-        [softDelete]: nowFor(columns[softDelete]),
-      }, options)
-    }
-    return QueryBuilder.prototype.delete.call(query, options)
-  }
-
   /** 物理删除（忽略软删除） */
   async forceDelete(target: { all?: boolean } | unknown = {}): Promise<number> {
-    return super.delete(target)
+    const { statement } = await this.hardDeleteStatement(target)
+    return affectedRows(await this.write(() => statement))
   }
 
   /** 恢复软删除的数据 */
@@ -298,6 +287,18 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & T
       constraint,
     })
     return this
+  }
+
+  /** 批量删除（delete()）：启用软删除时只标记删除时间；也可按主键删除 `delete([1, 2])` */
+  protected override deleteStatement(target: unknown): Promise<{ statement: any }> {
+    const [query, options] = this.deleteTarget(target)
+    const { softDelete, columns } = metaOf(this.model)
+    if (softDelete && query.trashed !== 'only') {
+      return query.updateStatement({
+        [softDelete]: nowFor(columns[softDelete]),
+      }, options)
+    }
+    return query.hardDeleteStatement(options)
   }
 
   /** 关联的相关子查询（与当前表的行关联） */
@@ -391,7 +392,7 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M> & T
   protected primaryKey(): string {
     const key = metaOf(this.model).primaryKey
     if (!key)
-      throw new Error(`Model ${this.model.name} has no single-column primary key`)
+      throw new DatabaseError(`Model ${this.model.name} has no single-column primary key`)
     return key
   }
 }

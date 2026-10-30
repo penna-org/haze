@@ -241,6 +241,12 @@ describe('mongo query builder', () => {
     const error = await User.create({ name: 'Copy', email: 'ada@example.com', status: 1 }).catch(error => error)
     expect(error).toBeInstanceOf(UniqueConstraintException)
     expect(error.status).toBe(409)
+    expect(error).toMatchObject({
+      code: 'unique_violation',
+      constraint: 'email_1',
+      table: 'users',
+      columns: ['email'],
+    })
   })
 })
 

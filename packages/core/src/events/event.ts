@@ -22,14 +22,21 @@ export interface EventBroadcastOptions<P = void> {
 export interface EventOptions<P = void> extends EventBroadcastOptions<P> {
   /** 事件名，默认 app/event 下的文件名 */
   name?: string
+  /**
+   * 在数据库事务中触发时，推迟到最外层事务提交后再执行监听器与广播（回滚时丢弃）；不在事务中时立即触发。
+   * 需要注册了事务实现的数据库包（@hazejs/orm）
+   */
+  afterCommit?: boolean
 }
 
 export interface EventDefinition<P = void> extends EventBroadcastOptions<P> {
   readonly [kEvent]: true
   /** 事件名，默认 app/event 下的文件名 */
   readonly name?: string
-  /** 触发事件：依次执行同步监听器，排队监听器投递到队列 */
-  emit: (payload: P) => Promise<void>
+  /** 处于数据库事务中时推迟到提交后触发 */
+  readonly afterCommit?: boolean
+  /** 触发事件：依次执行同步监听器（一个失败不影响其余，错误记录日志），排队监听器投递到队列；无载荷的事件可以省略 payload */
+  emit: (...args: EmitArgs<P>) => Promise<void>
 }
 
 /**
@@ -53,10 +60,15 @@ export function defineEvent<P = void>(options: EventOptions<P> = {}): EventDefin
     ...options,
     [kEvent]: true,
     name: options.name,
-    emit: payload => useEventManager().emit(event, payload),
+    emit: (...args) => useEventManager().emit(event, ...args),
   }
   return event
 }
+
+/** `emit()` 的参数：载荷类型为 void / undefined 时可以省略 */
+export type EmitArgs<P> = [P] extends [void | undefined]
+  ? [payload?: P]
+  : [payload: P]
 
 export function isEvent(value: unknown): value is EventDefinition<any> {
   return typeof value === 'object' && value !== null && kEvent in value

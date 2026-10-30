@@ -1,4 +1,4 @@
-import type { ApplicationOptions, RouteRegistrar } from '../src'
+import type { ApplicationOptions, MiddlewareHandler, RouteRegistrar } from '../src'
 import type { OpenAPIConfig } from '../src/openapi'
 import { H3 } from 'h3'
 import * as v from 'valibot'
@@ -313,6 +313,9 @@ describe('openapi responses', () => {
       r.put('/posts/:id', () => ({})).middleware('auth', 'can:update')
       r.post('/register', () => ({})).middleware('guest')
       r.get('/public', () => ({}))
+      // 直接传入、恰好与别名同名的函数不是那个中间件
+      const guest: MiddlewareHandler = (_ctx, next) => next()
+      r.get('/inline', () => ({})).middleware(guest)
     }, { config: authConfig })
 
     expect(doc.components.securitySchemes).toEqual({
@@ -330,6 +333,7 @@ describe('openapi responses', () => {
     expect(doc.paths['/posts/{id}'].put.responses).toHaveProperty('403')
     expect(doc.paths['/register'].post.responses).toHaveProperty('403')
     expect(doc.paths['/register'].post.responses).not.toHaveProperty('401')
+    expect(doc.paths['/inline'].get.responses).not.toHaveProperty('403')
     expect(doc.paths['/public'].get.security).toBeUndefined()
     expect(doc.paths['/public'].get.responses).toEqual({
       200: expect.objectContaining({ description: 'Successful response' }),

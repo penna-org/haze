@@ -3,6 +3,7 @@ import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
 import { colors } from 'consola/utils'
+import { appCore } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 
 type Core = typeof import('@hazejs/core')
@@ -14,7 +15,7 @@ async function withMaintenance<T>(root: string, run: (manager: Manager, core: Co
   try {
     if (!server.app)
       throw new Error('Application failed to start')
-    const core = await server.import<Core>('@hazejs/core')
+    const core = await appCore(server, root)
     return await run(server.app.make(core.MaintenanceManager), core)
   }
   finally {

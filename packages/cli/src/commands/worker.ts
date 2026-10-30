@@ -3,6 +3,7 @@ import process from 'node:process'
 import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { appCore } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 
 type Core = typeof import('@hazejs/core')
@@ -14,8 +15,9 @@ async function withApp<T>(root: string, run: (server: DevServer, core: Core) => 
     await server.close()
     throw new Error('Application failed to start')
   }
-  const core = await server.import<Core>('@hazejs/core')
   try {
+    // 与应用同一份 @hazejs/core（应用的依赖被外部化时 server.import 拿到的是另一份实例）
+    const core = await appCore(server, root)
     return await run(server, core)
   }
   finally {

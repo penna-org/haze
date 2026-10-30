@@ -250,7 +250,9 @@ pnpm routes            # haze route:list
 npx haze route:list --json
 ```
 
-路由表包含方法、路径、路由名、处理器（`UserController@show` 或 `closure`）以及完全展开后的中间件列表（含控制器中间件）。多应用模式下还会显示所属应用与域名。
+路由表包含方法、路径、路由名、处理器（`UserController@show` 或 `closure`）以及完全展开后的中间件列表（含控制器中间件）。直接传入的函数或类中间件显示为 `名称()`，不会与 `auth`、`guest` 等别名混淆。
+
+使用 `--json` 时 stdout 只输出 JSON（应用启动时的日志写到 stderr），可以直接 `haze route:list --json > routes.json`。多应用模式下还会显示所属应用与域名。
 
 ::: tip
 中间件名不存在、路由重名都会让应用启动失败，所以 `route:list` 也很适合放在 CI 里做一次快速自检。

@@ -6,7 +6,7 @@ import type { UpstashClientLike } from './drivers/upstash'
 import type { CacheTtl } from './repository'
 import type { CacheStore } from './store'
 import { RedisManager } from '../redis/manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { defaultCacheConfig } from './config'
 import { kvStore } from './drivers/kv'
 import { memoryStore } from './drivers/memory'
@@ -61,7 +61,7 @@ export type CacheRepositoryForConfig<C> = C extends { driver: 'redis' }
 export type CacheRepositoryFor<Name extends string, Stores = GeneratedCacheStores> = [Stores] extends [never]
   ? CacheRepository
   : Name extends keyof Stores
-    ? CacheRepositoryForConfig<Stores[Name]>
+    ? CacheRepositoryForConfig<NonNullable<Stores[Name]>>
     : CacheRepository
 
 /** 存储访问器的重载：不传名字为默认存储，传入已知的名字得到对应驱动的仓库类型 */
@@ -141,7 +141,7 @@ export function setCacheManager(manager: CacheManager | undefined): void {
 
 /** 当前应用的缓存管理器：请求内取请求容器（多应用时为应用配置），否则取最近启动的应用 */
 export function useCacheManager(): CacheManager {
-  const manager = getRequestStore()?.container.make(CacheManager) ?? fallback
+  const manager = getContextContainer()?.make(CacheManager) ?? fallback
   if (!manager)
     throw new Error('Cache is not available: the application has not booted')
   return manager

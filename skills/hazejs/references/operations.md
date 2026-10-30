@@ -22,7 +22,7 @@ Commands that need the app (`route:list`, `module:list`, `typegen`, `openapi`, `
 
 | Command | What it does | Options |
 | --- | --- | --- |
-| `haze route:list` | Routes with method, path, name, handler, middleware | `--json` |
+| `haze route:list` | Routes with method, path, name, handler, middleware (inline functions as `name()`) | `--json` (stdout = JSON only, boot logs → stderr) |
 | `haze module:list` | Enabled modules in enable order | `--json` |
 | `haze typegen` | Writes `.haze/types/haze.d.ts`, `.haze/types/i18n.d.ts`, `.haze/routes.ts` | — |
 | `haze openapi` | Prints the OpenAPI 3.1 document (docs need not be enabled) | `--output/-o openapi.json` |
@@ -104,7 +104,7 @@ class X { private config = inject(Config) }   // .get/.has/.set/.all; ctx.config
 
 Generated types (`haze dev` or `haze typegen` → `.haze/types/haze.d.ts`): config keys, named routes, policy abilities; once generated, unknown keys are type errors (reading an unknown key needs a default). Keep `.haze/types/**/*.d.ts` in `tsconfig.json` `include`.
 
-`config/app.ts` options: `name`, `debug` (true in dev), `url` (`APP_URL`), `key` (`APP_KEY`), `previousKeys` (`APP_PREVIOUS_KEYS`), `bodyLimit` (`'1mb'`), `trustProxy` (false), `cookie`, `requestIdHeader` (`'x-request-id'` or `false`), `response` (envelope), `apps` (multi-app).
+`config/app.ts` options: `name`, `debug` (true in dev), `url` (`APP_URL`), `key` (`APP_KEY`), `previousKeys` (`APP_PREVIOUS_KEYS`), `bodyLimit` (`'1mb'`), `trustProxy` (false), `shutdownTimeout` (`10` s, see graceful shutdown), `cookie`, `requestIdHeader` (`'x-request-id'` or `false`), `response` (envelope), `apps` (multi-app).
 
 ```ts
 // haze.config.ts — all optional
@@ -134,6 +134,19 @@ Full guide: [directory-structure.md](../../../docs/guide/directory-structure.md)
 Always at the project root regardless of `srcDir`: `.env*`, `tests/`, `stubs/`, `.haze/`, `dist/`, `data/`, `storage/`. `~/` always resolves to `srcDir`.
 
 Auto-discovered (first level only, except `app/command/**` and `lang/**`): `config/*.ts`, `route/*.ts`, `app/provider/*.ts`, `app/exception/Handler.ts`, `app/response/Formatter.ts`, `app/interceptor/*`, `app/policy/*`, `app/job/*`, `app/event/*`, `app/listener/*`, `app/notification/*`, `app/channel/*`, `app/message/*`, `app/socket/*`, `schedule/*.ts`, `app/view/**/*.tsx`, `modules/<name>/…`. **Not** discovered: controllers (routes reference them), services, models, middleware (alias in `config/middleware.ts`), mail, resources. Adding/deleting a discovered file in dev regenerates the manifest — no restart.
+
+### Providers and boot order
+
+`app.boot()` runs every provider's `register(container, app)`, then every `boot(app)` in order: **module providers first** (in module enable order), then the project's `app/provider/*.ts`, then the callbacks queued with `app.onBooted(cb)` (awaited; a throw fails boot; called immediately once the app is booted). Use `onBooted` in a module provider for anything that needs what an app provider prepares in its `boot()` — an open database connection, loaded settings, a Gate fallback:
+
+```ts
+// modules/shop/app/provider/ShopProvider.ts
+export default defineProvider({
+  boot: app => app.onBooted(() => app.make(OrderBinding).register()),
+})
+```
+
+Singletons are created on first `make()` / `inject()`. A service whose constructor registers side effects (hooks into another library, timers, bindings) does nothing until something resolves it — and controllers, being request-scoped, only resolve it on the first request. Create such services at boot (`onBooted(() => app.make(Service))`) or, better, move the side effect into a provider.
 
 Template scripts: `dev`, `build`, `start`, `preview`, `queue` (`haze queue:work`), `schedule` (`haze schedule:work`), `test`, `routes` (`haze route:list`), `typecheck`, `typegen`, `db:generate`, `db:migrate`, `db:seed`. First run: `pnpm install && pnpm db:migrate && pnpm dev`.
 
@@ -204,7 +217,9 @@ Long-running presets listen on `PORT` (default `haze.config.ts` `port`, else 300
 | vercel / netlify | `npx haze db:migrate` before the build, with production `DATABASE_URL` |
 | cloudflare | D1: `npx wrangler d1 migrations apply <db> --remote -c dist/wrangler.json`; Turso: `haze db:migrate` in CI |
 
-`migrate.mjs` exists only when the project uses `@hazejs/orm`. Process presets (`node`, `bun`, `deno`, `docker`) also emit `worker.mjs`:
+`migrate.mjs` exists only when the project uses `@hazejs/orm`. It **boots the whole application** (every provider's `register` + `boot`) before migrating, so on an empty database providers run before any table exists: a provider that queries tables in `boot()` must check first (e.g. `select to_regclass('settings') is not null`) or catch and fall back to defaults. Production builds have **no seed entry** (`database/seeders` and `haze db:seed` are dev-only): put initial data in an idempotent console command (`app/command/db/Init.ts` → `node server/worker.mjs command db:init`) and run it after `migrate.mjs`.
+
+Process presets (`node`, `bun`, `deno`, `docker`) also emit `worker.mjs`:
 
 ```bash
 node dist/worker.mjs queue --queue emails,default --concurrency 5 --connection redis
@@ -216,7 +231,25 @@ node dist/worker.mjs up
 node dist/worker.mjs maintenance:status
 ```
 
-Full-stack projects and `deno`/`docker` put these in `dist/server/`. Serverless/edge presets have no `worker.mjs`; schedules run via Cloudflare Cron Triggers, EventBridge (Lambda) or Vercel Cron (`/__haze/schedule`, needs `CRON_SECRET`; `vercel: { cron: '0 3 * * *' }` for Hobby). Microservice listeners: `autoListen: true` or a long-running custom command calling `listenMicroservices(app)`.
+Full-stack projects and `deno`/`docker` put these in `dist/server/`. For one process that also runs the scheduler and a queue worker (dev, single instance), set `runInServer: true` in `config/schedule.ts` and `config/queue.ts` instead (see async-and-realtime.md); never in tests or console commands. Serverless/edge presets have no `worker.mjs`; schedules run via Cloudflare Cron Triggers, EventBridge (Lambda) or Vercel Cron (`/__haze/schedule`, needs `CRON_SECRET`; `vercel: { cron: '0 3 * * *' }` for Hobby). Microservice listeners: `autoListen: true` or a long-running custom command calling `listenMicroservices(app)`.
+
+### Docker topology (one image, several roles)
+
+The same image runs every role; only the command differs. Proven layout (compose):
+
+| Service | Command | Notes |
+| --- | --- | --- |
+| `migrate` (one-shot, `restart: 'no'`) | `sh -c 'node server/migrate.mjs && node server/worker.mjs command db:init'` | others `depends_on: { migrate: { condition: service_completed_successfully } }` |
+| `app` (web) | default `node server/index.mjs` | the preset's `HEALTHCHECK` hits `/health/live` |
+| `queue` | `node server/worker.mjs queue --connection database` | scale with replicas; `healthcheck: { disable: true }` (no HTTP port) |
+| `scheduler` | `node server/worker.mjs schedule` | one replica, or several with `onOneServer()` + Redis |
+| `db`, `redis` | postgres / redis with healthchecks | |
+
+- Turn in-process workers off in this topology (`runInServer: false`, e.g. driven by a `WORKER_IN_SERVER` env var) and on for single-container demos.
+- Redis is what makes the split work: `config/socketio.ts` `adapter: { driver: 'redis' }` (or the broadcasting bus) so a job in the `queue` container reaches browsers connected to `app`; `store: 'redis'` in `config/schedule.ts` / `config/queue.ts` for `onOneServer` / `withoutOverlapping` / unique locks across containers.
+- Share a volume for local-disk storage between `app` and `queue` when jobs touch uploaded files.
+- `stop_grace_period` must exceed `app.shutdownTimeout` (and the longest job you want to finish on stop); Docker's default is 10 s, the same as the default `shutdownTimeout`.
+- Verify the topology itself, not just tests: start from an empty database, restart `app` (tokens must survive), stop with running WebSockets, and check that a job in `queue` pushes to a browser.
 
 ### Cloudflare
 
@@ -240,7 +273,8 @@ Drivers read bindings by name: DB `{ driver: 'd1', binding: 'DB' }`, cache `{ dr
 
 ## Graceful shutdown and hot reload
 
-- `app.serve()` (the `node`/`bun`/`deno`/`docker` entry) handles `SIGINT`/`SIGTERM`: stop listening and wait for in-flight requests, then `app.dispose()`, then exit.
+- `app.serve()` (the `node`/`bun`/`deno`/`docker` entry) handles `SIGINT`/`SIGTERM`: stop listening and wait for in-flight requests, then `app.dispose()`, then exit. WebSockets, SSE streams and keep-alive sockets never finish on their own, so after `app.shutdownTimeout` (`config/app.ts`, default `10`; seconds or `'30s'`) the remaining connections are closed forcibly. Keep the orchestrator's grace period above it (Docker `stop_grace_period` default 10 s, Kubernetes `terminationGracePeriodSeconds` 30 s).
+- `dispose()` also stops in-process workers (`runInServer`) after their running jobs finish.
 - `dispose()` calls each provider's `shutdown(app)` in reverse order, closes queue connections and mail transports, disposes the container, flushes and closes log channels (`http`/`file`), and closes shared Redis/persistent connections.
 - `worker.mjs queue` stops reserving and waits for running jobs on `SIGTERM`/`SIGINT`.
 - Flush external SDKs (e.g. OpenTelemetry `sdk.shutdown()`) from a provider's `shutdown()` hook — the process exits right after disposing.
@@ -379,6 +413,9 @@ Drivers: `console` (default), `json`, `file` (Node/Bun/Deno only), `http` (batch
 - `haze start` / `haze preview` need a prior `haze build`. `haze preview` uses the preset recorded in `.haze/build.json`; Cloudflare preview needs `miniflare` as a dev dependency.
 - Serverless/edge presets (`cloudflare`, `vercel`, `netlify`, `aws-lambda`) have no `worker.mjs` and no command entry: no long-running queue workers, use the platform's scheduler and migration route from the table above. Cloudflare has no `.env` and no TCP drivers (ioredis, mysql2, BullMQ, nodemailer, socket.io are stubbed and throw at use); the `file` log channel and local disks don't work there. WebSocket/Socket.IO are unavailable on Lambda.
 - `migrate.mjs` is only emitted when `@hazejs/orm` is used; Docker images don't contain `.env` — pass `APP_KEY` etc. with `-e`.
+- `migrate.mjs` boots every provider against a possibly empty database — providers must tolerate missing tables. There is no production `seed` entry; use an app command via `worker.mjs command`.
+- A process that keeps running after `SIGTERM` usually has open WebSockets/SSE: lower `app.shutdownTimeout` or raise the orchestrator grace period, don't kill it harder.
+- Pipe `haze route:list --json` (stdout is clean JSON); other commands may print boot logs to stdout.
 - With the default `memory` cache store, maintenance state goes to `storage/framework/down` and only affects that machine. Use a shared store (`redis`, KV, Upstash) for fleets and for serverless platforms.
 - Maintenance mode blocks the frontend files too in production (backend serves `dist/client`); add `/assets/*` to `except` if a custom page needs them. Health checks keep returning 200 while down.
 - Microservice listeners, queue workers and schedulers need long-running processes; `search:*`, `microservice:listen`, `openapi`, `typegen`, `repl` have no production entry — wrap needed operations in an `app/command` and run `worker.mjs command <name>`.

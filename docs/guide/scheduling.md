@@ -33,9 +33,23 @@ There are three ways to add a task:
 | --- | --- |
 | `s.call(name, fn)` | Run a function |
 | `s.cron(expression, name, fn)` | Run a function on a cron expression |
-| `s.job(Job, payload, options?)` | Dispatch a [queued job](./queues) when due. `options` accepts `delay`, `queue`, `connection` and `name` (default `job:<JobName>`) |
+| `s.job(Job, payload?, options?)` | Dispatch a [queued job](./queues) when due. The payload can be left out for jobs without one (`s.job(PruneTokens)`). `options` accepts `delay`, `queue`, `connection`, `afterCommit` and `name` (default `job:<JobName>`) |
 
 Task names must be unique. A task with no frequency runs every minute.
+
+The callback also receives the application, so constraints can resolve services (here a `FeatureFlags` class of your own) without reaching for a global:
+
+```ts
+export default defineSchedule((s, app) => {
+  s.job(PruneTokens)
+    .daily()
+    .skip(() => app.make(FeatureFlags).isOff('pruning'))
+})
+```
+
+Tasks run in the context of their application: inside `s.call()` functions, `when()` / `skip()` filters and hooks, the facades (`Queue`, `Events`, `Db`…), `useApp()`, `config()` and `inject()` resolve to the application that owns the schedule, and `s.job()` dispatches to that application's queue.
+
+`s.job()` only **dispatches** the job; a queue worker runs it. Its log line says `Scheduled job dispatched to the queue`, and the job's own result appears in the queue's logs (`Job "PruneTokens" done in …`, or the failure).
 
 ## Frequencies
 
@@ -99,7 +113,22 @@ s.call('import', () => runImport()).everyFiveMinutes().withoutOverlapping('1h')
 
 Both are built on [`Cache.lock`](./cache#atomic-locks), so they need an atomic, shared store: `redis` or `upstash` across instances (`memory` only works within one process). Using a `kv` store throws; set `store` in `config/schedule.ts` to pick another.
 
+::: warning `s.job()` locks only the dispatch
+On an `s.job()` task, `withoutOverlapping()` and `onOneServer()` guard the *dispatch*, which takes a few milliseconds, not the job: the lock is released as soon as the job is queued. To keep two runs of the job itself from overlapping (a slow import still running when the next one is dispatched), use the job middleware [`withoutOverlapping`](./queues#job-middleware) or make the job [unique](./queues#unique-jobs):
+
+```ts
+export default defineJob({
+  middleware: [withoutOverlapping()], // one ImportFeeds at a time, others are released
+  async handle() { /* ... */ },
+})
+```
+
+`onOneServer()` on an `s.job()` task is still useful: it keeps several scheduler instances from each dispatching the job.
+:::
+
 ## Running the scheduler
+
+Set `runInServer: true` in `config/schedule.ts` to run due tasks inside the web process — handy for development and single-instance deployments. The loop starts when the HTTP server starts listening and stops when the application is disposed; tests and console commands never start it. With several instances, keep it off and run one `schedule:work` process (or use `onOneServer()` with a shared store).
 
 | Environment | How |
 | --- | --- |

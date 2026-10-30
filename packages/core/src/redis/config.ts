@@ -1,4 +1,3 @@
-import type { GeneratedConfig } from '../config/config'
 import process from 'node:process'
 
 /** Cluster / Sentinel 的节点地址 */
@@ -47,10 +46,17 @@ export interface RedisConfig<Name extends string = string> {
 }
 
 /**
+ * 生成的 Redis 连接（haze typegen 根据 config/redis.ts 写入 `connections`）。与 GeneratedConfig 分开：
+ * config/cache.ts 等配置文件引用连接名（`connection: 'default'`）时，若经由 GeneratedConfig 推导，
+ * 配置类型会互相引用而无法推断
+ */
+export interface GeneratedRedisConnections {}
+
+/**
  * 已命名的连接：生成过配置类型（config/redis.ts）时为连接名的联合，否则为 string。
  * 缺省 config/redis.ts 时只有隐式的 `default`。
  */
-export type RedisConnectionName = GeneratedConfig extends { redis: { connections: infer C } }
+export type RedisConnectionName = GeneratedRedisConnections extends { connections: infer C }
   ? keyof C & string
   : string
 

@@ -213,6 +213,12 @@ describe.each(dialects)('orm on $name', (dialect) => {
     const error = await User.create({ name: 'Copy', email: 'ada@example.com' }).catch(error => error)
     expect(error).toBeInstanceOf(UniqueConstraintException)
     expect(error.status).toBe(409)
+    expect(error.code).toBe('unique_violation')
+    expect(error.table).toBe('users')
+    if (dialect.name !== 'mysql')
+      expect(error.columns).toEqual(['email'])
+    if (dialect.name === 'pglite' || dialect.name === 'mysql')
+      expect(error.constraint).toBe('users_email_unique')
   })
 
   it('runs embedded migrations once, recording them like drizzle', async () => {

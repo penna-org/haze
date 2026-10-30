@@ -51,12 +51,18 @@ Commit messages follow Conventional Commits; this project writes the subject in 
 
 ## Lessons from validating hazejs against a real backend
 
-Porting a 32k-line Fastify backend surfaced issues that unit tests had missed — when an app hits a framework limitation, fix it upstream with a test rather than working around it in the app:
+Porting a 32k-line Fastify backend (kernel swap, then the idiomatic rebuild in M32) surfaced issues that unit tests had missed — when an app hits a framework limitation, fix it upstream with a test, docs in both languages and a changeset rather than working around it in the app:
 
-- route parameters were not URL-decoded;
-- no trustProxy-aware `ctx.origin` / `ctx.secure`;
-- static files skipped global middleware (no security headers on HTML pages) and lacked precompressed `.br`/`.gz` support and `no-cache` for HTML;
-- `secureHeaders` sent COOP / Origin-Agent-Cluster over http;
-- OpenAPI operations could not carry `x-*` extensions.
+- **Kernel swap**: route parameters were not URL-decoded; no trustProxy-aware `ctx.origin` / `ctx.secure`; static files skipped global middleware (no security headers on HTML) and lacked precompressed `.br`/`.gz` and `no-cache` for HTML; `secureHeaders` sent COOP / Origin-Agent-Cluster over http; OpenAPI could not carry `x-*` extensions.
+- **ORM round**: drizzle `casing`, PostgreSQL `timezone`, the `node-postgres` driver, external `client`s, `Db.drizzleSync()`, `Db.joinTransaction()`, per-app managers and `Db.withManager()`; then 25 porting gaps — the worst was `TableOf<M> & Table` widening every model column key to `string` and value to `any`, invisible to runtime tests.
+- **Queue / schedule / events round**: jobs, listeners and scheduled tasks resolved facades to the most recently booted app (now `runInApp` / app context); no `afterCommit`; listener errors rejected `emit()`; duplicate job / listener names silently replaced each other; payload-less jobs needed a dummy payload; the CLI loaded a second copy of `@hazejs/core`.
+- **M32 core / toolchain**: `AuthorizationException`, `ctx.route`, `app.onBooted()`, inline middleware labelled `name()` (OpenAPI mistook a function named `guest` for the alias), `runInServer`, `app.shutdownTimeout` (SIGTERM hung while a browser WebSocket was open), `route:list --json` with clean stdout, quiet `migrate.mjs`.
 
-Fixed in the follow-up ORM round: drizzle `casing`, PostgreSQL `timezone`, the `node-postgres` driver, external `client`s, `Db.drizzleSync()`, `Db.joinTransaction()`, per-app managers and `Db.withManager()`. Still open (see the latest records in `docs/design.md`): the connection pool is keyed by connection name process-wide, so two apps with different owned configs for the same name replace each other's connection; the default rate-limit store is process-global; `throttle:max,window` buckets are shared per spec; validation status is fixed at 422 in OpenAPI; the test client cannot set the client IP; `registerServerExtension` is undocumented. Pick these up as candidates when relevant.
+How to find these earlier:
+
+- **Add type-level tests for generic-heavy APIs** (`expectTypeOf` in a file covered by `pnpm typecheck`, as in `packages/orm/test/porting.test.ts`). A type that silently degrades to `any` passes every runtime test.
+- **Check behaviour in a deployment topology, not just tests**: build the docker preset and run migrate + web + queue + scheduler against real PostgreSQL / Redis. The shutdown hang (open WebSockets) and `migrate.mjs` booting providers against an empty database only showed up there.
+- **Test with dependencies externalized**: workspace-linked packages are inlined by Vite, so the CLI's two-copies-of-core bug only appeared in an app with `@hazejs/*` in `node_modules`; reproduce with `vite.ssr.external: ['@hazejs/core']` (see `packages/cli/test/worker.test.ts`).
+- **Boot two apps in one process** in tests for anything with global state (managers, stores, socket servers, async context).
+
+Still open (see the latest records in `docs/design.md`): the connection pool is keyed by connection name process-wide; the default rate-limit store is process-global; `throttle:max,window` buckets are shared per spec; validation status is fixed at 422 in OpenAPI; the test client cannot set the client IP; `registerServerExtension` is not in the guide; `migrate.mjs` boots every provider (providers cannot tell they run before migrations); production builds have no seed entry; Socket.IO state is process-level; `Model.create()` uses the app clock; `afterCommit` in `Db.joinTransaction()` fires before the outer commit, and there is no listener-level `afterCommit` or per-job `retryAfter`; app context covers only framework entry points; `join()` SQL conditions reject `undefined`. Pick these up as candidates when relevant.

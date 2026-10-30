@@ -120,7 +120,7 @@ export default defineSchedule((s) => {
     const types = project.read('.haze/types/haze.d.ts')
     expect(types).toContain('"blog.index": Record<never, never>')
     expect(types).toContain('"demoModule.posts.index": Record<never, never>')
-    expect(types).toContain('"blog": ConfigValue<typeof import("../../modules/blog/config/blog").default>')
+    expect(types).toContain('"blog": ConfigValue<typeof import("../../modules/blog/config/blog.ts").default>')
     writeFileSync(join(project.root, 'probe.ts'), `
 import { config, Router } from '@hazejs/core'
 declare const router: Router

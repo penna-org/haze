@@ -1,5 +1,5 @@
 import type { Batch } from './batch'
-import type { DispatchOptions, FailedJob, JobDefinition } from './job'
+import type { DispatchArgs, FailedJob, JobDefinition } from './job'
 import type { QueueFake, QueueManager } from './manager'
 import type { PendingJob } from './pending'
 import { useQueueManager } from './context'
@@ -16,7 +16,7 @@ import { PendingBatch, PendingChain } from './pending'
  * ```
  */
 export const Queue = {
-  dispatch: <P>(job: JobDefinition<P> | string, payload: P, options?: DispatchOptions): Promise<string> => useQueueManager().dispatch(job, payload, options),
+  dispatch: <P>(job: JobDefinition<P> | string, ...args: DispatchArgs<P>): Promise<string> => useQueueManager().dispatch(job, ...args),
   /** 任务链：依次执行，前一个成功后才投递下一个 */
   chain: (jobs: PendingJob<any>[]): PendingChain => new PendingChain(jobs),
   /** 批量任务：进度、取消、追加与完成回调，状态保存在缓存存储中 */

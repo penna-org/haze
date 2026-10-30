@@ -1,5 +1,5 @@
 import type { QueueManager } from './manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 
 let fallback: QueueManager | undefined
 let token: unknown
@@ -12,7 +12,7 @@ export function setQueueManager(manager: QueueManager | undefined, key: unknown)
 
 /** 当前应用的队列管理器：请求内取请求容器，否则取最近启动的应用 */
 export function useQueueManager(): QueueManager {
-  const manager = (token && getRequestStore()?.container.make(token as never)) as QueueManager | undefined ?? fallback
+  const manager = (token && getContextContainer()?.make(token as never)) as QueueManager | undefined ?? fallback
   if (!manager)
     throw new Error('Queue is not available: the application has not booted')
   return manager

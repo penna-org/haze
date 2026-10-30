@@ -175,6 +175,29 @@ describe('controllers and dependency injection', () => {
 })
 
 describe('middleware', () => {
+  it('exposes the matched route (pattern, name, meta) as ctx.route', async () => {
+    const seen: unknown[] = []
+    const app = await boot((r) => {
+      r.group({ prefix: '/api', as: 'api.' }, (r) => {
+        r.get('/users/:id', ctx => ctx.route)
+          .name('users.show')
+          .meta({ summary: '用户详情' })
+          .middleware(async (ctx, next) => {
+            seen.push(ctx.route?.meta.summary)
+            return next()
+          })
+      })
+    })
+    const body = await (await app.request('/api/users/7')).json() as any
+    expect(body.data ?? body).toEqual({
+      method: 'GET',
+      path: '/api/users/:id',
+      name: 'api.users.show',
+      meta: { summary: '用户详情' },
+    })
+    expect(seen).toEqual(['用户详情'])
+  })
+
   const trace: string[] = []
   const mark = (name: string): MiddlewareHandler => async (_ctx, next) => {
     trace.push(`${name}:in`)
@@ -497,10 +520,16 @@ describe('application lifecycle', () => {
       providers: [
         defineProvider({
           register: () => void order.push('a:register'),
-          boot: () => void order.push('a:boot'),
+          boot: app => app.onBooted(async (app) => {
+            order.push('a:booted')
+            await app.onBooted(() => void order.push('a:booted:nested'))
+          }),
           shutdown: () => void order.push('a:shutdown'),
         }),
         ProviderClass,
+        defineProvider({
+          boot: () => void order.push('b:boot'),
+        }),
       ],
       setup: () => void order.push('setup'),
     })
@@ -509,7 +538,10 @@ describe('application lifecycle', () => {
       'a:register',
       'class:register',
       'setup',
-      'a:boot',
+      // onBooted 的回调在全部提供者 boot 之后执行；启动完成后注册的立即执行
+      'b:boot',
+      'a:booted',
+      'a:booted:nested',
       'class:shutdown',
       'a:shutdown',
     ])

@@ -56,7 +56,9 @@ export function generateTypes({ root, srcDir, routes, client }: TypegenOptions):
   }
   const configs = configFiles.map((name) => {
     const key = name.replace(SOURCE_RE, '')
-    return { key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${importPath(join(configDir, key))}).default>` }
+    // 带上文件扩展名：moduleResolution 为 nodenext 的 ESM 项目中不带扩展名的相对导入解析不到（类型退化为 any）
+    const type = `ConfigValue<typeof import(${importPath(join(configDir, name))}).default>`
+    return { key, type, line: `    ${JSON.stringify(key)}: ${type}` }
   })
   // 本地模块的默认配置（modules/<name>/config/*.ts，middleware.ts 为中间件声明除外）：项目没有同名配置文件时加入
   for (const dir of localModuleDirs(srcDir)) {
@@ -64,7 +66,8 @@ export function generateTypes({ root, srcDir, routes, client }: TypegenOptions):
       const key = name.replace(SOURCE_RE, '')
       if (key === 'middleware' || configs.some(item => item.key === key))
         continue
-      configs.push({ key, line: `    ${JSON.stringify(key)}: ConfigValue<typeof import(${importPath(join(dir, 'config', key))}).default>` })
+      const type = `ConfigValue<typeof import(${importPath(join(dir, 'config', name))}).default>`
+      configs.push({ key, type, line: `    ${JSON.stringify(key)}: ${type}` })
     }
   }
 
@@ -77,7 +80,7 @@ export function generateTypes({ root, srcDir, routes, client }: TypegenOptions):
     for (const name of sourceFiles(policyDir)) {
       const key = name.replace(SOURCE_RE, '')
       if (!policies.some(item => item.key === key))
-        policies.push({ key, line: `    ${JSON.stringify(key)}: typeof import(${importPath(join(policyDir, key))}).default` })
+        policies.push({ key, line: `    ${JSON.stringify(key)}: typeof import(${importPath(join(policyDir, name))}).default` })
     }
   }
 
@@ -93,6 +96,9 @@ export function generateTypes({ root, srcDir, routes, client }: TypegenOptions):
       return { name: route.name!, line: `    ${JSON.stringify(route.name)}: ${type}` }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
+
+  // Redis 连接名单独生成（不经过 GeneratedConfig）：config/cache.ts 等写 `connection: 'default'` 时不会形成循环引用
+  const redis = configs.find(item => item.key === 'redis')
 
   const content = `// 由 ${PLUGIN_NAME} 自动生成（haze dev / haze typegen），请勿手动修改
 import type { ConfigValue } from '@hazejs/core'
@@ -111,7 +117,13 @@ ${named.map(item => item.line).join('\n')}
   interface GeneratedPolicies {
 ${policies.map(item => item.line).join('\n')}
   }
-}
+${redis
+  ? `
+  interface GeneratedRedisConnections {
+    connections: ${redis.type}['connections']
+  }
+`
+  : ''}}
 ${client
   ? `
 declare module '@hazejs/core/client' {
