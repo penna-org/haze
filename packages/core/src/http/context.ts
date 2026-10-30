@@ -56,8 +56,6 @@ export interface ContextState {}
 
 const kContext = Symbol.for('hazejs.context')
 
-/** 对 H3Event 的薄封装；`ctx.event` 可直接用于 h3 的全部工具函数 */
-export class HttpContext<V extends ValidationTargets = ValidationTargets> {
 /** 当前请求匹配到的路由（`ctx.route`） */
 export interface MatchedRoute {
   method: string
@@ -68,6 +66,8 @@ export interface MatchedRoute {
   meta: RouteMeta
 }
 
+/** 对 H3Event 的薄封装；`ctx.event` 可直接用于 h3 的全部工具函数 */
+export class HttpContext<V extends ValidationTargets = ValidationTargets> {
   static scope = Scope.Request
 
   readonly event: H3Event
@@ -122,8 +122,6 @@ export interface MatchedRoute {
     return this.event.url.pathname
   }
 
-  /** 路由参数（已 URL 解码：`/files/%E6%96%87` → `文`） */
-  param(name: string): string | undefined {
   /**
    * 匹配到的路由：方法、路径模式（`/users/:id`）、名称与 `.meta()` 写入的元数据。
    * 路由中间件、处理器与出站阶段可用；没有匹配到路由（404、静态文件）时为 undefined
@@ -143,6 +141,8 @@ export interface MatchedRoute {
     }
   }
 
+  /** 路由参数（已 URL 解码：`/files/%E6%96%87` → `文`） */
+  param(name: string): string | undefined {
     const value = this.event.context.params?.[name]
     return value === undefined
       ? undefined
