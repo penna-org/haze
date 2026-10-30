@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/cli",
   "type": "module",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The haze command line: dev / build / preview / make:* / db:* / queue:* / schedule:*",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/cli#readme",
