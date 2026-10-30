@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/core",
   "type": "module",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The hazejs runtime: IoC container, routing, middleware, auth, cache, queues, events, WebSocket, storage and mail on top of h3",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/core#readme",
