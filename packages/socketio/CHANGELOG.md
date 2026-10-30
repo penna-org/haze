@@ -1,5 +1,16 @@
 # @hazejs/socket.io
 
+## 0.3.0
+
+### Minor Changes
+
+- [`cb51e0a`](https://github.com/penna-org/haze/commit/cb51e0aa95ad258aee8cc11e41cabe09448c01de) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - Authentication and authorization hooks for apps with stateful sessions and data-driven permissions. JWT guards accept `resolveUser(payload, ctx)` to resolve the user from the verified claims and the request (check a session id on every request, read an organisation header); `HttpException`s it throws become the response unchanged. `rejectClaims` refuses tokens carrying given claims (password-reset tickets signed with the same secret), `expiresIn` may be a function evaluated per login, and `jwt().login(user, claims, { expiresIn })` overrides it per token. The `auth` middleware answers `401` with `code: 'unauthenticated'` (no credentials) or `'token_invalid'` (expired, tampered, rejected), and `auth:optional` / `auth:<guard>,optional` lets requests through as guests. Guards expose `failure`. `gate.fallback((user, ability) => …)` decides abilities that have no definition (permission codes stored with roles), `ctx.authorizeAny([...])` / `gate.authorizeAny()` and `can:a|b` pass when any ability is granted. `@hazejs/socket.io`'s `authenticate({ headers })` passes handshake `auth` fields to the guard as request headers, and rejected handshakes carry `error.data = { status, code }` with the same codes as the HTTP API (previously `{ code: 401 }`). Backend-only projects can serve a separately built frontend through `config/static.ts` (`dir` may come from an environment variable; relative to the project root), and the docker preset's Dockerfile has a `HEALTHCHECK` on `/health/live`. `ApplicationOptions.configOverrides` (and so `createTestApp({ configOverrides })`) deep-merges configuration over `config/*.ts` before providers register, keeping class instances such as database clients by reference.
+
+### Patch Changes
+
+- Updated dependencies [[`7b5e0a9`](https://github.com/penna-org/haze/commit/7b5e0a95b73edbeac5aa5570483b2cbe2daf2eb8), [`cb51e0a`](https://github.com/penna-org/haze/commit/cb51e0aa95ad258aee8cc11e41cabe09448c01de), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`f46d960`](https://github.com/penna-org/haze/commit/f46d960fb67f600e402f3ba371f83c3a8f3592cb), [`ea86d01`](https://github.com/penna-org/haze/commit/ea86d0175adf24563dc62ce796e602a04fbe6dcd), [`940711c`](https://github.com/penna-org/haze/commit/940711c72b493eab636beb0fd034ff8f118165bc), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`4da85a8`](https://github.com/penna-org/haze/commit/4da85a83107181f99b029837798be84cb7c8c92a), [`bd81767`](https://github.com/penna-org/haze/commit/bd817672b975e2475a7644214396915d5f247f9b), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`15e802d`](https://github.com/penna-org/haze/commit/15e802d5f341a9928720189ed49a9cba8ff168f2), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4)]:
+  - @hazejs/core@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

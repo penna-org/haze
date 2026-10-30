@@ -1,5 +1,16 @@
 # @hazejs/ai
 
+## 0.3.0
+
+### Minor Changes
+
+- [`ea86d01`](https://github.com/penna-org/haze/commit/ea86d0175adf24563dc62ce796e602a04fbe6dcd) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - `app.introspect()` returns a serializable snapshot of the application: modules with what each one contributes (routes, providers, jobs, schedules, events, listeners, middleware), sub-apps, routes, global middleware, middleware aliases and groups with their owning module, providers, container bindings (`container.bindings()`), events with their listeners (`EventManager#events()`), queue jobs and scheduled tasks with their next run. Scheduled task runs are reported as `schedule` telemetry and shown in a new Schedule tab of the dev dashboard; request entries record the route name and module. When the dev dashboard is on, AI calls also record their messages, tools, output and tool calls (truncated); other telemetry consumers such as OpenTelemetry never receive them.
+
+### Patch Changes
+
+- Updated dependencies [[`7b5e0a9`](https://github.com/penna-org/haze/commit/7b5e0a95b73edbeac5aa5570483b2cbe2daf2eb8), [`cb51e0a`](https://github.com/penna-org/haze/commit/cb51e0aa95ad258aee8cc11e41cabe09448c01de), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`f46d960`](https://github.com/penna-org/haze/commit/f46d960fb67f600e402f3ba371f83c3a8f3592cb), [`ea86d01`](https://github.com/penna-org/haze/commit/ea86d0175adf24563dc62ce796e602a04fbe6dcd), [`940711c`](https://github.com/penna-org/haze/commit/940711c72b493eab636beb0fd034ff8f118165bc), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`4da85a8`](https://github.com/penna-org/haze/commit/4da85a83107181f99b029837798be84cb7c8c92a), [`bd81767`](https://github.com/penna-org/haze/commit/bd817672b975e2475a7644214396915d5f247f9b), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4), [`15e802d`](https://github.com/penna-org/haze/commit/15e802d5f341a9928720189ed49a9cba8ff168f2), [`a5fd5cf`](https://github.com/penna-org/haze/commit/a5fd5cfa6753af24f147959b29ef6af4a31c99c4)]:
+  - @hazejs/core@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

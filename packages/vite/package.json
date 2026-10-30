@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/vite",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Vite plugin for hazejs: hot-reloading backend, full-stack dev server and deployment presets",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/vite#readme",
