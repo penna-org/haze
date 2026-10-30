@@ -35,16 +35,16 @@ const total = await active().count()
 | `count(column?)` / `sum` / `avg` / `max` / `min` | Aggregates (`count('email')` counts non-null values) |
 | `exists()` | Whether any row matches (`select 1 … limit 1`, no row is read) |
 | `paginate(page, perPage)` | `{ data, total, page, perPage, lastPage }` |
-| `paginateX(perPage, { lastId, key, sort })` | Cursor pagination without counting: `{ data, perPage, lastId, hasMore }` |
+| `paginateX(perPage, { lastId, key, sort })` | Cursor pagination without counting: `{ data, perPage, lastId, hasMore }`. `perPage` defaults to `15`, `key` to the primary key, `sort` to `'desc'` |
 | `chunk(size, rows => ...)` | Process rows in batches; return `false` to stop |
-| `cursor(size)` / `lazy(size)` | Async iterator that fetches in batches: `for await (const row of query.cursor())` |
+| `cursor(size)` / `lazy(size)` | Async iterator that fetches in batches (`size` defaults to `200`): `for await (const row of query.cursor())` |
 | `toSQL()` | The generated SQL and parameters (ThinkPHP's `fetchSql`). `toSQL('insert', values)`, `toSQL('update', values)` and `toSQL('delete', target?)` preview the write statements without running them |
 
 `value()` and `column()` are typed like `field()`: the column's type on tables and models (`User.query().column('name')` is `string[]`), or the alias's type after `field({ ... })`.
 
 `paginate()` runs the count and the page query in parallel. Inside a transaction it runs them one after the other and skips the page query when the count is `0`. The count never includes `order()`.
 
-`paginateX()` pages by the primary key (or `key`), so it stays fast on large tables. `cursor()` does the same when the query has no `order()`; with an order it falls back to offsets.
+`paginateX()` pages by the primary key (or `key`), so it stays fast on large tables. It replaces any `order()` on the query with `key` in the `sort` direction. `cursor()` also batches by the primary key when the query has no `order()`, `group()` or union; otherwise it falls back to offsets.
 
 ## Where clauses
 
@@ -217,8 +217,11 @@ await Db.table(users).field('name').unionAll(Db.table(admins).field('name')).sel
 await Db.table(settings).cache().select()                    // key derived from the SQL, no expiry
 await Db.table(settings).cache('10m').select()               // ttl
 await Db.table(users).where('id', 1).cache('user:1', 60).find()  // explicit key
+await Db.table(users).cache('users:all', '1h', 'redis').select() // third argument: cache store name
 await Cache.forget('user:1')                                 // invalidate after writes
 ```
+
+`cache(false)` turns caching off again for that query.
 
 Dates are restored when reading from the cache. Writes do not clear cached queries; use an explicit key when you need to invalidate.
 
@@ -277,7 +280,8 @@ They are single statements: on model queries they respect soft deletes and globa
 ## Other helpers
 
 - `removeOption('order')` removes a previously set option (`where`, `order`, `limit`, `field`, `join`, `group`, `having`, `distinct`, `lock`, `union`, `cache`, `data`), or all of them without an argument.
-- `lock()` adds `FOR UPDATE`; `lock('share')`, `lock('no key update')`, `lock('key share')` and `{ skipLocked, noWait }` select other modes. See [Transactions](./transactions#row-locks).
+- `lock()` adds `FOR UPDATE`; `lock('share')`, `lock('no key update')`, `lock('key share')` and `{ skipLocked, noWait }` select other modes, and `lock(false)` removes the lock. See [Transactions](./transactions#row-locks).
+- `useWriter()` sends this query's reads to the primary when [read/write splitting](./database#read-write-splitting) is configured; `useWriter(false)` undoes it.
 - `Db.execute(sql\`...\`)` (alias `Db.query`) runs raw SQL and returns rows; `Db.raw('...')` makes a raw SQL fragment; `Db.drizzle()` gives you the drizzle instance for anything else.
 
 ## Not supported

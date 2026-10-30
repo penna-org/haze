@@ -28,6 +28,8 @@ import { microservicesProvider } from '@hazejs/microservices'
 export default microservicesProvider()
 ```
 
+`microservicesProvider({ handlers })` registers additional handlers that are not in `app/message`, for example handlers from a shared package or defined in a test.
+
 ## Configuration
 
 ```ts
@@ -239,7 +241,7 @@ transports: {
 
 Handler errors map to gRPC status codes (404 → `NOT_FOUND`, 422 → `INVALID_ARGUMENT`, 401 → `UNAUTHENTICATED` …) and the full error travels in the `x-haze-error-bin` metadata, so hazejs clients get the same `RemoteError` as on the other transports.
 
-Limits: unary calls only (streaming methods answer `UNIMPLEMENTED`); payloads are encoded with the proto definition, so fields it does not declare are dropped; `emit()` is a unary call whose result is ignored; not available on Bun, Deno or edge runtimes.
+Limits: unary calls only (streaming methods answer `UNIMPLEMENTED`); payloads are encoded with the proto definition, so fields it does not declare are dropped; `emit()` is a unary call whose result is ignored, so the handler sees `ctx.kind === 'request'`; not available on Bun, Deno or edge runtimes.
 
 ### Memory
 

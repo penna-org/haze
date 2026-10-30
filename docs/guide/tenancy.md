@@ -103,7 +103,10 @@ r.get('/me', (ctx) => {
   currentTenant() // the tenant, or undefined
   Tenancy.key() // "acme"
   Tenancy.check() // true inside a tenant context
+  Tenancy.current() // the tenant, or undefined (same as currentTenant())
 })
+
+await Tenancy.find('acme') // look a tenant up by key through find() (honors `remember`); undefined when unknown
 ```
 
 Add your fields to the `Tenant` type with declaration merging:

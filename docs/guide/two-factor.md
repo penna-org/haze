@@ -43,7 +43,8 @@ export default defineAuthConfig(() => ({
 | `window` | `1` | Accepted clock drift, in time steps (±30 seconds) |
 | `recoveryCodes` | `8` | Number of recovery codes |
 | `challengeTtl` | `'5m'` | How long a login waits for the code |
-| `maxAttempts` | `5` | Wrong codes allowed per login challenge; after that the password is required again |
+| `maxAttempts` | `5` | Wrong codes allowed per user. They are counted in the cache for `challengeTtl` (not in the session cookie the client holds), so after that many the user cannot complete a challenge until the window passes, even after entering the password again |
+| `cacheStore` | default cache store | Cache store (from `config/cache.ts`) that keeps the attempt counters |
 
 What is stored:
 
@@ -97,7 +98,7 @@ The server does not generate images. Render `uri` as a QR code on the client, fo
 | `enabled(user)` | Whether 2FA is active (confirmed) |
 | `verify(user, code)` | Checks a code for a user with active 2FA; each time step is accepted once |
 | `useRecoveryCode(user, code)` | Consumes a recovery code (case-insensitive) |
-| `regenerateRecoveryCodes(user)` | New plain-text codes; the old ones stop working |
+| `regenerateRecoveryCodes(user)` | New plain-text codes; the old ones stop working. Throws an `Error` when the user has no 2FA record (call `enable()` first) |
 | `remainingRecoveryCodes(user)` | How many recovery codes are left |
 | `uri(user)` | The `otpauth://` URI again, e.g. to show the QR code during setup |
 | `disable(user)` | Deletes the secret and codes; emits `TwoFactorDisabled` |
@@ -139,7 +140,7 @@ r.post('/login', [SessionController, 'store']).middleware('throttle:10,60')
 r.post('/two-factor-challenge', [SessionController, 'challenge']).middleware('throttle:10,60')
 ```
 
-`TwoFactor.challenge(ctx, input)` accepts `{ code }` or `{ recoveryCode }`. On success it logs the user in through the session guard (regenerating the session id) and returns the user; otherwise it returns `undefined`. The challenge expires after `challengeTtl`, and after `maxAttempts` wrong codes it is cleared so the password must be entered again. `TwoFactor.hasPendingChallenge(ctx)` tells the frontend whether to show the code form. Both `attempt()` and `challenge()` take `{ guard }` to pick a session guard other than the default.
+`TwoFactor.challenge(ctx, input)` accepts `{ code }` or `{ recoveryCode }`. On success it logs the user in through the session guard (regenerating the session id) and returns the user; otherwise it returns `undefined`. The challenge expires after `challengeTtl`. Wrong codes are counted per user in the cache rather than in the session (which, with the default `cookie` driver, the client holds and could replay), and after `maxAttempts` of them the challenge is cleared and the user cannot complete another one until `challengeTtl` has passed, even after entering the password again. `TwoFactor.hasPendingChallenge(ctx)` tells the frontend whether to show the code form. `attempt()` takes `{ guard }` to pick a session guard other than the default; it records that guard in the session, and `challenge()` logs in through it (`challenge()` itself has no `guard` option).
 
 ### JWT and token APIs
 
@@ -214,7 +215,7 @@ export default defineAuthConfig(() => ({
 | `residentKey` | `'preferred'` | Discoverable credentials (sign in without typing a username) |
 | `userName` / `displayName` | `'email'` / `'name'` | User fields shown by the authenticator |
 
-Challenges are single-use. In `cache` mode they are keyed by the challenge value itself, so no cookie is needed.
+Challenges are single-use. In `cache` mode they are keyed by the challenge value itself, so no cookie is needed. In `session` mode a used challenge is also recorded in the cache store, so replaying an old session cookie together with the same response is rejected.
 
 ::: tip Local development and proxies
 The `rpID` must match the host of the page the user is on. `localhost` works over plain HTTP; other hosts need HTTPS. Behind a proxy or a separate frontend dev server, set `APP_URL` (or `rpID` and `origin`) to the address the browser actually shows.

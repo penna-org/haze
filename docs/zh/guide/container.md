@@ -71,9 +71,10 @@ export class RequestInfo {
 }
 ```
 
-容器会做两项安全检查，出错时给出完整的依赖链：
+容器会做以下安全检查，出错时给出完整的依赖链：
 
 - 单例不能依赖请求作用域的对象，否则单例会“捕获”第一个请求的数据，此时抛出 `ScopeError`；
+- 请求作用域的对象只能在请求内解析，在启动阶段、队列任务或命令中 `app.make(RequestInfo)` 会抛出 `ScopeError`；
 - 循环依赖抛出 `CircularDependencyError`。
 
 ## 令牌（Token）
@@ -117,6 +118,9 @@ export class CounterService {
 | `instance(key, value)` | 注册一个已有的值 |
 | `has(key)` / `make(key)` | 判断是否已绑定 / 解析 |
 | `call(fn)` | 在该容器的注入上下文中执行 `fn` |
+| `createChild()` | 创建子容器，框架为每个请求创建的就是它 |
+| `bindings()` | 列出本容器的绑定（`key`、`scope`、`kind`、`resolved`），用于调试 |
+| `dispose()` | 释放本容器创建的实例（见[释放资源](#释放资源)） |
 
 ```ts
 // app/provider/AppProvider.ts
@@ -166,7 +170,7 @@ export default defineProvider({
 })
 ```
 
-提供者也可以写成实现了这些方法的类。用 `npx haze make:provider Redis` 生成。
+提供者也可以写成实现了这些方法的类。框架直接用 `new` 创建它，而不是经由容器，所以在它的字段或构造函数中调用 `inject()` 会报错，请在 `boot(app)` 中用 `app.make()` 解析服务。用 `npx haze make:provider Redis` 生成。
 
 提供者按顺序启动：先是[模块](./modules)的提供者，再是项目的。需要项目提供者在 `boot` 中准备好的资源（例如已建立的数据库连接）时，用 `app.onBooted(callback)` 等全部提供者启动完成后再执行；应用已经启动完成时立即执行：
 
@@ -176,6 +180,8 @@ export default defineProvider({
   boot: app => app.onBooted(() => app.make(OrderBinding).register()),
 })
 ```
+
+`onBooted` 回调按注册顺序执行，时机在所有 `boot()` 之后、路由编译**之前**，因此 `boot()` 和 `onBooted` 回调中都还不能使用 `app.router.url()` 或 `app.request()`。
 
 ### 从应用中解析
 
@@ -196,23 +202,28 @@ export class Reporter {
 }
 ```
 
-通过 `instance()` 注册的值不由容器负责释放。
+请求作用域的实例在每个请求结束时释放。瞬态实例不被跟踪，也不会释放；通过 `instance()` 注册的值同样不由容器负责释放。
 
 ## 跨热更新的持久资源
 
 开发环境中，每次修改代码都会在几毫秒内重建容器。这对服务类没有问题，但数据库连接池、Redis 客户端不应该每次保存都重新连接。`definePersistent()` 创建的值在进程内只创建一次，热更新时保留：
 
 ```ts
-// app/redis.ts
-import { definePersistent, env } from '@hazejs/core'
+// app/provider/RedisProvider.ts
+import { definePersistent, defineProvider, env } from '@hazejs/core'
 import Redis from 'ioredis'
+import { RedisClient } from '~/app/tokens'
 
-export const redis = definePersistent('redis', () => new Redis(env('REDIS_URL', 'redis://127.0.0.1:6379')), {
-  dispose: client => client.quit(),
+export default defineProvider({
+  register(container) {
+    container.instance(RedisClient, definePersistent('redis', () => new Redis(env('REDIS_URL', 'redis://127.0.0.1:6379')), {
+      dispose: client => client.quit(),
+    }))
+  },
 })
 ```
 
-`dispose` 回调只在真正关闭进程时执行，热更新重载时不会执行。
+`dispose` 回调在应用真正释放时执行，热更新重载时不会执行。真正释放包括关闭进程，也包括 `useTestApp()` 中每个测试结束时。释放后这个值会被移除，下一次调用 `definePersistent()` 会重新创建。所以要像上面这样在每次启动时调用它，不要存进模块顶层的 `const`。那样同一进程中的下一个应用（例如下一个测试）拿到的仍是已经关闭的客户端。注册时用 `instance()`，不要用 `singleton()` 工厂。容器从不释放 `instance()` 注册的值，但会释放工厂创建的、实现了 `Symbol.asyncDispose` / `Symbol.dispose` 的对象，而且每次热重载都会这样做。
 
 ## 在测试中替换绑定
 

@@ -35,16 +35,16 @@ const total = await active().count()
 | `count(column?)` / `sum` / `avg` / `max` / `min` | 聚合（`count('email')` 统计非空值） |
 | `exists()` | 是否有匹配的数据（`select 1 … limit 1`，不读取整行） |
 | `paginate(page, perPage)` | `{ data, total, page, perPage, lastPage }` |
-| `paginateX(perPage, { lastId, key, sort })` | 不统计总数的游标分页：`{ data, perPage, lastId, hasMore }` |
+| `paginateX(perPage, { lastId, key, sort })` | 不统计总数的游标分页：`{ data, perPage, lastId, hasMore }`。`perPage` 默认 `15`，`key` 默认主键，`sort` 默认 `'desc'` |
 | `chunk(size, rows => ...)` | 分批处理，回调返回 `false` 时停止 |
-| `cursor(size)` / `lazy(size)` | 分批读取的异步迭代器：`for await (const row of query.cursor())` |
+| `cursor(size)` / `lazy(size)` | 分批读取的异步迭代器（`size` 默认 `200`）：`for await (const row of query.cursor())` |
 | `toSQL()` | 生成的 SQL 与参数（ThinkPHP 的 `fetchSql`）。`toSQL('insert', values)`、`toSQL('update', values)`、`toSQL('delete', target?)` 预览写操作的语句而不执行 |
 
 `value()` 与 `column()` 的类型与 `field()` 一致：表与模型上为列的类型（`User.query().column('name')` 为 `string[]`），`field({ ... })` 之后为别名的类型。
 
 `paginate()` 的统计与取数据并行执行；在事务中依次执行，统计为 `0` 时不再取数据。统计查询不带 `order()`。
 
-`paginateX()` 按主键（或 `key`）翻页，数据量大时依然很快。`cursor()` 在没有 `order()` 时同样按主键分批，有排序时按 offset 分批。
+`paginateX()` 按主键（或 `key`）翻页，数据量大时依然很快；查询上已有的 `order()` 会被替换为按 `key` 以 `sort` 方向排序。`cursor()` 在没有 `order()`、`group()` 和合并查询时同样按主键分批，否则按 offset 分批。
 
 ## 查询条件
 
@@ -217,8 +217,11 @@ await Db.table(users).field('name').unionAll(Db.table(admins).field('name')).sel
 await Db.table(settings).cache().select()                    // 按 SQL 生成键，永久缓存
 await Db.table(settings).cache('10m').select()               // 有效期
 await Db.table(users).where('id', 1).cache('user:1', 60).find()  // 指定键
+await Db.table(users).cache('users:all', '1h', 'redis').select() // 第三个参数：缓存存储的名称
 await Cache.forget('user:1')                                 // 写入后清除
 ```
+
+`cache(false)` 关闭该查询的缓存。
 
 从缓存读取时会还原日期字段。写入不会自动清除缓存，需要失效时请指定键。
 
@@ -277,7 +280,8 @@ await Db.table(users).delete([1, 2, 3])
 ## 其他
 
 - `removeOption('order')` 移除已设置的选项（`where`、`order`、`limit`、`field`、`join`、`group`、`having`、`distinct`、`lock`、`union`、`cache`、`data`），不传参数时全部移除。
-- `lock()` 加上 `FOR UPDATE`；`lock('share')`、`lock('no key update')`、`lock('key share')` 与 `{ skipLocked, noWait }` 选择其他模式，见[事务](./transactions#行锁)。
+- `lock()` 加上 `FOR UPDATE`；`lock('share')`、`lock('no key update')`、`lock('key share')` 与 `{ skipLocked, noWait }` 选择其他模式，`lock(false)` 移除行锁，见[事务](./transactions#行锁)。
+- 配置了[读写分离](./database#读写分离)时，`useWriter()` 让这个查询的读取使用写库；`useWriter(false)` 取消。
 - `Db.execute(sql\`...\`)`（别名 `Db.query`）执行原生 SQL 并返回行数组；`Db.raw('...')` 生成原生 SQL 片段；其他需求可以用 `Db.drizzle()` 拿到 drizzle 实例。
 
 ## 暂不支持

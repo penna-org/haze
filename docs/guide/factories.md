@@ -58,7 +58,7 @@ The definition receives a context:
 Besides plain values, an attribute can be:
 
 - **A function**, evaluated after the plain values, with them as its argument. It may be async.
-- **Another factory**, which is created and replaced by its primary key. It is skipped when an override, `for()` or `has()` provides the value.
+- **Another factory**, which is created and replaced by its primary key. It is skipped when an override, `for()` or `has()` provides the value. `make()` and `raw()` create it too (the key has to be a real id), so they write to the database in that case.
 
 ```ts
 export default defineFactory(Post, ({ faker }) => ({
@@ -96,6 +96,7 @@ await UserFactory.state((attributes, { n }) => ({ email: `${attributes.name}.${n
 
 // Alternate between states within one call
 await UserFactory.count(4).sequence({ role: 'admin' }, { role: 'member' }).create()
+await UserFactory.count(3).sequence(({ index }) => ({ name: `User ${index}` })).create() // items can be (ctx) => attributes
 ```
 
 Named states are defined with `.state(name, value)` after `defineFactory()`, and applied with `.state(name)`. The value is an object or a function `(attributes, ctx) => object`.

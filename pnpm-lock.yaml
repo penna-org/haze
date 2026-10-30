@@ -317,7 +317,7 @@ importers:
   packages/cli:
     dependencies:
       '@hazejs/vite':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../vite
       citty:
         specifier: 'catalog:'
@@ -327,16 +327,16 @@ importers:
         version: 3.4.2
     devDependencies:
       '@hazejs/auto-import':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../auto-import
       '@hazejs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@hazejs/microservices':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../microservices
       '@hazejs/orm':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../orm
       vite:
         specifier: 'catalog:'

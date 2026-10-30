@@ -1,8 +1,10 @@
+import type { CacheRepository } from '../cache/repository'
 import type { Config } from '../config/config'
 import type { HttpContext } from '../http/context'
 import type { SessionGuard } from './guards'
 import type { Credentials } from './provider'
 import type { ResolvedProvider } from './support'
+import { CacheManager } from '../cache/manager'
 import { ConflictException } from '../exception/exceptions'
 import { definePersistent } from '../persistent'
 import { Encrypter } from '../security/crypt'
@@ -220,8 +222,13 @@ export interface TwoFactorConfig extends Pick<TotpOptions, 'digits' | 'period' |
   account?: string
   /** 登录后等待输入验证码的有效期，默认 `5m` */
   challengeTtl?: string | number
-  /** 同一次挑战允许的失败次数，超过后需重新登录，默认 5 */
+  /**
+   * 允许输错验证码的次数，默认 5。次数按用户记在缓存中（不在客户端持有的会话 Cookie 里），保留 challengeTtl；
+   * 超过后在此期间无法完成挑战，重新输入密码也不行
+   */
   maxAttempts?: number
+  /** 记录失败次数的缓存存储（config/cache.ts 中的名称），默认使用默认存储 */
+  cacheStore?: string
 }
 
 export interface TwoFactorSetup {
@@ -247,7 +254,6 @@ interface PendingLogin {
   guard: string
   id: string | number
   expiresAt: number
-  attempts: number
 }
 
 const PENDING_KEY = '_two_factor_login'
@@ -425,6 +431,24 @@ export class TwoFactorAuthenticator<U = unknown> {
     return ctx.auth.session(guard) as unknown as SessionGuard<U>
   }
 
+  get #maxAttempts(): number {
+    return this.#config.maxAttempts ?? 5
+  }
+
+  /** 挑战有效期（秒） */
+  get #challengeTtl(): number {
+    return parseDuration(this.#config.challengeTtl ?? '5m')
+  }
+
+  #cache(ctx: HttpContext): CacheRepository {
+    return ctx.make(CacheManager).store(this.#config.cacheStore)
+  }
+
+  /** 失败次数按用户记在缓存里：默认的 cookie 会话驱动把会话存在客户端，重放登录时的旧 Cookie 不能重置计数 */
+  #attemptsKey(pending: PendingLogin): string {
+    return `two-factor:attempts:${pending.guard}:${pending.id}`
+  }
+
   /**
    * 第一步：校验账号密码。未启用两步验证时直接登录（`authenticated`）；
    * 已启用时只在会话中记录待验证的用户（`two-factor`），等待 challenge()。
@@ -442,8 +466,7 @@ export class TwoFactorAuthenticator<U = unknown> {
     const pending: PendingLogin = {
       guard: guard.name,
       id: this.#users.provider.getId(user),
-      expiresAt: Date.now() + parseDuration(this.#config.challengeTtl ?? '5m') * 1000,
-      attempts: 0,
+      expiresAt: Date.now() + this.#challengeTtl * 1000,
     }
     session.set(PENDING_KEY, pending)
     return { status: 'two-factor', user }
@@ -463,12 +486,16 @@ export class TwoFactorAuthenticator<U = unknown> {
       session.forget(PENDING_KEY)
       return undefined
     }
+    if (await this.#cache(ctx).get<number>(this.#attemptsKey(pending), 0) >= this.#maxAttempts) {
+      session.forget(PENDING_KEY)
+      return undefined
+    }
     return pending
   }
 
   /**
    * 第二步：输入验证码或恢复码。成功时通过 Session Guard 登录并返回用户；
-   * 失败返回 undefined（超过 maxAttempts 次后清除挑战，需重新输入密码）。
+   * 失败返回 undefined（输错 maxAttempts 次后清除挑战，并在 challengeTtl 内拒绝该用户再次挑战）。
    */
   async challenge(ctx: HttpContext, input: ChallengeInput): Promise<U | undefined> {
     const pending = await this.#pending(ctx)
@@ -486,14 +513,13 @@ export class TwoFactorAuthenticator<U = unknown> {
         ? await this.verify(user, input.code)
         : false
     if (!passed) {
-      const attempts = pending.attempts + 1
-      if (attempts >= (this.#config.maxAttempts ?? 5))
+      const attempts = await this.#cache(ctx).increment(this.#attemptsKey(pending), 1, this.#challengeTtl)
+      if (attempts >= this.#maxAttempts)
         session.forget(PENDING_KEY)
-      else
-        session.set(PENDING_KEY, { ...pending, attempts })
       return undefined
     }
     session.forget(PENDING_KEY)
+    await this.#cache(ctx).forget(this.#attemptsKey(pending))
     await this.#sessionGuard(ctx, pending.guard).login(user)
     return user
   }

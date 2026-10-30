@@ -1,6 +1,6 @@
 # Authentication, Authorization & Social Login
 
-Full guides: [Authentication](../../../docs/guide/authentication.md) · [Authorization](../../../docs/guide/authorization.md) · [API Tokens](../../../docs/guide/api-tokens.md) · [Two-Factor & Passkeys](../../../docs/guide/two-factor.md) · [OAuth](../../../docs/guide/oauth.md) · [Sessions & CSRF](../../../docs/guide/security.md)
+Full guides: [Authentication](../../../docs/guide/authentication.md) · [Authorization](../../../docs/guide/authorization.md) · [API Tokens](../../../docs/guide/api-tokens.md) · [Two-Factor & Passkeys](../../../docs/guide/two-factor.md) · [OAuth](../../../docs/guide/oauth.md) · [Security: sessions, CSRF, CORS, headers](../../../docs/guide/security.md)
 
 Paths below use the API template layout (`config/`, `app/`, `route/`, `~/` alias). In full-stack templates they live under `server/`.
 
@@ -262,6 +262,8 @@ await gate.forUser(user).can('update', post)
 const { allowed, message, guest } = await gate.forUser(user).inspect('update', post)
 ```
 
+`Gate` instance API: `define(name, fn)`, `policy(definePolicy(...))` / `register(item)` (manual registration), `before(hook)`, `after(hook)`, `fallback(hook)`, `has(name)`, `allows(user, ability, ...args)` / `denies(...)`, `authorize(user, ...)` (401 guest / 403 `AuthorizationException`), `authorizeAny(user, abilities, ...args)` (empty list throws), `inspect(user, ...)` → `{ allowed, message?, guest }`, `forUser(user)` → `UserGate` (`can`, `cannot`, `authorize`, `inspect`). `allow()` takes no message; `deny(message?)`. Policies resolve through the prototype chain (a model subclass uses its parent's policy); asking a policy for an ability it lacks throws. A `gate.fallback()` also runs for guests (receives `undefined`), unlike plain abilities.
+
 Typegen generates ability names from `app/policy`, so `ctx.can/cannot/authorize` only accept existing abilities (model abilities matched to the model passed).
 
 ## Personal access tokens
@@ -293,7 +295,9 @@ await PersonalAccessTokens.revokeAll(user)
 await PersonalAccessTokens.find(plainTextToken)
 ```
 
-Abilities: `*` grants all; trailing `:*` matches a prefix (`posts:*`). `last_used_at` is updated at most once a minute. Custom stores implement `TokenStore` (`create`, `find`, `list`, `update`, `delete`, `deleteAll`).
+Every facade method takes an optional trailing `guard` (`create(user, name, { guard })`, `list(user, guard)`, `revoke(id, user?, guard)`, `revokeAll(user, guard)`, `find(plain, guard)`); `PersonalAccessTokens.repository(guard?)` / `ctx.auth.token().tokens()` return the `TokenRepository`. `revoke(id)` without a user revokes any token.
+
+Abilities: `*` grants all; trailing `:*` matches a prefix (`posts:*`). Pure helpers: `abilityMatches(granted, ability)`, `tokenCan(token, ability)`. A token is rejected (= guest) when the secret mismatches, it is revoked/expired, or its `tokenableType` differs from the guard's user type (`type`, default = provider name — two token guards on the same provider accept each other's tokens). `last_used_at` is updated at most once a minute. Custom stores implement `TokenStore` (`create` assigns the id, `find`, `list`, `update`, `delete` → boolean, `deleteAll` → count); ids must be numbers or `[A-Za-z0-9_-]{1,64}` strings (they form the part before `|`). Tests: `ctx.auth.token().withAccessToken(user, tokenRecord)` fakes a token with specific abilities.
 
 ## Email verification & password reset
 
@@ -366,6 +370,8 @@ export default defineRoutes((r) => {
 
 ## Two-factor (TOTP) & passkeys
 
+Both are configured in `config/auth.ts` and store data through small store interfaces. Tables come from `haze make:auth-tables` (`two_factor_secrets`, `webauthn_credentials`). `authRoutes()` does **not** register any 2FA or passkey routes: write the controllers yourself.
+
 ```ts
 // config/auth.ts (excerpt)
 import { databasePasskeyStore, databaseTwoFactorStore } from '@hazejs/orm'
@@ -375,32 +381,212 @@ twoFactor: { store: databaseTwoFactorStore(twoFactorSecrets), issuer: 'Acme' },
 passkeys: { store: databasePasskeyStore(webauthnCredentials), rpName: 'Acme' }, // needs @simplewebauthn/server
 ```
 
-TOTP options: `provider`, `store`, `issuer` (`app.name`), `account` (`'email'`), `digits`/`period`/`algorithm` (`6`/`30`/`'SHA1'`), `window` (`1`), `recoveryCodes` (`8`), `challengeTtl` (`'5m'`), `maxAttempts` (`5`).
+The `database*Store(table, { connection? })` helpers accept the table or `() => table`. In-memory defaults: `memoryTwoFactorStore(name?)`, `memoryPasskeyStore(name?)` (tests only).
+
+### TOTP config (`twoFactor`)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `provider` | default guard's provider | User source; its name is the stored `userType` |
+| `store` | in memory | `databaseTwoFactorStore()` or any `TwoFactorStore` |
+| `issuer` | `app.name` | Service name in the authenticator app |
+| `account` | `'email'` | User field for the account label (falls back to the user id) |
+| `digits` / `period` / `algorithm` | `6` / `30` / `'SHA1'` | `algorithm`: `'SHA1' \| 'SHA256' \| 'SHA512'`; most apps only support the defaults |
+| `window` | `1` | Accepted drift in steps (±30 s) |
+| `recoveryCodes` | `8` | Count; format `xxxxx-xxxxx` (lowercase base32) |
+| `challengeTtl` | `'5m'` | How long a pending session login waits for the code |
+| `maxAttempts` | `5` | Wrong codes per **user**, counted server-side in the cache for `challengeTtl`; once reached no challenge completes until the TTL passes — re-entering the password or replaying an old session cookie does not reset it |
+| `cacheStore` | default cache store | Where wrong-code attempts are counted |
+
+Stored per user (`TwoFactorRecord`): `secret` encrypted with `APP_KEY` (AES-GCM, same as `Crypt`), `recoveryCodes` as SHA-256 hashes, `confirmedAt` (`null` = not active), `lastUsedStep` (replay protection: each step is accepted once, older steps are refused).
+
+### Enable → confirm → manage
 
 ```ts
-// enable → confirm (2FA inactive until confirmed)
-const { secret, uri, recoveryCodes } = await TwoFactor.enable(user) // 409 if already enabled; { force: true } to replace
-await TwoFactor.confirm(user, code) // boolean
-// also: enabled, verify, useRecoveryCode, regenerateRecoveryCodes, remainingRecoveryCodes, uri, disable
+// app/controller/TwoFactorController.ts
+import type { HttpContext } from '@hazejs/core'
+import { BadRequestException, TwoFactor } from '@hazejs/core'
 
-// session login with a challenge
-const result = await TwoFactor.attempt(ctx, credentials) // status: 'failed' | 'authenticated' | 'two-factor'
-const user = await TwoFactor.challenge(ctx, { code, recoveryCode }) // logs in, or undefined
-await TwoFactor.hasPendingChallenge(ctx) // show the code form?
+export class TwoFactorController {
+  async enable(ctx: HttpContext) { // step 1: QR + recovery codes (shown only now)
+    const { secret, uri, recoveryCodes } = await TwoFactor.enable((await ctx.auth.user())!)
+    return { secret, uri, recoveryCodes } // render `uri` as QR in the browser (qrcode / uqr)
+  }
 
-// JWT / token APIs: no challenge flow, verify the code yourself
-const user = await ctx.auth.jwt().validate(credentials)
-if (user && await TwoFactor.enabled(user) && !(code && await TwoFactor.verify(user, code)))
-  throw new UnauthorizedException('A valid two-factor code is required')
+  async confirm(ctx: HttpContext) { // step 2: first code activates 2FA
+    const { code } = await ctx.body<{ code: string }>()
+    if (!await TwoFactor.confirm((await ctx.auth.user())!, code))
+      throw new BadRequestException('Invalid code')
+    return { enabled: true }
+  }
+
+  async disable(ctx: HttpContext) { // re-check password / a code first: disable() itself checks nothing
+    await TwoFactor.disable((await ctx.auth.user())!)
+    return ctx.noContent()
+  }
+}
 ```
 
-Render `uri` as a QR code on the client (the server makes no images). Primitives: `totp`, `verifyTotp`, `hotp`, `generateTotpSecret`, `otpauthUri`, `generateRecoveryCodes`, `base32Encode/Decode`, `totpStep`.
+| `TwoFactor.*` | Returns | Notes |
+|---|---|---|
+| `enable(user, { force? })` | `{ secret, uri, recoveryCodes }` | New secret, unconfirmed. Already confirmed → `409 ConflictException` unless `force` (then back to unconfirmed) |
+| `confirm(user, code)` | `boolean` | Activates; emits `TwoFactorEnabled`. `false` if `enable()` was never called |
+| `enabled(user)` | `boolean` | Confirmed? |
+| `verify(user, code)` | `boolean` | Only for confirmed users; consumes the step; failure emits `TwoFactorFailed` |
+| `useRecoveryCode(user, code)` | `boolean` | Case-insensitive, single use; failure emits `TwoFactorFailed` |
+| `regenerateRecoveryCodes(user)` | `string[]` | Old codes stop working; throws plain `Error` (500) if no record |
+| `remainingRecoveryCodes(user)` | `number` | |
+| `uri(user)` | `string \| undefined` | `otpauth://` URI again (re-show QR during setup) |
+| `disable(user)` | `void` | Deletes secret + codes; emits `TwoFactorDisabled` |
+| `attempt(ctx, credentials, { guard? })` | `{ status: 'failed' } \| { status: 'authenticated' \| 'two-factor', user }` | Session guard only |
+| `challenge(ctx, { code?, recoveryCode? })` | `user \| undefined` | Logs in (session id regenerated) |
+| `hasPendingChallenge(ctx)` | `boolean` | Show the code form? |
+| `authenticator()` | `TwoFactorAuthenticator` | Same methods as a class instance |
 
-Passkeys (`Passkeys` facade): `registrationOptions(ctx, user)` → `verifyRegistration(ctx, user, response, { name })` (logged in); `authenticationOptions(ctx[, { user }])` → `login(ctx, response, { guard? })` (session) or `verifyAuthentication(ctx, response)` → `{ user, credential }` then issue a JWT yourself. Manage with `credentials(user)`, `rename(user, id, name)`, `delete(user, id)`. Options include `rpID`/`origin` (default from `APP_URL`), `challenge: 'session' | 'cache'` (use `'cache'` for session-less APIs), `userVerification`, `residentKey`. Browser side: `@simplewebauthn/browser`.
+Events (`defineListener(TwoFactorFailed, ({ user, id }) => …)`): `TwoFactorEnabled`, `TwoFactorDisabled`, `TwoFactorFailed`, all `{ user, id }`.
+
+### Session login with a challenge
+
+```ts
+// app/controller/SessionController.ts
+import type { HttpContext } from '@hazejs/core'
+import { TwoFactor, UnauthorizedException, validate } from '@hazejs/core'
+import { LoginSchema } from '~/app/validate/auth'
+
+export class SessionController {
+  async store(ctx: HttpContext) {
+    const result = await TwoFactor.attempt(ctx, await validate(LoginSchema, await ctx.body()), { guard: 'web' })
+    if (result.status === 'failed')
+      throw new UnauthorizedException('Invalid email or password')
+    return { status: result.status } // 'authenticated' (no 2FA → logged in) | 'two-factor' (ask for code)
+  }
+
+  async challenge(ctx: HttpContext) {
+    const { code, recoveryCode } = await ctx.body<{ code?: string, recoveryCode?: string }>()
+    const user = await TwoFactor.challenge(ctx, { code, recoveryCode })
+    if (!user)
+      throw new UnauthorizedException('Invalid code')
+    return user
+  }
+}
+
+// route/web.ts
+r.post('/login', [SessionController, 'store']).middleware('throttle:10,60')
+r.post('/two-factor-challenge', [SessionController, 'challenge']).middleware('throttle:10,60')
+r.get('/two-factor-challenge', async ctx => ({ pending: await TwoFactor.hasPendingChallenge(ctx) }))
+```
+
+`attempt()` validates credentials without logging in, then stores `{ guard, id, expiresAt, attempts }` under the session key `_two_factor_login`. `challenge()` logs in through the guard recorded by `attempt()` (it takes no `guard` option); `recoveryCode` wins over `code` when both are sent.
+
+### JWT / token APIs (no challenge flow)
+
+```ts
+async login(ctx: HttpContext) {
+  const { code, ...credentials } = await ctx.body<{ email: string, password: string, code?: string }>()
+  const user = await ctx.auth.jwt().validate(credentials) // validate, NOT attempt (attempt would issue a token)
+  if (!user)
+    throw new UnauthorizedException('Invalid email or password')
+  if (await TwoFactor.enabled(user) && !(code && await TwoFactor.verify(user, code)))
+    throw new UnauthorizedException('A valid two-factor code is required', { code: 'two_factor_required' })
+  return ctx.auth.jwt().login(user)
+}
+```
+
+### TOTP primitives (Web Crypto, any runtime)
+
+```ts
+import { base32Decode, base32Encode, generateRecoveryCodes, generateTotpSecret, hotp, otpauthUri, totp, totpStep, verifyTotp } from '@hazejs/core'
+
+const secret = generateTotpSecret()            // base32, 20 bytes (arg: byte count)
+otpauthUri({ secret, issuer: 'Acme', account: 'ada@example.com' }) // + digits/period/algorithm
+await totp(secret)                             // current code; opts { digits, period, algorithm, time }
+await verifyTotp(secret, code, { window: 1, afterStep: lastStep }) // matched step | undefined
+await hotp(secret, counter)                    // RFC 4226
+totpStep()                                     // current step number; opts { period, time }
+generateRecoveryCodes(8)                       // ['k3j9d-x2m4p', …]
+```
+
+### Passkeys (WebAuthn)
+
+`pnpm add @simplewebauthn/server` (v13/v14; optional peer, loaded on first use — missing → `Error` telling you to install it). Browser: `@simplewebauthn/browser` (hazejs ships no client).
+
+| `passkeys` option | Default | Description |
+|--------|---------|-------------|
+| `provider` | default guard's provider | User source; credentials of another `userType` are rejected |
+| `store` | in memory | `databasePasskeyStore()` or any `PasskeyStore` |
+| `rpName` | `app.name` | Shown by the browser |
+| `rpID` | hostname of `APP_URL`, else of the request | Domain only (no scheme/port) |
+| `origin` | origin of `APP_URL`, else of the request | `string \| string[]` of accepted origins |
+| `challenge` | `'session'` | `'cache'` for session-less APIs (keyed by challenge value, no cookie) |
+| `cacheStore` | default cache store | Holds `challenge: 'cache'` challenges; in `'session'` mode also marks used challenges, so replaying an assertion/attestation with an old session cookie is rejected |
+| `timeout` | `60000` | ms; challenges expire after the same time |
+| `userVerification` | `'preferred'` | `'required'` forces biometrics/PIN (and is enforced on verify) |
+| `residentKey` | `'preferred'` | Discoverable credentials (username-less login) |
+| `userName` / `displayName` | `'email'` / `'name'` | User fields shown by the authenticator |
+
+```ts
+// app/controller/PasskeyController.ts
+import type { HttpContext, PasskeyResponseJSON } from '@hazejs/core'
+import { Passkeys } from '@hazejs/core'
+
+export class PasskeyController {
+  async registrationOptions(ctx: HttpContext) { // excludes the user's existing passkeys
+    return Passkeys.registrationOptions(ctx, (await ctx.auth.user())!) // 2nd arg opt: { authenticatorAttachment: 'platform' | 'cross-platform' }
+  }
+  async register(ctx: HttpContext) {
+    const { response, name } = await ctx.body<{ response: PasskeyResponseJSON, name?: string }>()
+    const credential = await Passkeys.verifyRegistration(ctx, (await ctx.auth.user())!, response, { name })
+    return ctx.created({ id: credential.id, name: credential.name })
+  }
+  loginOptions(ctx: HttpContext) {
+    return Passkeys.authenticationOptions(ctx) // or (ctx, { user }) to allow only that user's passkeys
+  }
+  async login(ctx: HttpContext) {
+    return Passkeys.login(ctx, await ctx.body<PasskeyResponseJSON>(), { guard: 'web' }) // session login
+  }
+  async token(ctx: HttpContext) { // JWT APIs: verify, then issue yourself
+    const { user } = await Passkeys.verifyAuthentication(ctx, await ctx.body<PasskeyResponseJSON>())
+    return ctx.auth.jwt().login(user)
+  }
+}
+
+// route/web.ts
+r.post('/passkeys/options', [PasskeyController, 'registrationOptions']).middleware('auth')
+r.post('/passkeys', [PasskeyController, 'register']).middleware('auth')
+r.post('/passkeys/login/options', [PasskeyController, 'loginOptions'])
+r.post('/passkeys/login', [PasskeyController, 'login']).middleware('throttle:10,60')
+```
+
+- `verifyRegistration()` → `400` when the challenge expired / was used / belongs to another user, origin or RP ID mismatch, or the credential is already registered.
+- `verifyAuthentication()` / `login()` → `401` on any failure; success updates `counter`, `backedUp`, `lastUsedAt`.
+- Manage (no `ctx` needed): `Passkeys.credentials(user)` → `PasskeyCredential[]`; `rename(user, id, name)` / `delete(user, id)` → `false` if not the user's. `Passkeys.manager(ctx?)` returns a `PasskeyManager` (also exposes `.store`).
+- `PasskeyCredential`: `id` (base64url), `userType`, `userId`, `name`, `publicKey`, `counter`, `transports`, `deviceType` (`'singleDevice' | 'multiDevice'`), `backedUp`, `aaguid`, `createdAt`, `lastUsedAt`.
+- Session challenge mode keeps one pending challenge per kind (`_webauthn_registration` / `_webauthn_authentication`); requesting new options replaces the previous one. Send requests with cookies (`credentials: 'include'`) and the `X-XSRF-TOKEN` header when `csrf` is on.
+
+- Browser: `startRegistration({ optionsJSON })` → POST `{ response, name }`; `startAuthentication({ optionsJSON })` → POST the result as the body.
+
+Custom stores (`userType` = provider name, `userId` = `String(provider.getId(user))`): `TwoFactorStore` = `get(userType, userId)` → `TwoFactorRecord | undefined`, `set(userType, userId, record)` (upsert), `delete(userType, userId)`. `PasskeyStore` = `create(credential)`, `find(id)`, `list(userType, userId)`, `update(id, { name?, counter?, backedUp?, lastUsedAt? })`, `delete(id)` → whether it existed.
 
 ## OAuth social login (`@hazejs/oauth`)
 
-Drivers: `github`, `google`, `apple`, `microsoft`, `gitlab`, `discord`, `wechat` (Open Platform QR), `wechat_mp` (Official Account), `qq`, `dingtalk`, `feishu`, `wecom`, `alipay`, `oidc` (Keycloak, Auth0, Authing, …).
+`pnpm add @hazejs/oauth` (fetch + jose + Web Crypto only; runs on Node, Bun, Deno, Workers).
+
+| Driver | Default scopes | PKCE | Vendor options / notes |
+|--------|----------------|------|------------------------|
+| `github` | `read:user`, `user:email` | yes | `baseUrl` (Enterprise → API `<baseUrl>/api/v3`); falls back to the verified primary email |
+| `google` | `openid profile email` | yes | OIDC: `id_token` + userinfo, nonce |
+| `apple` | `name`, `email` | no | `teamId`, `keyId`, `privateKey` (.p8, `\n` escapes ok), `secretTtl` (s, default 3600); `form_post` callback |
+| `microsoft` | `openid profile email User.Read` | yes | `tenant` (`'common'` default, `organizations`, `consumers`, tenant id); profile from Graph `/me` |
+| `gitlab` | `read_user` | yes | `baseUrl` (default `https://gitlab.com`) |
+| `discord` | `identify`, `email` | no | |
+| `wechat` | `snsapi_login` | no | Website QR. `idField: 'openid' \| 'unionid'`, `lang` (`zh_CN`) |
+| `wechat_mp` | `snsapi_userinfo` | no | Inside WeChat; `setScopes('snsapi_base')` = silent, openid only |
+| `qq` | `get_user_info` | no | `idField: 'openid' \| 'unionid'` |
+| `dingtalk` | `openid` | no | New `login.dingtalk.com` flow; `id` = `unionId` |
+| `feishu` | (none) | yes | `domain: 'feishu' \| 'lark'`, `idField: 'open_id' \| 'union_id' \| 'user_id'`; add `offline_access` for refresh tokens |
+| `wecom` | `snsapi_base` | no | `agentId` (required), `mode: 'qr' \| 'web'`, `profile`, `detail` (web + `snsapi_privateinfo`); no `userFromToken` / `refreshToken` |
+| `alipay` | `auth_user` | no | `privateKey` (RSA2, PKCS#8/PKCS#1/bare base64), `alipayPublicKey` (verify responses), `sandbox`; callback param `auth_code`; no `clientSecret` |
+| `oidc` | `openid profile email` | yes | `issuer` (required; discovery + JWKS), `userinfo` (default true), `algorithms` |
 
 ```ts
 // config/oauth.ts
@@ -415,7 +601,24 @@ export default defineOAuthConfig(() => ({
 }))
 ```
 
-Per-provider: `driver` (defaults to the key), `clientId`, `clientSecret`, `redirect` (path completed with `APP_URL`), `scopes`, `pkce`, `stateless`, `parameters`, `endpoints`, plus vendor fields (`teamId`/`keyId`/`privateKey` for Apple, `tenant`, `baseUrl`, `idField: 'unionid'`, `agentId`/`mode` for WeCom, `alipayPublicKey`, `domain: 'lark'`). Global: `stateStore` (`'cookie'` | `'session'`), `cookie` (`'haze_oauth'`), `stateTtl` (`'10m'`), `fetch`.
+| Per-provider option | Description |
+|---|---|
+| `driver` | Built-in name, a `registerOAuthProvider()` name, or a `defineOAuthProvider()` result. Default: the key |
+| `clientId` | AppID / App Key / corpid … Empty → provider **disabled** (also when the value is `false`/`null`) |
+| `clientSecret` | AppSecret / corpsecret (Apple: optional ready-made JWT, otherwise generated from `teamId`/`keyId`/`privateKey`; not used by Alipay) |
+| `redirect` | Absolute URL, or path completed with `APP_URL` (else request origin) |
+| `scopes` | **Replaces** the driver defaults |
+| `pkce` | Force S256 PKCE on/off (default: driver support, table above) |
+| `stateless` | Skip state (and PKCE/nonce) for this provider |
+| `parameters` | Fixed extra authorize-URL params |
+| `endpoints` | Override endpoint URLs (`authorize`, `token`, `user`, … — proxies, private deployments, tests) |
+
+| Global option | Default | Description |
+|---|---|---|
+| `stateStore` | `'cookie'` | `'cookie'` (AES-GCM sealed with `APP_KEY`, no session needed) or `'session'` (key `_oauth.<provider>`) |
+| `cookie` | `'haze_oauth'` | Prefix; actual cookie `<prefix>_<provider>` (parallel flows don't collide) |
+| `stateTtl` | `'10m'` | Seconds or `'Ns/m/h/d'` |
+| `fetch` | global `fetch` | HTTP client for every provider call (proxies, tests) |
 
 ```ts
 // route/api.ts
@@ -446,13 +649,183 @@ export class OAuthController {
 }
 ```
 
-Builder (fresh per `OAuth.driver()` call): `.scopes([...])` (add), `.setScopes(...)` (replace), `.with({...})`, `.redirectUrl(url)`, `.stateless()`, `.redirect(ctx)`, `await .authorizationUrl(ctx)` (SPA: return the URL as JSON). Mobile SDK tokens: `userFromToken(accessToken[, { openid }])`; `refreshToken(rt)`. Also `OAuth.enabled(name)`, `OAuth.providers()`, `OAuth.build(driver, config)`, `defineOAuthProvider()` + `registerOAuthProvider(name, def)` for custom providers, `verifyIdToken()`. Errors: `InvalidStateException` (400), `OAuthException` (400 / 502).
+`OAuthUser`: `provider` (config key), `id` (string; missing → `OAuthException` `missing_user_id`), `name`/`nickname`/`email`/`avatar` (`null` when absent), `raw` (vendor profile: unionid, phone, tenant, Apple `raw.user` on first sign-in …), `token: OAuthToken` = `{ accessToken, refreshToken?, expiresIn?, idToken?, tokenType?, scope?, raw }`.
 
-## Sessions & CSRF (as they relate to auth)
+| Builder (fresh instance per `OAuth.driver()` call) | |
+|---|---|
+| `.scopes(s \| s[])` / `.setScopes(s \| s[])` / `.getScopes()` | Add to (deduped) / replace / read scopes |
+| `.with({ prompt: 'consent' })` | Extra authorize params (override `parameters`) |
+| `.redirectUrl(url)` | Other callback URL; stored in the state, so the callback reuses it |
+| `.stateless(value = true)` | No state, PKCE or nonce |
+| `await .redirect(ctx)` | 302 to the provider (sets the state cookie) |
+| `await .authorizationUrl(ctx)` | URL only (SPA: return `{ url }` as JSON; the browser must keep the `Set-Cookie`) |
+| `await .user(ctx)` | Callback: provider `error` → `OAuthException` (code = vendor error); check state; exchange code; fetch profile |
+| `await .userFromToken(token \| { accessToken, … }, extra?)` | Mobile SDK tokens; WeChat/QQ need `{ openid }`; Apple takes the `identityToken` |
+| `await .refreshToken(rt)` | New `OAuthToken` (standard OAuth2, WeChat, QQ, DingTalk, Feishu, Alipay) |
 
-- Cookie-based auth (session guard, or a JWT read from `cookie`) must be paired with the `csrf` middleware. Token travels in the readable `XSRF-TOKEN` cookie and comes back as `X-XSRF-TOKEN` / `X-CSRF-TOKEN` header or `_token` form field; mismatch → `419`.
-- CSRF is skipped for safe methods, requests with `Authorization: Bearer …`, `except` paths (`defineCsrfConfig({ except: [...] })`), and tests unless `testing: true`.
-- The session guard starts the session itself; the `session` middleware is not required for it. Session config: `defineSessionConfig({ driver: 'cookie', lifetime: '2h' })`.
+Facade: `OAuth.enabled(name)`, `OAuth.providers()` (enabled names, e.g. login buttons), `OAuth.build(driver, config, globalOptions?)` (runtime config, e.g. per tenant; skips `config/oauth.ts`). Package exports: `oauthDrivers()`, `verifyIdToken(token, { jwksUri, issuer, audience, nonce?, algorithms?, clockTolerance? (60), fetch? })`, `codeChallenge()`, `signClientSecret()`, `clearJwksCache()`, `clearDiscoveryCache()`.
+
+**State, PKCE, nonce.** `redirect()` stores `{ state, verifier?, nonce?, redirectUri, exp }`; the callback reads it **once** (cookie deleted / session key pulled), compares `state` in constant time, sends the verifier and checks the OIDC nonce inside the verified `id_token` (`iss`, `aud`, `exp`, JWKS signature). State cookie: `HttpOnly; SameSite=Lax`; Apple's is `SameSite=None; Secure` (cross-site `form_post`). Missing/expired/tampered/reused → `InvalidStateException`.
+
+Account linking (recommended over email matching):
+
+```ts
+// app/controller/OAuthController.ts (callback)
+const profile = await OAuth.driver(ctx.param('provider')!).user(ctx)
+const link = await SocialAccount.where('provider', profile.provider).where('providerId', profile.id).find()
+let user = link ? await User.find(link.userId) : undefined
+if (!user) {
+  const current = await ctx.auth.user() // "connect account": works with session / cookie-JWT guards (a redirect carries no Bearer header)
+  user = current ?? await User.create({ name: profile.name ?? profile.nickname ?? 'User', email: profile.email })
+  await SocialAccount.create({ userId: user.id, provider: profile.provider, providerId: profile.id })
+}
+return ctx.auth.jwt().login(user)
+```
+
+(`SocialAccount` / `social_accounts` is your own model and table, not shipped by hazejs. Only trust `profile.email` from providers that verify it.)
+
+Custom provider (standard auth-code flow):
+
+```ts
+// app/provider/OAuthProvider.ts
+import { defineProvider } from '@hazejs/core'
+import { defineOAuthProvider, registerOAuthProvider } from '@hazejs/oauth'
+
+const Gitea = defineOAuthProvider<{ clientId: string, clientSecret: string, redirect: string, baseUrl: string }>({
+  endpoints: config => ({ // authorize + token required; user = Bearer GET unless fetchUser is given
+    authorize: `${config.baseUrl}/login/oauth/authorize`,
+    token: `${config.baseUrl}/login/oauth/access_token`,
+    user: `${config.baseUrl}/api/v1/user`,
+  }),
+  scopes: ['read:user'], // also: scopeSeparator (' '), pkce (default true), fetchUser(token, { config, http })
+  mapUser: raw => ({ id: raw.id, name: raw.full_name, nickname: raw.login, email: raw.email, avatar: raw.avatar_url }),
+})
+
+export default defineProvider({
+  register() {
+    registerOAuthProvider('gitea', Gitea) // then driver: 'gitea'; or pass driver: Gitea directly
+  },
+})
+```
+
+Non-standard flows: `class X extends OAuthProvider` (or `OidcProvider`) overriding `defaultEndpoints()`, `authorizeParams()`, `exchangeCode()`, `fetchUser()`, `mapUser()` (protected fields `defaultScopes`, `scopeSeparator`, `supportsPkce`, `usesNonce`, `codeParam`); `registerOAuthProvider(name, Class)` also accepts the class and can override a built-in name.
+
+| Error | Status | When |
+|---|---|---|
+| `InvalidStateException` | 400, `code: 'invalid_state'` | State missing / expired / tampered / reused (often: cookie not sent back) |
+| `OAuthException` | 400 | User denied (`access_denied`), bad/used code (`invalid_grant`, WeChat `40029`), `missing_code`, vendor error; `.provider` = name |
+| `OAuthException` | 502 | Provider unreachable (`provider_unreachable`), 5xx, bad Alipay signature |
+| `NotFoundException` | 404 | `OAuth.driver(name)` unknown or disabled |
+
+Testing: `createApplication({ mode: 'test', config: { oauth: { fetch: fakeFetch, providers: { github: { clientId: 'id', clientSecret: 'secret', redirect: '/auth/github/callback' } } } } })` where `fakeFetch` answers by `new URL(String(input)).pathname` (e.g. `/login/oauth/access_token` → `Response.json({ access_token: 'test-token', token_type: 'bearer' })`, `/user` → profile JSON). Then `GET /auth/github`, read `state` from `Location`, keep `Set-Cookie`, and call `/auth/github/callback?code=x&state=…` with that cookie. Or skip the redirect flow: `OAuth.driver('github').stateless()`, or test `userFromToken()`.
+
+## Security hardening
+
+Built-in middleware are enabled by name in `config/middleware.ts` (`defineMiddlewareConfig({ global: ['cors', 'secureHeaders', 'compress', 'csrf'], alias: {} })`; `csrf` only for cookie-authenticated apps) and read options from `config/<name>.ts` (`cors`, `csrf`, `session`, `throttle`, `secureHeaders`).
+
+### `APP_KEY`, cookies, encryption
+
+- `APP_KEY` (≥ 32 chars; checked lazily — the first signing/encryption throws, not boot) signs cookies (HMAC-SHA256), encrypts `cookie` sessions (AES-GCM, HKDF-derived key), signs session ids for other drivers, signed route URLs and storage temp URLs, is the default `HS*` JWT secret, encrypts 2FA secrets and seals OAuth state. `haze key:generate [--force|--show]`; or `key` in `config/app.ts`; Workers: `wrangler secret put APP_KEY`.
+- Rotation: keep old keys in `APP_PREVIOUS_KEYS` (comma-separated) or `previousKeys` in `config/app.ts`; they are only used to decrypt (`Crypt`) and verify signed URLs. Sessions, JWTs and signed cookies issued with the old key still die.
+- Cookie defaults: `httpOnly`, `SameSite=Lax`, path `/`, `Secure` when `app.debug` is off; override with `cookie: { sameSite: 'strict', domain: '.example.com' }` in `config/app.ts`. `ctx.setSignedCookie(name, value)` / `await ctx.signedCookie(name)` (tamper-proof, readable by the client).
+- `Crypt.encrypt(value)` / `decrypt<T>(payload)` (JSON) and `encryptString` / `decryptString`: AES-256-GCM, random IV, URL-safe `v1.<base64url>` payload; tampered/foreign → `DecryptException`. Custom key: `new Encrypter(key, previousKeys)`. Helpers: `generateKey()`, `appKey(config?)`, `previousAppKeys(config?)`.
+
+### Password hashing (`Hash`)
+
+```ts
+const hash = await Hash.make(password)             // $scrypt$n=16384,r=8,p=1$<salt>$<key>
+await Hash.verify(hash, password)                  // constant-time; unknown format → false
+if (Hash.needsRehash(user.password))               // params differ from current defaults
+  await user.fill({ password: await Hash.make(password) }).save() // do this right after a successful login
+```
+
+`HashOptions` (per call; there is no global hash config): `algorithm: 'scrypt' | 'pbkdf2'` (default `'scrypt'`; falls back to PBKDF2-SHA256 when `node:crypto` is unavailable), `cost` (scrypt N, `16384`), `iterations` (PBKDF2, `600000`). Pass the same options to `make` and `needsRehash`. `modelUserProvider` verifies but never rehashes automatically.
+
+### Sessions
+
+`defineSessionConfig({ driver: 'cookie', lifetime: '2h' })`. The session guard, `csrf`, `TwoFactor.attempt` and passkey `session` challenges start the session themselves; elsewhere add the `session` middleware or `await ctx.startSession()` (else `ctx.session` throws).
+
+| Option | Default | |
+|---|---|---|
+| `driver` | `'cookie'` | `'cookie'` (encrypted in the cookie, ~4 KB, oversize throws), `'memory'` (single process), `'cache'` (shared, e.g. Redis), or a `SessionStore` `{ get(id), set(id, data, ttlSeconds), destroy(id) }` |
+| `store` | default cache store | With `driver: 'cache'` |
+| `cookie` | `'haze_session'` | Cookie name |
+| `lifetime` | `'2h'` | Duration or seconds |
+| `cookieOptions` | | Overrides cookie defaults |
+
+`ctx.session`: `get(key, fallback?)`, `has`, `all`, `set`, `forget`, `pull`, `flash`, `flush` (keep id), `regenerate()` (new id, keep data — after login/privilege change), `invalidate()` (clear + new id — logout). Written back only when changed; a new empty session sets no cookie. Each session guard stores its user under `auth.<guardName>`.
+
+### CSRF (`csrf`)
+
+Required whenever auth rides on cookies (session guard, JWT `cookie`, passkey/2FA session flows).
+
+- Token lives in the session (`_csrf`), mirrored to a readable (non-`HttpOnly`) `XSRF-TOKEN` cookie; unsafe methods must echo it in `X-XSRF-TOKEN` / `X-CSRF-TOKEN` or a `_token` field (urlencoded/multipart). Mismatch → `419 CsrfTokenMismatchException`.
+- Skipped for `GET/HEAD/OPTIONS/TRACE`, any `Authorization: Bearer …` request, `except` paths (`*` wildcard), and `mode: 'test'` unless `testing: true`.
+- Session-guard `login()`/`logout()` rotate the token. Server-rendered forms: `await ctx.csrfToken()` in a hidden `_token`. Low level: `csrfToken(ctx)`, `regenerateCsrfToken(session)`.
+
+```ts
+// config/csrf.ts
+import { defineCsrfConfig } from '@hazejs/core'
+
+export default defineCsrfConfig({
+  except: ['/api/webhooks/*', '/api/auth/apple/callback'], // provider/webhook POSTs can't send the token
+  // cookie: 'XSRF-TOKEN',  // false = don't send the cookie
+  // testing: true,         // also verify in tests
+})
+```
+
+### CORS (`cors`, must be global — preflights match no route)
+
+| Option (h3 `CorsOptions`) | Default | |
+|---|---|---|
+| `origin` | `'*'` | `'*'`, `(string \| RegExp)[]` (strings exact; **anchor** regexes `/^https:\/\/app\.example\.com$/`), or `(origin) => boolean` |
+| `methods` / `allowHeaders` / `exposeHeaders` | `'*'` | `'*'` or `string[]` |
+| `credentials` | `false` | Cookies cross-origin; needs explicit origins, not `'*'` |
+| `maxAge` | `false` | Preflight cache seconds as a **string** (`'600'`) |
+| `preflight` | | `{ statusCode }` |
+
+Cross-origin SPA with cookie auth: `defineCorsConfig(() => ({ origin: env('CORS_ORIGIN', 'http://localhost:5173').split(',').map(o => o.trim()), credentials: true }))` in `config/cors.ts`.
+
+### Security headers (`secureHeaders`)
+
+| Option | Default | Sent when |
+|---|---|---|
+| `contentSecurityPolicy` | off | set |
+| `strictTransportSecurity` | `'max-age=15552000; includeSubDomains'` | HTTPS and `app.debug` off |
+| `frameOptions` | `'SAMEORIGIN'` | always (`'DENY' \| 'SAMEORIGIN' \| false`) |
+| `referrerPolicy` | `'no-referrer'` | always |
+| `crossOriginOpenerPolicy` | `'same-origin'` | HTTPS only (with `Origin-Agent-Cluster: ?1`) |
+| `crossOriginResourcePolicy` | `'same-origin'` | always |
+| `permissionsPolicy` | off | set |
+| `headers` | | Extra headers, merged last (can override the fixed ones below; `''` drops one) |
+
+Always set: `X-Content-Type-Options: nosniff`, `X-DNS-Prefetch-Control: off`, `X-Download-Options: noopen`, `X-Permitted-Cross-Domain-Policies: none`, `X-XSS-Protection: 0`. String overrides a value, `false` drops the header. Example: `defineSecureHeadersConfig({ contentSecurityPolicy: "default-src 'self'", frameOptions: 'DENY' })` in `config/secureHeaders.ts`. Global `secureHeaders`/`cors` also apply to the served frontend build (`static`): a strict CSP can break the SPA.
+
+### Rate limiting (`throttle`)
+
+`throttle` = 60 / 60 s; `throttle:<max>,<seconds>` inline; `throttle:<name>` → `limiters` in `config/throttle.ts` (unknown name throws). Key: `user:<id>` on the default guard when `config/auth.ts` exists, else `ip:<ctx.ip>`; the counter is also scoped by the spec string. Headers `RateLimit-Limit/Remaining/Reset`; over → `429` + `Retry-After`.
+
+```ts
+// config/throttle.ts
+import { defineThrottleConfig, env } from '@hazejs/core'
+
+export default defineThrottleConfig(() => ({
+  store: env('CACHE_STORE', 'memory'), // cache store name (shared: redis), or a RateLimitStore; omitted = process memory
+  limiters: {
+    api: { max: 60, window: '1m' },
+    login: { max: 5, window: '1m', key: ctx => `ip:${ctx.ip}` }, // per IP even for logged-in users
+    edge: { max: 60, window: '1m', binding: 'API_RATE_LIMITER' }, // Cloudflare Rate Limiting binding; falls back to store locally
+  },
+}))
+```
+
+Non-atomic cache stores log a warning (approximate counts). `RateLimitStore`: `{ hit(key, windowSeconds) → { count, resetAt }, reset(key) }`; helpers `memoryRateLimitStore()`, `cacheRateLimitStore(cache)`.
+
+### Proxies, body limit, signed URLs
+
+- `trustProxy` (`boolean | number`, `config/app.ts`, default `false`): `true` = one trusted hop → `ctx.ip` is the **rightmost** `X-Forwarded-For` entry (rate-limit keys), `n` = the nth from the right; `X-Forwarded-Proto`/`-Host` (HSTS/COOP) honoured whenever truthy. Only behind a proxy clients cannot bypass, or they spoof both. Cloudflare Workers (`cf-connecting-ip`) and AWS Lambda (`sourceIp`) set the client address in the entry, so `ctx.ip` works there without it; Vercel/Netlify need `true`.
+- Body limit `1mb` (`bodyLimit` in `config/app.ts`); per route `bodyLimit:10mb`; oversize → `413`.
+- Signed links (`const router = inject(Router)`): `await router.signedUrl(name, params, { expiresIn?, expiresAt?, query?, absolute? })`, `router.temporarySignedUrl(name, '30m', params)`; verify with the `signed` middleware (`signed:utm_source` ignores params; invalid/expired → `403 InvalidSignatureException`) or `await ctx.hasValidSignature({ ignore })`.
 
 ## Testing
 
@@ -482,6 +855,17 @@ const headers = await issueTestCredentials(t.app, user, 'token', { abilities: ['
 - **Don't reveal `'invalid-user'`** from `PasswordReset.sendLink()`; it enables email enumeration. Throttle reset/verification endpoints.
 - **2FA challenge flow requires a session guard.** For JWT/token APIs call `guard.validate()` + `TwoFactor.verify()` before issuing a token, and don't use `attempt()` (it would issue a token before the code check).
 - **OAuth providers with an empty `clientId` are disabled** (routes 404). Several providers (WeChat, QQ, WeCom, Apple relay) return no or untrusted email: link by `(provider, profile.id)`. Apple's POST callback must be added to the `csrf` `except` list when `csrf` is global.
+- **`TwoFactor.attempt/challenge` and `Passkeys.login` use `ctx.auth.session(guard)`**: when the default guard is `jwt`, pass `{ guard: 'web' }` to `attempt()` / `login()` or they throw `TypeError`. `challenge()` reuses the guard recorded by `attempt()`.
+- **`TwoFactor.disable()` and `enable(user, { force: true })` check nothing.** Require the password or a current code (`TwoFactor.verify`) in your controller first, or a hijacked session can turn 2FA off.
+- **`TwoFactor.verify()` consumes the time step.** Calling it twice with the same code (e.g. once in a check endpoint, once at login) fails the second time; it also returns `false` for unconfirmed users (use `confirm()` during setup).
+- **Rotating `APP_KEY` without `APP_PREVIOUS_KEYS` bricks 2FA**: secrets are `Crypt`-encrypted and can no longer be decrypted (`DecryptException`). Previous keys only help `Crypt` and signed URLs; sessions, JWTs and signed cookies still end.
+- **Passkey `rpID`/`origin` must match what the browser shows.** Defaults come from `APP_URL`, else the request URL — behind a proxy or a Vite dev server on another port, set `APP_URL` (or `rpID` + `origin`). Non-`localhost` hosts need HTTPS.
+- **OAuth `scopes` in config replace the driver defaults**; `.scopes()` on the builder adds. Dropping e.g. `user:email` (GitHub) or `email` (OIDC) silently gives `email: null`.
+- **OAuth SPA flow**: fetch `authorizationUrl()` with `credentials: 'include'` so the state cookie is stored, and keep the callback on the API's origin (the cookie is host-bound). Otherwise every callback fails with `invalid_state`.
+- **CSRF is not checked in tests** (`mode: 'test'`) unless `defineCsrfConfig({ testing: true })`; a missing `X-XSRF-TOKEN` in the frontend only shows up in dev/prod as `419`.
+- **`cors` with `credentials: true` needs explicit origins**, and must be global. Unanchored regex origins match look-alike domains.
+- **HSTS / COOP are absent over plain HTTP and HSTS also in debug** — expected in dev. Behind TLS-terminating proxies set `trustProxy: true` or they are never sent.
+- **Default throttle and `memory` session stores are per process.** With several instances use a shared cache store (`throttle.store: 'redis'`, `session: { driver: 'cache', store: 'redis' }`).
 
 ## Stateful JWT sessions and data-driven permissions
 

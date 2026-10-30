@@ -86,6 +86,7 @@ export function cacheRateLimitStore(cache: CacheRepository): RateLimitStore {
 }
 
 let warnedNonAtomic = false
+let warnedUnknownIp = false
 
 function resolveStore(ctx: HttpContext, store: ThrottleConfig['store']): RateLimitStore {
   if (store === undefined)
@@ -116,7 +117,12 @@ async function defaultKey(ctx: HttpContext): Promise<string> {
     if (id !== undefined)
       return `user:${id}`
   }
-  return `ip:${ctx.ip ?? 'unknown'}`
+  const ip = ctx.ip
+  if (ip === undefined && !warnedUnknownIp && !ctx.config.get('app.debug', false)) {
+    warnedUnknownIp = true
+    ctx.logger.warn('throttle: the client IP is unknown, so all anonymous requests share one rate limit. Behind a proxy set app.trustProxy; in a custom entry pass the platform address with setClientAddress()')
+  }
+  return `ip:${ip ?? 'unknown'}`
 }
 
 /** `throttle:60,60`（60 秒内最多 60 次）或 `throttle:api`（config/throttle.ts 中的命名规则） */

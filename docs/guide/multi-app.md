@@ -135,7 +135,7 @@ See [Responses](./responses) and [Errors & Logging](./errors) for the base class
 
 ## Providers
 
-Providers in `app/<name>/provider/*.ts` are loaded when the app is declared, alongside the global `app/provider/*.ts`:
+Providers in `app/<name>/provider/*.ts` are loaded when the app is declared, alongside the global `app/provider/*.ts`. They register and boot after the module providers and the global ones. Their bindings are global like any other provider's; they are not limited to the app's requests:
 
 ```ts
 // app/admin/provider/AdminProvider.ts

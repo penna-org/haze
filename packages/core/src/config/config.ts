@@ -55,8 +55,12 @@ export interface AppConfig {
   previousKeys?: string[]
   /** 请求体上限，默认 `1mb`；单个路由用 `bodyLimit:10mb` 中间件调整 */
   bodyLimit: string | number
-  /** 位于可信反向代理之后：客户端 IP / 协议取 X-Forwarded-For / X-Forwarded-Proto，默认 false */
-  trustProxy: boolean
+  /**
+   * 位于可信反向代理之后：协议 / 主机取 X-Forwarded-Proto / X-Forwarded-Host，客户端 IP 取 X-Forwarded-For
+   * 从右数第 n 项（true 为 1 层代理，数字为可信代理的层数；更左的项是客户端可以伪造的）。默认 false。
+   * Cloudflare Workers 与 AWS Lambda 的入口会直接提供客户端地址，无需开启；Vercel / Netlify 之后设为 true
+   */
+  trustProxy: boolean | number
   /**
    * 收到 SIGTERM / SIGINT 后等待在途请求的最长时间（秒或 `'10s'`），默认 10 秒；
    * 超时后强制断开仍然打开的连接（WebSocket、SSE、keep-alive），再释放应用

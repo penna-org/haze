@@ -134,7 +134,7 @@ export default defineModulesConfig({
 | 中间件别名与分组 | 合并进中间件注册表。两个模块定义了同名项，或模块与内置中间件同名时报错，并指出双方来源；项目的 `config/middleware.ts` 也定义了同名项时视为显式覆盖，不报错 |
 | 全局中间件 | 在项目的全局中间件之后执行，按启用顺序 |
 | 路由 | 在项目路由之后加载，走同一套编译流程。路由名重复时报错并指出来源：`Duplicate route name "blog.index" (the app and module "blog")` |
-| 任务、事件、监听器、定时任务、授权策略、命令 | 先于项目的定义注册；与项目同名的任务以项目为准；命令重名时报错 |
+| 任务、事件、监听器、定时任务、授权策略、命令 | 先于项目的定义注册；不同的任务、监听器或命令重名时报错（`Duplicate job name "SendDigest": defined in … and …`），同一个任务或监听器定义重复注册则忽略 |
 
 ## 编写模块包
 
@@ -218,7 +218,7 @@ declare module '@hazejs/core' {
 
 ### 带类型的选项
 
-`options` 收到启用时传入的参数（挂载选项之外的部分），返回要合并进定义的字段：
+`options` 收到启用时传入的整个对象（包括 `prefix`、`as` 等挂载选项），返回要合并进定义的字段：
 
 ```ts
 export default defineModule({

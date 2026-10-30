@@ -294,7 +294,8 @@ describe('totp', () => {
       })
     }
     expect((await (await eve('/me')).json() as any).data).toEqual({ id: null, pending: false })
-    // 恢复码同样可以通过挑战
+    // 锁定持续 challengeTtl（默认 5 分钟），之后恢复码同样可以通过挑战
+    vi.spyOn(Date, 'now').mockReturnValue(now + 30_000 + 6 * 60_000)
     await eve('/login', {
       method: 'POST',
       headers: json,
@@ -440,6 +441,72 @@ class SoftwareAuthenticator {
   }
 }
 
+describe('two-factor lockout', () => {
+  it('counts wrong codes server-side, so replaying the login cookie cannot reset them', async () => {
+    const { app, rows } = await boot((r) => {
+      r.post('/login', async ctx => ({ status: (await TwoFactor.attempt(ctx, await ctx.body())).status }))
+      r.post('/two-factor-challenge', async ctx => ({ user: (await TwoFactor.challenge<User>(ctx, await ctx.body()))?.id ?? null }))
+      r.get('/me', async ctx => ({ id: await ctx.auth.id() ?? null, pending: await TwoFactor.hasPendingChallenge(ctx) }))
+    }, {
+      twoFactor: {
+        store: memoryTwoFactorStore(`t4b-${Math.random()}`),
+        maxAttempts: 3,
+      },
+    })
+    const setup = await TwoFactor.enable(rows[0])
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    await TwoFactor.confirm(rows[0], await totp(setup.secret))
+    vi.spyOn(Date, 'now').mockReturnValue(now + 30_000)
+
+    const credentials = { email: 'ada@example.com', password: 'secret' }
+    const login = await app.request('/login', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(credentials),
+    })
+    expect((await login.json() as any).data).toEqual({ status: 'two-factor' })
+    // 攻击者只重放登录响应里的 Cookie（默认 cookie 会话驱动把会话存在客户端），忽略之后的 Set-Cookie
+    const cookie = login.headers.getSetCookie().map(item => item.split(';')[0]).join('; ')
+    const replay = (body: unknown) => app.request('/two-factor-challenge', {
+      method: 'POST',
+      headers: { ...json, cookie },
+      body: JSON.stringify(body),
+    })
+    for (let i = 0; i < 3; i++)
+      expect((await (await replay({ code: 'abcdef' })).json() as any).data).toEqual({ user: null })
+    // 输错 maxAttempts 次后，正确的验证码也被拒绝
+    expect((await (await replay({ code: await totp(setup.secret) })).json() as any).data).toEqual({ user: null })
+    // 重新输入密码也不能重置计数（在 challengeTtl 内）
+    const again = browser(app)
+    expect((await (await again('/login', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(credentials),
+    })).json() as any).data).toEqual({ status: 'two-factor' })
+    expect((await (await again('/me')).json() as any).data).toEqual({ id: null, pending: false })
+    expect((await (await again('/two-factor-challenge', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ code: await totp(setup.secret) }),
+    })).json() as any).data).toEqual({ user: null })
+
+    // challengeTtl 过后恢复
+    vi.spyOn(Date, 'now').mockReturnValue(now + 30_000 + 6 * 60_000)
+    const later = browser(app)
+    await later('/login', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(credentials),
+    })
+    expect((await (await later('/two-factor-challenge', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ code: await totp(setup.secret) }),
+    })).json() as any).data).toEqual({ user: 1 })
+  })
+})
+
 describe('passkeys', () => {
   function routes(): RouteRegistrar {
     return (r) => {
@@ -541,6 +608,41 @@ describe('passkeys', () => {
     expect(await Passkeys.rename(rows[1], authenticator.id, 'x')).toBe(false)
     expect(await Passkeys.delete(rows[1], authenticator.id)).toBe(false)
     expect(await Passkeys.delete(rows[0], authenticator.id)).toBe(true)
+  })
+
+  it('rejects a replayed assertion even with the original session cookie (synced passkeys)', async () => {
+    const store = memoryPasskeyStore(`t5b-${Math.random()}`)
+    const { app } = await boot(routes(), {
+      passkeys: { store },
+    })
+    const ada = browser(app)
+    await ada('/login', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ email: 'ada@example.com', password: 'secret' }),
+    })
+    const authenticator = new SoftwareAuthenticator('demo.test', 'https://demo.test')
+    const options = (await (await ada('/passkeys/options', { method: 'POST' })).json() as any).data
+    expect((await ada('/passkeys', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(await authenticator.create(options)),
+    })).status).toBe(201)
+
+    // 攻击者保留取得挑战时的 Cookie（默认 cookie 会话驱动把挑战存在客户端），之后一直重放它
+    const optionsResponse = await app.request('/passkeys/login/options', { method: 'POST' })
+    const cookie = optionsResponse.headers.getSetCookie().map(item => item.split(';')[0]).join('; ')
+    const login = (await optionsResponse.json() as any).data
+    // 同步通行密钥（iCloud 钥匙串、Google 密码管理器）的计数器始终为 0，靠计数器识别不了重放
+    authenticator.counter = -1
+    const assertion = await authenticator.get(login)
+    const replay = () => app.request('/passkeys/login', {
+      method: 'POST',
+      headers: { ...json, cookie },
+      body: JSON.stringify(assertion),
+    })
+    expect((await (await replay()).json() as any).data).toEqual({ id: 1 })
+    expect((await replay()).status).toBe(401)
   })
 
   it('keeps challenges in the cache for stateless APIs and rejects unknown credentials', async () => {

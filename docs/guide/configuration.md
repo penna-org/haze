@@ -170,7 +170,7 @@ Once types are generated, `config()` only accepts known keys; reading an unknown
 | `key` | `APP_KEY` | Application key; see below |
 | `previousKeys` | `APP_PREVIOUS_KEYS` | Keys used before the last rotation; see below |
 | `bodyLimit` | `'1mb'` | Request body limit; override per route with the `bodyLimit:10mb` middleware |
-| `trustProxy` | `false` | Read the client IP and protocol from `X-Forwarded-For` / `X-Forwarded-Proto` |
+| `trustProxy` | `false` | Behind a trusted reverse proxy: `true` for one proxy hop, or the number of trusted hops. The protocol and host come from `X-Forwarded-Proto` / `X-Forwarded-Host`, and `ctx.ip` from the `X-Forwarded-For` entry the nearest trusted proxy appended (the n-th from the right), never from the client-supplied leftmost one. See [Behind a proxy](./security#behind-a-proxy) |
 | `cookie` | — | Default cookie options (httpOnly, `SameSite=Lax` and `Secure` outside debug by default) |
 | `requestIdHeader` | `'x-request-id'` | Header used to read and echo the request ID; `false` disables it |
 | `response` | `{ envelope: true, successCode: 0, successMessage: 'ok' }` | The success envelope |
@@ -229,6 +229,7 @@ export default defineHazeConfig({
 | `cloudflare` | — | `wrangler` (merged into the generated `wrangler.json`: bindings, vars, routes…) and `websocket` (generate the WebSocket Durable Object; on by default when a route uses `r.ws()`) |
 | `vercel` | — | `cron`: the Vercel Cron expression that triggers scheduled tasks (every minute by default) |
 | `externals` | — | Dependency handling: `trace` (copy external dependencies into the output, default `true`), `traceDeps` (extra packages to keep external and trace; `pkg*` copies the whole package), `inline` (force-bundle packages) |
+| `devtools` | On when `@hazejs/devtools` is installed | [DevTools](./devtools) options (`base`, `auth`, `terminals`, `embedded`, `mcp`); `false` turns DevTools off |
 | `vite` | — | Extra Vite config (plugins, aliases…) for backend-only projects. Full-stack projects use `vite.config.ts` instead |
 
 In full-stack projects the dev server runs on Vite's port, so `port` only sets the production default. See [Full-stack with Vite](./fullstack) and [Deployment](./deployment) for the preset-specific options.

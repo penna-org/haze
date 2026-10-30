@@ -102,7 +102,7 @@ export default defineMail((payload: { name: string, url: string }) => ({
 | `headers` | 额外的邮件头 |
 | `tags` | 服务商标签（Resend、Postmark、Mailgun、SES） |
 
-`defineMail()` 的第二个参数为 `{ name?, mailer? }`：`name` 用于日志与 fake 断言的提示信息，`mailer` 让这封邮件固定使用某个驱动。
+`defineMail()` 的第二个参数为 `{ name?, mailer?, locale? }`：`name` 用于日志与 fake 断言的提示信息，`mailer` 让这封邮件固定使用某个驱动，`locale` 指定渲染邮件时使用的语言（见[多语言](./localization#邮件)）。
 
 ## 发送
 
@@ -122,6 +122,8 @@ await Mail.to({ address: user.email, name: user.name })
 ```
 
 `send()` 返回 `{ mailer, messageId? }`。优先级为：链式调用设置的值 > 邮件定义返回的值 > `config/mail.ts` 中的默认值。没有任何收件人时会抛出异常。
+
+`.locale('zh-CN')` 让邮件按指定语言渲染，渲染函数中的 `t()` 会翻译成该语言。它优先于 `defineMail()` 的 `locale` 选项，后者又优先于当前（请求的）语言；排队发送的邮件同样保留该语言。见[多语言](./localization#邮件)。
 
 不想单独定义邮件时，也可以直接发送原始消息：
 

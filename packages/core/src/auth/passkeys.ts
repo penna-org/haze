@@ -219,6 +219,9 @@ export class PasskeyManager<U = unknown> {
     }
     if (!stored || stored.challenge !== challenge || stored.expiresAt <= Date.now())
       return undefined
+    // 会话模式下再在缓存中登记一次：默认的 cookie 会话驱动把会话存在客户端，重放旧 Cookie 也不能复用挑战
+    if (this.#config.challenge !== 'cache' && !(await this.#cache().add(`webauthn:used:${challenge}`, 1, Math.ceil(this.#timeout / 1000))))
+      return undefined
     return stored
   }
 

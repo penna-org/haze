@@ -796,7 +796,9 @@ describe('bedrock invoke models', () => {
     expect(usage).toEqual({ tokens: 6 })
     expect(server.requests).toHaveLength(3)
     expect(server.requests[0].url).toBe('/model/amazon.titan-embed-text-v2%3A0/invoke')
-    expect(server.requests[1].json).toEqual({ inputText: 'bb', dimensions: 256, normalize: true })
+    // 三次调用并发发出，到达顺序不固定
+    expect(server.requests.map(request => request.json.inputText).sort()).toEqual(['a', 'bb', 'ccc'])
+    expect(server.requests[1].json).toMatchObject({ dimensions: 256, normalize: true })
   })
 
   it('embeds Cohere values in one batch', async () => {

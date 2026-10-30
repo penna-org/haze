@@ -135,7 +135,7 @@ export default class Formatter extends ResponseFormatter {
 
 ## 服务提供者
 
-应用声明后，`app/<name>/provider/*.ts` 会与全局的 `app/provider/*.ts` 一起加载：
+应用声明后，`app/<name>/provider/*.ts` 会与全局的 `app/provider/*.ts` 一起加载，在模块的提供者和全局提供者之后 register 与 boot。它们的绑定和其它提供者一样是全局的，并不只作用于该应用的请求：
 
 ```ts
 // app/admin/provider/AdminProvider.ts

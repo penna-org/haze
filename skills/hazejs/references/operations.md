@@ -26,7 +26,8 @@ Commands that need the app (`route:list`, `module:list`, `typegen`, `openapi`, `
 | `haze module:list` | Enabled modules in enable order | `--json` |
 | `haze typegen` | Writes `.haze/types/haze.d.ts`, `.haze/types/i18n.d.ts`, `.haze/routes.ts` | — |
 | `haze openapi` | Prints the OpenAPI 3.1 document (docs need not be enabled) | `--output/-o openapi.json` |
-| `haze repl` | Shell with booted app, `config`, `inject`, facades, `Db`, models; top-level await | `--eval/-e "<code>"` |
+| `haze devtools:report` | Static site of the app structure (overview, graph, routes, internals; no runtime data). Needs `@hazejs/devtools` | `--out/-o` (`.haze/devtools-report`), `--base` (`/`) |
+| `haze repl` | Shell with booted app, `config`, `inject`, `useApp`, facades (`Cache Queue Events Storage Mail`, `Db`), every export of `app/model/**`; top-level await; history in `.haze/repl_history`; `.reload`, `.exit` | `--eval/-e "<code>"` (multi-statement code needs `return`; throw → exit 1) |
 | `haze key:generate` | Writes a 256-bit `APP_KEY` to `.env` (exit 1 if one exists) | `--force`, `--show` |
 | `haze stub:publish` | Copies generator stubs to `stubs/` | `--force` |
 
@@ -50,6 +51,13 @@ Paths are relative to `srcDir` (tests go to root `tests/`). Common options: `--f
 | `make:notifications-table`, `make:auth-tables`, `make:queue-tables` | schema files in `database/schema/` (`--dialect`, `--force`; `make:queue-tables --no-generate`) |
 | `make:module blog` | `modules/blog/` skeleton |
 
+- Subdirectories are **rejected** for `make:interceptor`, `event`, `listener`, `job`, `policy`, `notification`, `channel`, `config`, `route`, `seeder` (first-level discovery). `make:controller admin/User` → `app/controller/admin/UserController.ts` is fine.
+- `make:notification InvoicePaid` → file and **type** `InvoicePaidNotification` (rename the file for a shorter type).
+- `--app/-a`: ignored by `make:test`, unsupported by `make:command`/`make:factory`; per app only `route`, `config`, `provider`, `exception`, `response` are discovered — keep jobs/events/listeners/policies/notifications/channels in shared `app/`. `--module/-m` needs an existing module, can't combine with `--app`.
+- `make:model --dialect` is inferred: `mysql2` → mysql, `postgres`/`pg`/`@electric-sql/pglite` → postgres, only `mongodb` → mongodb (`MongoModel`, no schema file), else sqlite. Default table = plural snake case (`OrderItem` → `order_items`). An existing schema file is left untouched.
+- `make:queue-tables` also runs `db:generate` (skip with `--no-generate`); none of the `*-tables` commands support MongoDB.
+- `haze stub:publish` names: `controller`, `controller.resource`, `service`, `repository`, `middleware`, `interceptor`, `provider`, `event`, `listener`, `job`, `policy`, `validate`, `validate.zod`, `test`, `config`, `route`, `seeder`, `command`, `mail`, `notification`, `channel`, `resource`, `factory`, `view`, `model`, `model.mongodb`, `module`, `module.{config,controller,route,test}`, `schema.{sqlite,postgres,mysql}`, `notifications.{…}`, `auth-tables.{…}`, `queue-tables.{…}`. Placeholders `{{ className }}`, `{{ camelName }}`, `{{ kebabName }}`, `{{ routePath }}`, `{{ commandName }}`. `stubs/<name>.stub` wins over the built-in.
+
 ### Database, queues, scheduler, search, microservices
 
 | Command | Notes |
@@ -64,7 +72,9 @@ Paths are relative to `srcDir` (tests go to root `tests/`). Common options: `--f
 | `haze microservice:listen` | `--transport/-t nats,grpc`; dev only (no production entry) |
 | `haze down` / `haze up` / `haze maintenance:status` | Maintenance mode (see below) |
 
-Custom commands: every file in `app/command/**` that default-exports `defineCommand()` — `app/command/db/Cleanup.ts` runs as `haze db:cleanup`.
+Custom commands: every file in `app/command/**` that default-exports `defineCommand()` — `app/command/db/Cleanup.ts` runs as `haze db:cleanup`. `--root` is consumed by `haze` unless the command defines its own `root` arg. Built-in commands don't boot the app to list yours.
+
+`db:generate` reads `database/schema/*.ts` and writes `database/migrations` (non-default connections: `database/migrations/<connection>`); override per connection with `schema` / `migrations` in `config/database.ts`. `db:migrate` = the production `migrate.mjs` code path; module migrations run first, each tracked in its own table. `db:seed` runs enabled local modules' seeders first; each file default-exports `(app) => …`. `search:*` loads `app/model` and `app/<app>/model` (call `searchable()` in the model's own file); the model argument is the class or index name.
 
 ## Configuration
 
@@ -104,7 +114,7 @@ class X { private config = inject(Config) }   // .get/.has/.set/.all; ctx.config
 
 Generated types (`haze dev` or `haze typegen` → `.haze/types/haze.d.ts`): config keys, named routes, policy abilities; once generated, unknown keys are type errors (reading an unknown key needs a default). Keep `.haze/types/**/*.d.ts` in `tsconfig.json` `include`.
 
-`config/app.ts` options: `name`, `debug` (true in dev), `url` (`APP_URL`), `key` (`APP_KEY`), `previousKeys` (`APP_PREVIOUS_KEYS`), `bodyLimit` (`'1mb'`), `trustProxy` (false), `shutdownTimeout` (`10` s, see graceful shutdown), `cookie`, `requestIdHeader` (`'x-request-id'` or `false`), `response` (envelope), `apps` (multi-app).
+`config/app.ts` options: `name`, `debug` (true in dev), `url` (`APP_URL`), `key` (`APP_KEY`), `previousKeys` (`APP_PREVIOUS_KEYS`), `bodyLimit` (`'1mb'`), `trustProxy` (`false`; `true` = 1 trusted proxy hop, number = n hops), `shutdownTimeout` (`10` s, see graceful shutdown), `cookie`, `requestIdHeader` (`'x-request-id'` or `false`), `response` (envelope), `apps` (multi-app).
 
 ```ts
 // haze.config.ts — all optional
@@ -115,9 +125,36 @@ export default defineHazeConfig({
   port: 3000,         // PORT wins
   preset: 'node',     // haze build --preset overrides
   // outDir: 'dist', host, typegen: true, cloudflare: { wrangler, websocket }, vercel: { cron },
-  // externals: { trace, traceDeps, inline }, vite: { ... } (backend-only projects)
+  // externals: { trace, traceDeps, inline }, devtools: { ... } | false, vite: { ... } (backend-only projects)
 })
 ```
+
+| `haze.config.ts` option | Default | Notes |
+| --- | --- | --- |
+| `srcDir` | `'.'` | `'server'` in full-stack templates |
+| `port` | `3000` | Backend-only dev port + production default; `PORT` wins. Full-stack dev uses Vite's port |
+| `host` | `localhost` dev, `0.0.0.0` prod | `HOST` wins in production |
+| `outDir` | `'dist'` | |
+| `typegen` | `true` | `.haze/types` while `haze dev` runs |
+| `preset` | `'node'` | `--preset` > `HAZE_PRESET` (raw `vite build`) > this |
+| `cloudflare` | — | `wrangler` (merged into `dist/wrangler.json`), `websocket` (Durable Object; auto when routes use `r.ws()`) |
+| `vercel` | — | `cron` (default every minute) |
+| `externals` | — | `trace` (`true`; `false` = node/bun load deps from project `node_modules`), `traceDeps` (keep external + trace; `pkg*` copies whole package), `inline` (force-bundle) |
+| `devtools` | on when `@hazejs/devtools` installed | `false` or options, see DevTools below |
+| `vite` | — | Extra Vite config, backend-only projects only |
+| `autoImport` | `false` | `true` or options, see Auto imports below (needs `@hazejs/auto-import`) |
+
+### Auto imports (`@hazejs/auto-import`)
+
+`pnpm add -D @hazejs/auto-import` + `autoImport: true` in `haze.config.ts` (off by default; `create-hazejs --auto-import` sets it up). The `haze()` plugin adds imports after TS is stripped, everywhere it runs (`haze dev`/`build`, Vitest via `defineHazeTestConfig()`, CLI commands); hand-written imports keep working and win.
+
+- Imported: every export of `app/{controller,service,repository,model,middleware,interceptor,validate,event,job,mail,notification,resource}/**` and the same dirs in `modules/*/app/`; named exports keep their name, default exports use their declared name or the file name (`send-receipt.ts` → `sendReceipt`). Plus presets from installed packages: `@hazejs/core/auto-imports` (`defineRoutes`, `define*Config`, `inject`, `env`, `validate`, facades, exceptions, `HttpContext`, …) and `@hazejs/orm/auto-imports` (`Model`, `Db`, `defineFactory`, `transaction`, …). Not scanned: `app/listener`, `app/policy`, `app/provider`, `config`, `route`. Left out of presets: names clashing with globals (`Storage`, `Lock`) and generic helpers (`t`, `raw`, `when`, `cache`, `can`).
+- Options (object instead of `true`): `dirs` (globs relative to `srcDir`, replaces the default list; `a/b` = first level, `a/b/**` = recursive), `imports` (`{ from, imports: ['z', ['*', 'v'], ['default', 'dayjs'], { name, as?, type? }] }`), `presets` (package names; `[]` = none), `ignore` (names never imported), `exclude` (default `['database/schema/**', 'modules/*/database/schema/**']`). Precedence on clashes: `dirs` > `imports` > presets (dev server warns).
+- Types: `.haze/types/auto-imports.d.ts`, refreshed by the dev server and `haze typegen` (run it before `tsc` in CI; keep `.haze/types/**/*.d.ts` in `tsconfig`). Full-stack: backend only, the frontend sees neither imports nor declarations.
+- `haze()` now returns an **array** of plugins (`[main, autoImport]`); `plugins: [vue(), haze()]` still works (Vite flattens).
+- Not transformed (write imports by hand): `haze.config.ts`, `vite.config.ts`, `vitest.config.ts`, `database/schema/*.ts` (drizzle-kit). `haze make:*` omits auto-imported names when it is on.
+
+`Config` (`inject(Config)`, `ctx.config`, `app.config`): `get(key, default?)`, `has`, `set`, `all`. Multi-app: inside a request `config()`/`ctx.config` return `app/<name>/config/*.ts` deep-merged over the global files. `app.mode` is read-only. Dev: editing `.env*` or `config/` hot-reloads the app.
 
 ## Project layout
 
@@ -180,6 +217,20 @@ export default defineConfig({
 - **Build**: `haze build` (= `vite build`) produces `dist/client` + `dist/server/{index,migrate,worker}.mjs` + traced `node_modules`. Build metadata in `.haze/build.json`.
 - **Production (`node`)**: one process serves the prefixes from the app, other GET/HEAD from `dist/client` (`/assets/*` immutable, HTML `no-cache`, SPA fallback for HTML requests, never for API paths). Global middleware (`secureHeaders`, `cors`) also runs for static files. On `vercel`/`netlify`/`cloudflare` the CDN serves the client and only the prefixes reach the function.
 - **Tests**: `vitest.config.ts` uses `defineHazeTestConfig` from `@hazejs/testing/config` (backend only).
+- **Detection**: `haze dev/build/preview` treat a project as full-stack only when a `vite.config.{ts,mts,js,mjs}` contains the string `'@hazejs/vite'`; a tooling-only `vite.config.ts` (vite-plus tasks, lint/test settings) keeps it backend-only. Deps: `@hazejs/core`, dev `@hazejs/vite` + `@hazejs/cli`.
+- **Errors in dev**: opening a failing `/api/...` URL in the browser shows the dev error page; `fetch` still gets JSON.
+- **Preview**: `haze preview` (= `vite preview`) runs the real build for its preset on 4173; WebSockets are forwarded for process presets.
+- **TypeScript**: `tsconfig.server.json` includes `server/**`, `tests/**`, `*.config.ts`, `.haze/types/**/*.d.ts`, types `node`, `vite/client`, `@hazejs/vite/client` (declares `virtual:haze/app`, `virtual:haze/migrations`).
+
+Serving a frontend you build yourself (`createApplication({ static })` or `config/static.ts`):
+
+| `StaticOptions` | Default | |
+| --- | --- | --- |
+| `dir` | — (required) | Build directory |
+| `spaFallback` | `false` | HTML requests for missing files → `index.html` (no-cache) |
+| `exclude` | `[]` | Path prefixes never served, e.g. `['/api']` |
+| `immutablePrefix` | `'/assets/'` | `Cache-Control: public, max-age=31536000, immutable` |
+| `precompressed` | `false` | `true` = serve `.br`/`.gz` siblings by `Accept-Encoding` (brotli preferred), or `{ encoding: ext }`; falls back to the original file |
 
 ## Deployment
 
@@ -202,7 +253,17 @@ haze build --preset cloudflare --minify
 | `netlify` | `dist/server/`, `.netlify/v1/functions/haze-server.mjs`, `netlify.toml` | `netlify deploy --build` |
 | `cloudflare` | single-file `dist/index.mjs` + `dist/wrangler.json` (`nodejs_compat`) | `npx wrangler deploy -c dist/wrangler.json` |
 
-Long-running presets listen on `PORT` (default `haze.config.ts` `port`, else 3000) and `HOST` (default `0.0.0.0`). Dependencies are bundled; DB drivers/native modules are traced into `node_modules` next to the entry, so `dist/` is self-contained (docker installs externals inside the image; cloudflare stubs unsupported ones). Build `aws-lambda`/`vercel` on Linux (CI/Docker) for correct native binaries.
+Long-running presets listen on `PORT` (default `haze.config.ts` `port`, else 3000) and `HOST` (default `0.0.0.0`). Dependencies are bundled; DB drivers/native modules are traced into `node_modules` next to the entry, so `dist/` is self-contained (docker installs externals inside the image; cloudflare stubs unsupported ones). Build `aws-lambda`/`vercel` on Linux (CI/Docker) for correct native binaries. Client IP: the cloudflare entry passes `cf-connecting-ip` and aws-lambda the event's `sourceIp` (no `trustProxy` needed); vercel/netlify sit behind a proxy → `trustProxy: true`; custom entries call `setClientAddress(request, ip)` (`@hazejs/core`).
+
+| Preset | Dependencies |
+| --- | --- |
+| node / bun / deno | Bundled except drivers; drivers traced (nf3) into `node_modules` next to the entry |
+| aws-lambda / vercel | Same, always traced (build on Linux) |
+| docker | Externals listed in the runtime `package.json`, installed in the image (`npm install --omit=dev`) so native binaries match Linux |
+| netlify | Externals bundled by Netlify at deploy time |
+| cloudflare | Everything bundled; unsupported drivers replaced by throwing stubs |
+
+Backend-only builds empty `outDir` first (only when it is inside the project). After a build the CLI prints the entry, the externals and the exact run/migrate/worker commands. Full-stack: `node`/`bun`/`deno`/`docker`/`aws-lambda` serve `dist/client` from the same process; `vercel`/`netlify`/`cloudflare` serve it from the CDN.
 
 **Secrets / env**: node/bun/deno load `.env` + `.env.production` from cwd; docker `-e APP_KEY=…` (`.env` is not copied); Lambda env vars; `vercel env add APP_KEY`; `netlify env:set APP_KEY …`; `npx wrangler secret put APP_KEY -c dist/wrangler.json`.
 
@@ -231,7 +292,41 @@ node dist/worker.mjs up
 node dist/worker.mjs maintenance:status
 ```
 
-Full-stack projects and `deno`/`docker` put these in `dist/server/`. For one process that also runs the scheduler and a queue worker (dev, single instance), set `runInServer: true` in `config/schedule.ts` and `config/queue.ts` instead (see async-and-realtime.md); never in tests or console commands. Serverless/edge presets have no `worker.mjs`; schedules run via Cloudflare Cron Triggers, EventBridge (Lambda) or Vercel Cron (`/__haze/schedule`, needs `CRON_SECRET`; `vercel: { cron: '0 3 * * *' }` for Hobby). Microservice listeners: `autoListen: true` or a long-running custom command calling `listenMicroservices(app)`.
+`worker.mjs` subcommands: `queue` (default when none given; `--queue/-q` default `default`, `--concurrency/-c` default 1, `--connection`), `schedule`, `schedule:run` (exit 1 if a task failed), `command [name] [args]`, `down`/`up`/`maintenance:status`; anything else exits 1. `--connection` names a `config/queue.ts` connection; the worker reads the same `REDIS_URL`/`config/redis.ts` as the web process.
+
+Full-stack projects and `deno`/`docker` put these in `dist/server/`. For one process that also runs the scheduler and a queue worker (dev, single instance), set `runInServer: true` in `config/schedule.ts` and `config/queue.ts` instead (see async-and-realtime.md); never in tests or console commands. Serverless/edge presets have no `worker.mjs`; schedules run via Cloudflare Cron Triggers, EventBridge (Lambda) or Vercel Cron (`/__haze/schedule`, needs `CRON_SECRET`; `vercel: { cron: '0 3 * * *' }` for Hobby). Microservice listeners: `autoListen: true` in `config/microservices.ts` (every web instance listens) or a long-running command:
+
+```ts
+// app/command/ListenMessages.ts — node dist/worker.mjs command listen:messages
+import process from 'node:process'
+import { defineCommand } from '@hazejs/core'
+import { listenMicroservices } from '@hazejs/microservices'
+
+export default defineCommand({
+  description: 'Listen for microservice messages',
+  async run(_args, { app }) {
+    const listener = await listenMicroservices(app)
+    await new Promise(resolve => { process.once('SIGTERM', resolve); process.once('SIGINT', resolve) })
+    await listener.close() // stop consuming, let running handlers finish
+  },
+})
+```
+
+Search in production: call `importSearchable()` / `syncSearchSettings()` from a command and run it with `worker.mjs command`.
+
+### Preview and serverless entries
+
+| Preset | `haze preview` runs it as |
+| --- | --- |
+| node / docker | child process + proxy (loads root `.env`) |
+| bun / deno | same with Bun / Deno (Deno may come from the `deno` npm package) |
+| aws-lambda / vercel / netlify | function handler called in-process |
+| cloudflare | Miniflare (`pnpm add -D miniflare`): bindings from `dist/wrangler.json`, `.env`/`.env.production` passed as bindings, data in `.haze/preview`, D1 migrations auto-applied; no WebSocket proxying (use `wrangler dev -c dist/wrangler.json`) |
+
+- **aws-lambda**: zip `dist/lambda` (runtime `nodejs22.x`); `index.handler` accepts API Gateway HTTP/REST, ALB and Function URL events. No WebSocket/Socket.IO, no queue consumer (use `redis`/`database` with a worker elsewhere).
+- **vercel**: `.vercel/output/` with `static/`, `functions/__server.func` (Node 22), `config.json`. Cron hits `/__haze/schedule` with `Authorization: Bearer $CRON_SECRET` (401 otherwise).
+- **netlify**: Functions v2 entry; a `netlify.toml` (build command + publish dir) is created if missing; full-stack builds also get a `_redirects` SPA fallback.
+- **cloudflare**: the Worker exports `fetch`, `queue()` (consumes Cloudflare Queues; retry = `message.retry({ delaySeconds })`), `scheduled()` (when tasks exist, `triggers.crons` = every minute unless you set `triggers`), and `HazeWebSocket` (Durable Object + migration, binding `HAZE_WEBSOCKET`) when routes use `r.ws()`. Full-stack: Workers Assets with SPA fallback, backend prefixes routed to the Worker first. D1 without `migrations_dir` uses the `migrations/` folder copied into `dist/`. `setPlatformBindings(env)` runs before each request (exported for custom entries/tests).
 
 ### Docker topology (one image, several roles)
 
@@ -322,11 +417,103 @@ export default defineMaintenanceConfig({
 })
 ```
 
-Running servers, workers and the scheduler notice within `interval` (2 s), no restart. Still served while down: `except` paths, `/health*`, `/__haze` (dev), and requests with a valid bypass cookie. JSON clients and every `/api` path get the error envelope; browsers get the HTML page. Queue workers pause between jobs; scheduled tasks are skipped. In code: `Maintenance.down({ withSecret: true })`, `Maintenance.isDown()`, `Maintenance.up()`; events `MaintenanceModeEnabled` / `MaintenanceModeDisabled`.
+| `config/maintenance.ts` | Default | |
+| --- | --- | --- |
+| `driver` | `'cache'` | `'cache'` \| `'file'` |
+| `store` | default cache store | a `memory` store falls back to the `file` location (not in tests; `haze down` says so) |
+| `key` | `'framework:down'` | cache prefix is prepended |
+| `file` | `'storage/framework/down'` | relative to project root |
+| `interval` | `2000` ms | per-process cache of the state; `up` reaches everyone within it |
+| `except` | `[]` | merged with `--except` |
+| `pauseWorkers` | `true` | pause queue workers between jobs, skip due tasks (reason `maintenance`) |
+| `workerSleep` | `3000` ms | how often paused workers re-check |
+| `cookie` | `'haze_maintenance'` | bypass cookie name |
+| `bypassTtl` | `43200` s | bypass cookie lifetime |
+
+Running servers, workers and the scheduler notice within `interval` (2 s), no restart (also in `haze dev`). Still served while down: `except` paths, `/health*`, `/__haze` (dev), and requests with a valid bypass cookie. Visiting `/<secret>` sets the signed (`APP_KEY`) cookie and redirects to `/`; the secret is stored as SHA-256; a new `down --secret` invalidates old cookies. The middleware runs right after the request scope and exception boundary — before storage links, OpenAPI, health, global middleware and static files (no auth/CSRF while down).
+
+- **JSON** (no `text/html` in `Accept`, or any `/api` path): `{ "code": 503, "message": "The application is down for maintenance. Please check back soon.", "data": null }`; translated via i18n key `http.maintenance`.
+- **HTML**: self-contained page, the `--render` view (falls back to built-in + warning if missing/throws), or `--redirect` (add the target to `except` to serve your own route).
+- Every response: `Retry-After`, `Refresh` (when set), `Cache-Control: no-store`.
+
+```ts
+import { defineListener, Maintenance, MaintenanceModeEnabled } from '@hazejs/core'
+
+const { secret, state } = await Maintenance.down({ withSecret: true, retry: 120 }) // DownOptions mirror the CLI flags; except: string[]
+await Maintenance.isDown({ fresh: true }); await Maintenance.state(); await Maintenance.up() // up() → boolean
+
+// app/listener/NotifyOps.ts — events fire only in the process that ran down()/up()
+export default defineListener(MaintenanceModeEnabled, ({ state }) => console.log(new Date(state.time)))
+// MaintenanceModeDisabled payload: { time }
+```
+
+Serverless/edge: no `worker.mjs` and no writable disk — use `driver: 'cache'` with KV/Upstash/Redis and run `haze down` from a machine with the same store credentials, or write the key: `wrangler kv key put --binding CACHE "haze:framework:down" '{"time":0,"status":503,"retry":60}'` (`<cache prefix>framework:down`; KV propagation takes up to a minute).
 
 ## Observability
 
-Full guides: [observability.md](../../../docs/guide/observability.md), [errors.md](../../../docs/guide/errors.md)
+Full guides: [observability.md](../../../docs/guide/observability.md), [errors.md](../../../docs/guide/errors.md) (logging, request IDs, exception handler), [devtools.md](../../../docs/guide/devtools.md)
+
+### Logging
+
+```ts
+// config/logger.ts — no dedicated helper; use defineConfig
+import { defineConfig, env } from '@hazejs/core'
+
+export default defineConfig(() => ({
+  level: env('LOG_LEVEL', 'info'),
+  channel: 'production',               // string | string[]
+  channels: {
+    production: { driver: 'stack', channels: ['console', 'file', 'loki'] },
+    file: { driver: 'file', path: 'storage/logs/app.log', daily: true, maxFiles: 14 },
+    loki: { driver: 'http', url: env('LOKI_URL', 'http://localhost:3100/loki/api/v1/push'), format: 'loki', labels: { app: 'shop' }, level: 'warn' },
+    audit: { driver: 'file', path: 'storage/logs/audit.log', daily: false },
+    datadog: { driver: 'http', url: 'https://http-intake.logs.datadoghq.eu/api/v2/logs', headers: { 'DD-API-KEY': env('DD_API_KEY', '') } },
+    sentry: { driver: 'custom', level: 'error', transport: { log: entry => forward(entry), flush: async () => {}, close: async () => {} } },
+  },
+}))
+```
+
+| `config/logger.ts` | Default | |
+| --- | --- | --- |
+| `level` | `info` (`warn` in tests) | `silent` `error` `warn` `info` `debug` `trace`; default for channels without their own `level` |
+| `format` | `json` in production, else `pretty` | console channel only |
+| `requests` | on, off in tests | access line per request (`GET /api/hello 200 3ms`); goes to every channel; health/`/__haze` paths are never access-logged |
+| `tag` | `'hazejs'` | |
+| `write` | error → stderr, rest → stdout | `(line, level) => void` sink for console JSON lines |
+| `channel` | `'console'` | channel name(s) written to |
+| `channels` | `console`, `json` built in | definitions below |
+
+| Driver | Options (defaults) |
+| --- | --- |
+| `console` | `level`; pretty or JSON per `format` |
+| `json` | `level`, `stream: 'stdout' \| 'stderr'` (stdout); NDJSON regardless of `format` |
+| `file` | `path` (`storage/logs/haze.log`, relative to cwd), `daily` (`true` → `haze-2026-10-28.log`), `maxFiles` (14 incl. today; `0` = keep all), `level`. Node/Bun/Deno only |
+| `http` | `url`, `method` (`POST`), `headers`, `format` (`json` array \| `ndjson` \| `loki` \| `(entries) => body`), `batchSize` (100), `interval` (2000 ms), `maxBuffer` (10000; oldest dropped), `labels` (Loki; default `{ service: tag, level }`), `fetch`, `level` |
+| `custom` | `transport: LogTransport \| (entry) => void`, `level` |
+| `stack` | `channels: string[]` |
+
+- `LogEntry` = the JSON line: `{ time, level, tag, msg, requestId?, ...context, err?: { name, message, status?, stack } }`, plus `trace_id`/`span_id` while an OTel span is active. Call args: strings join into `msg`, plain objects merge in as fields (`logger.info('Order', { orderId })`), an `Error` becomes `err`. `LogTransport = { log(entry), flush?(), close?() }`.
+- Factories `jsonTransport()`, `fileTransport()`, `httpTransport()`, `createLogTransport(name, config)` are exported for reuse.
+- `http` delivery errors go to stderr and never throw; a batch is sent at `batchSize` or after `interval`.
+- `Logger` methods: `error warn info success debug trace` (`success` logs at info), `child(context)`, `channel(...names)` (only those channels; keeps child context), `flush()`, `close()`. `ctx.logger` = child with `requestId` (+ `app` in multi-app); `app.logger` / `inject(Logger)` elsewhere; `job.logger`, listener `ctx.logger`, command `ctx.logger` likewise.
+- The app flushes and closes all channels on `dispose()`; call `await logger.flush()` yourself in short scripts that exit without disposing.
+
+### Request IDs
+
+`ctx.requestId` is in every `ctx.logger` line and echoed in the `x-request-id` response header. An incoming `x-request-id` matching `[\w.:-]{1,128}` is reused (cross-service correlation); otherwise a UUID is generated. `config/app.ts` `requestIdHeader: 'x-correlation-id'` renames it; `false` neither reads nor sends the header (an ID is still generated). The dev dashboard and the debug error page link entries by this ID.
+
+### Error reporting
+
+`app/exception/Handler.ts` (see http.md › Exceptions): `report(error, ctx)` logs `[METHOD] /path` + error via `ctx.logger` at `error` level; `shouldReport()` is false for `dontReport` classes and every 4xx `HTTPError`. Hook an error tracker there:
+
+```ts
+override async report(error: unknown, ctx: HttpContext) {
+  await super.report(error, ctx)
+  if (this.shouldReport(error)) Sentry.captureException(error, { tags: { requestId: ctx.requestId } })
+}
+```
+
+A throwing `report()` is logged and the response still renders. Independently, every rendered 5xx is recorded on the OTel request span (exception event, error status) and as a dashboard `exception` entry. Failures outside requests are logged by their runner: jobs (`failed()` hook + `haze.queue.job.failures` metric), listeners (`Listener "X" failed`), scheduled tasks (`onFailure`), commands (exit 1).
 
 ### Health checks (on by default, every mode)
 
@@ -340,67 +527,180 @@ export default defineHealthConfig({
   cache: 5000,                   // reuse readiness result for 5 s
   checks: {
     db: dbCheck(Db),
+    analytics: dbCheck(Db, { connection: 'analytics', query: 'select 1' }),
     cache: cacheCheck(),
     redis: redisCheck(),         // PING default connection
-    storage: { check: storageCheck('s3'), critical: false },
+    storage: { check: storageCheck('s3'), critical: false, timeout: 10_000 },
     queue: queueCheck({ connection: 'redis', maxFailed: 100 }),
-    payments: async ({ signal }) => (await fetch('https://status.example.com', { signal })).ok,
+    payments: async ({ signal, app }) => {
+      const res = await fetch('https://status.example.com/api', { signal })
+      return res.ok || { status: 'degraded', message: `status page returned ${res.status}` }
+    },
   },
-  // path: '/health', enabled, verbose
 })
 ```
 
+| `config/health.ts` | Default | |
+| --- | --- | --- |
+| `enabled` | `true` | |
+| `path` | `'/health'` | also serves `<path>/ready` and `<path>/live` |
+| `timeout` | `5000` ms | per check; on timeout `signal` aborts |
+| `checks` | `{}` | `name: fn` or `{ check, timeout?, critical? (true) }` |
+| `verbose` | `true` except production | include failure messages (timeout messages always shown) |
+| `cache` | `0` ms | reuse the readiness report |
+
 | Endpoint | Response |
 | --- | --- |
-| `GET /health/live` | always `200 { "status": "ok" }` (liveness) |
-| `GET /health`, `GET /health/ready` | runs checks in parallel: `200` ok/degraded, `503` when a critical check fails |
+| `GET/HEAD <path>/live` | always `200 { "status": "ok" }` (liveness) |
+| `GET/HEAD <path>`, `<path>/ready` | `{ status, checks: { name: { status, latencyMs, message? } } }`; `200` ok/degraded, `503` down |
 
-Served before global middleware (no auth/CSRF/throttle, no envelope). A check passes on nothing/`true`/string, fails on `false`/throw, or returns `{ status: 'degraded', message }`. Production hides error details (`check failed`) unless `verbose: true`.
+- Result mapping: nothing/`true` → ok; string → ok with `message`; `false`/throw → down; `{ status?, message? }` as given. Overall: a failing critical check → `down`; a failing non-critical or any `degraded` → `degraded`. Thrown errors are logged (`Health check failed`, `check: name`); production responses say `check failed`.
+- Built-ins: `dbCheck(Db, { connection?, query? })` (`select 1`; Db is passed in so core doesn't depend on the ORM), `cacheCheck(store?)` (set/get/forget a temp key), `redisCheck(name? | client)` (PING a `config/redis.ts` connection; a cache-store name falls back to a cache check; or any `{ ping() }` client), `storageCheck(disk?)` (read-only `exists`), `queueCheck({ connection?, maxFailed? })` (counts message; `degraded` above `maxFailed`; drivers without counts → ok).
+- Served before global middleware (no auth/CSRF/throttle, no envelope, `cache-control: no-store`); a project `GET` route with the same path wins. `runHealthChecks(app)` returns the same report programmatically.
+- Kubernetes: `livenessProbe` → `/health/live`, `readinessProbe` → `/health/ready`. Docker preset `HEALTHCHECK` hits `/health/live` (adjust if you change `path`). Full-stack dev only forwards `/api/*`: use `path: '/api/health'` if probes go through Vite.
 
 ### OpenTelemetry
 
-Needs `@opentelemetry/api` (optional peer) plus your SDK started before the app:
+Needs `@opentelemetry/api` (optional peer) plus an SDK you start **before** the app. Without the package, or with `enabled: false` (default), every hook is a no-op; `enabled: true` without the package logs a warning and continues.
 
 ```ts
 // config/observability.ts
 import { defineObservabilityConfig } from '@hazejs/core'
 
 export default defineObservabilityConfig({
-  otel: { enabled: true /* , traces: { cache: true, db: false }, metrics: false, ignorePaths: [...] */ },
+  otel: { enabled: true /* , name: 'hazejs', traces: { cache: true, db: false }, metrics: false, ignorePaths: [...] */ },
   dashboard: { limit: 1000, redactHeaders: ['x-tenant-token'], ignorePaths: ['/api/poll'] },
 })
 ```
 
+| `otel` option | Default | |
+| --- | --- | --- |
+| `enabled` | `false` | |
+| `name` | `'hazejs'` | tracer / meter name |
+| `traces` | `http db mail queue ai` on, `cache` off | per span type |
+| `metrics` | `true` | |
+| `ignorePaths` | health path + dashboard path | `string` (prefix) or `RegExp`; **setting it replaces the defaults** — re-add `'/health'`, `'/__haze'` |
+
+```js
+// instrumentation.mjs — plain .mjs, loaded with --import
+import process from 'node:process'
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
+import { NodeSDK } from '@opentelemetry/sdk-node'
+
+const sdk = new NodeSDK({
+  serviceName: 'my-app',
+  traceExporter: new OTLPTraceExporter(), // OTEL_EXPORTER_OTLP_ENDPOINT, default http://localhost:4318
+  metricReader: new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() }),
+})
+sdk.start()
+process.once('beforeExit', () => sdk.shutdown())
+```
+
 ```bash
-node --import ./instrumentation.mjs dist/index.mjs         # NodeSDK in a plain .mjs file
+node --import ./instrumentation.mjs dist/index.mjs          # web
+node --import ./instrumentation.mjs dist/worker.mjs queue   # workers too
 NODE_OPTIONS='--import ./instrumentation.mjs' haze dev
 ```
 
-Spans: SERVER per request, ORM queries, queue send/process, `mail.send`, `@hazejs/ai` chat/embeddings, outgoing `Http`/`tracedFetch`, cache (opt-in). Metrics: `http.server.request.duration`, `http.server.active_requests`, `messaging.process.duration`, `haze.queue.job.failures`. `traceparent` is continued on incoming requests, sent by `Http`/`tracedFetch`, and carried through queued jobs; `injectTraceContext()` / `withTraceContext()` for custom transports. JSON log lines get `trace_id`/`span_id`. Keep `@opentelemetry/instrumentation-http` off for incoming requests (duplicate spans).
+| Span | Kind | Key attributes |
+| --- | --- | --- |
+| `GET /users/:id` (per request) | SERVER | `http.request.method`, `url.path`, `http.route`, `http.response.status_code`, `error.type` |
+| `SELECT`/`INSERT`… (`@hazejs/orm`) | CLIENT | `db.system.name`, `db.query.text`, `db.operation.name`, `db.namespace` |
+| `send <queue>` / `process <queue>` | PRODUCER / CONSUMER | `messaging.*`, `haze.job.name`, `haze.job.attempt`, `haze.job.status` |
+| `mail.send` | CLIENT | `haze.mail.mailer`, `haze.mail.driver`, `haze.mail.recipients` |
+| `chat <model>` / `embeddings <model>` | CLIENT | `gen_ai.*` (provider, model, tokens, finish reasons) |
+| `cache.get`… (opt-in) | CLIENT | `haze.cache.store`, `haze.cache.key`, `haze.cache.hit` |
+| `GET` (`Http` client / `tracedFetch`) | CLIENT | `http.request.method`, `url.full`, `server.address`, `http.response.status_code` |
+
+Metrics: `http.server.request.duration` (s, histogram), `http.server.active_requests` (up-down counter), `messaging.process.duration` (s), `haze.queue.job.failures` (counter, final failures). 5xx marks the request span as error and records the rendered exception.
+
+```ts
+import { trace } from '@opentelemetry/api'
+import { activeTraceIds, injectTraceContext, openTelemetryEnabled, tracedFetch, withTraceContext } from '@hazejs/core'
+
+await trace.getTracer('billing').startActiveSpan('charge', async (span) => {
+  try { await gateway.charge(order) } finally { span.end() }  // nests under the request span
+})
+const res = await tracedFetch('https://inventory.internal/api/stock', { method: 'POST', body }) // CLIENT span + traceparent
+await bus.publish('orders', { order, headers: injectTraceContext() })          // carrier: Record<string, string>
+bus.subscribe('orders', m => withTraceContext(m.headers, () => handle(m.order))) // Headers or record
+activeTraceIds() // { trace_id, span_id } | undefined; openTelemetryEnabled() → boolean
+```
+
+Propagation: incoming `traceparent`/`tracestate` continue the caller's trace; `dispatch()` stores context in `message.context` so workers (other processes, Redis) continue it; without a registered propagator hazejs reads/writes W3C `traceparent` itself. `NodeSDK` registers the AsyncLocalStorage context manager + W3C propagator hazejs relies on. Keep `@opentelemetry/instrumentation-http` off for **incoming** requests (duplicate SERVER spans); outgoing `http`/`undici` instrumentation is fine. Flush with `sdk.shutdown()` from a provider `shutdown()` — `app.serve()` exits right after dispose. Workers/Bun/Deno: hooks only use the API; Workers need a Workers-compatible tracer provider, `nodejs_compat`, and `ctx.waitUntil()` flushing.
 
 ### Dev dashboard `/__haze`
 
-Development only (never installed in production or tests, even with `enabled: true`). Records requests, queries, jobs, mail (HTML preview), events, cache, logs, exceptions, AI calls and outgoing HTTP, all linked to the originating request; live over SSE; JSON at `/__haze/api/entries`, `/__haze/api/requests/:requestId`, `/__haze/api/stats`, `/__haze/api/stream`. The **Queues** tab retries/forgets/flushes failed jobs; mount it in production with `queueDashboard(r, { path: '/admin/queues' })` inside your own auth group. Hook in with `onTelemetry((kind, data) => …)`.
+Development mode only: never installed in production or tests, whatever the config says. Self-contained page (no CDN), served before global middleware, entries kept in memory (ring buffer per type) and linked to the originating `requestId` — including jobs that run later and the mail they send. Live via SSE. The debug error page links to the request.
 
-### Logging
+| `observability.dashboard` | Default | |
+| --- | --- | --- |
+| `enabled` | `true` in development | ignored elsewhere |
+| `path` | `'/__haze'` | |
+| `limit` | `500` | entries kept per type |
+| `redactHeaders` | — | added to the built-in list: `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `x-csrf-token`, `x-xsrf-token` |
+| `ignorePaths` | — | not recorded; dashboard + health paths always ignored |
+
+Entry types: `request`, `query`, `job`, `mail`, `event`, `cache`, `log`, `exception` (5xx only), `ai`, `http` (outgoing `Http` calls, credentials masked), `schedule`.
+
+| JSON API (under `<path>/api`) | |
+| --- | --- |
+| `GET /entries?type=&requestId=&jobId=&after=&limit=` | newest first; `limit` default 100, max 1000; unknown `type` → 422 |
+| `GET /entries/:id`, `GET /requests`, `GET /requests/:requestId` | one entry; request list; `{ request, entries }` |
+| `GET /stats` | `{ counts }` per type |
+| `GET /stream` | SSE, `event: entry` per new entry |
+| `GET /mail/:id/preview` | rendered mail HTML, sandboxed by CSP |
+| `POST /clear` | clears buffers; needs header `x-haze-dashboard: 1` (same-origin) |
+| `GET /queues`, `POST /queues/:connection/{retry,forget,flush}` | queue summary / actions; body `{ id? }` (`forget` requires `id`); same header rule |
+
+Telemetry bus (what feeds the dashboard and DevTools; a single `Set.size` check when nobody listens):
 
 ```ts
-// config/logger.ts
-import { defineConfig, env } from '@hazejs/core'
+import { onTelemetry, recordTelemetry } from '@hazejs/core'
 
-export default defineConfig(() => ({
-  level: env('LOG_LEVEL', 'info'),   // silent|error|warn|info|debug|trace (warn in tests)
-  // format: 'pretty' | 'json' (json in production), requests: true (access log, off in tests)
-  channel: 'production',
-  channels: {
-    production: { driver: 'stack', channels: ['console', 'file', 'loki'] },
-    file: { driver: 'file', path: 'storage/logs/app.log', daily: true, maxFiles: 14 },
-    loki: { driver: 'http', url: env('LOKI_URL', 'http://localhost:3100/loki/api/v1/push'), format: 'loki', level: 'warn' },
-  },
-}))
+const stop = onTelemetry((kind, data) => {   // kinds: query cache mail job.dispatched job.processed event log exception ai schedule http
+  if (kind === 'query' && data.duration > 500) console.warn('Slow query', data.sql)
+})
 ```
 
-Drivers: `console` (default), `json`, `file` (Node/Bun/Deno only), `http` (batched; `format` `json`/`ndjson`/`loki`/fn), `custom`, `stack`. Use `ctx.logger` in requests (carries the request ID) and `inject(Logger).child({ service: 'report' })` elsewhere; methods `error warn info success debug trace`; `logger.channel('audit').info(...)`; `await logger.flush()`. Every request gets `ctx.requestId`, echoed in `x-request-id` (incoming safe IDs are reused).
+Listener errors are swallowed. Packages that don't import core report through `globalThis[Symbol.for('hazejs.telemetry')]`. AI prompt/output content is only captured while the dashboard is on (never sent to OTel).
+
+**Queues tab / production queue dashboard**: per connection (not `sync`) waiting/delayed/active/failed counts (`memory`, `redis`, `database`) and failed jobs; retry one/all, forget, flush (= `queue:retry/forget/flush`). Production: `queueDashboard(r, { path: '/admin/queues' })` inside your own `auth` / `can:` group registers `GET <path>` + `<path>/api` (hidden from OpenAPI; default path `/__haze/queues`). Writes need `x-haze-dashboard: 1` (the page sends it plus the `XSRF-TOKEN` value, so CSRF passes). Cloudflare Queues failures live in your wrangler dead-letter queue.
+
+### DevTools (`@hazejs/devtools`, experimental)
+
+`pnpm add -D @hazejs/devtools` — that's all: `haze dev` finds it and prints `DevTools: http://localhost:3000/__devtools/`. Runs in the dev-server process (not in the app), survives app hot reloads, never part of `haze build` output. Full-stack: mounted on the Vite server plus a floating dock injected into HTML pages; with Vite DevTools enabled (`devtools: true` in `vite.config.ts` + `@vitejs/devtools`) the hazejs panels register there instead (one UI, one auth, one MCP endpoint).
+
+| Panel | Shows |
+| --- | --- |
+| Overview | name, mode, dirs, Node version, route count, last (re)load result/error, modules, sub-apps |
+| Graph | module links: defines event/job, listened-by (queued marked), schedules job, uses middleware of, mounted into; plus runtime emitted/dispatched counts |
+| Routes | filterable route table incl. module/app |
+| Requests | per-request waterfall (queries, cache, events, jobs incl. queued work, mail, logs, exceptions, AI, HTTP); repeated SQL flagged **N+1**. Needs the dev dashboard on |
+| AI | per-model calls/tokens/latency, messages/output/tool calls (each part cut at 4000 chars), prompt playground |
+| Tasks | schedules with next/last run and **Run now** (same `withoutOverlapping`/`onOneServer` checks); queue counts; per-job dispatch/success/failure |
+| Internals | global middleware, aliases, groups, providers, bindings, events → listeners, jobs, with source module |
+| API Docs / Dashboard | `/docs` and `/__haze` embedded when enabled |
+| Terminals | browser shells + one-click `route:list`, `module:list`, `schedule:list`, `queue:work` |
+
+| `devtools` (in `haze.config.ts`, or `haze({ devtools })` which wins) | Default | |
+| --- | --- | --- |
+| `base` | `'/__devtools/'` | mount path |
+| `auth` | `true` | one-time code printed in the terminal on first browser connect (or open the `#devframe_otp=` link); browser stays authorized across restarts. Disable only for single-user localhost |
+| `terminals` | `true` | Terminals panel (can run commands — keep `auth` on) |
+| `embedded` | `true` | full-stack floating dock |
+| `mcp` | `true` | MCP endpoint `<base>__mcp` |
+
+`devtools: false` disables without uninstalling. MCP: local connections only and a local `Origin` header required (DNS-rebinding guard). Tools: `hazejs_snapshot` (call first), `hazejs_routes`, `hazejs_graph`, `hazejs_requests`, `hazejs_request`, `hazejs_ai`, `hazejs_ai-models`, `hazejs_ai-run`, `hazejs_tasks`, `hazejs_openapi`, `hazejs_run-schedule`.
+
+```bash
+claude mcp add --transport http hazejs http://localhost:3000/__devtools/__mcp --header "Origin: http://localhost:3000"
+haze devtools:report -o dist/report --base /report/ && npx serve dist/report   # static; opening index.html from disk doesn't work
+```
+
+Programmatic: `app.introspect()` → serializable `{ app, modules, apps, routes, middleware: { global, aliases, groups }, providers, bindings, events, jobs, schedules, dashboard?, openapi? }`. `@hazejs/devtools` exports `createDevtools({ source, root?, base?, server?, auth?, terminals?, mcp? })` (→ `handler`, `nodeMiddleware`, `attach(server)`, `handleUpgrade`, `ready`, `close`), `buildReport({ source, outDir, base?, root? })`, `buildGraph(app.introspect())`, `setupViteDevtools`, `inspectApp`, `filterRoutes`, `listRequests`, `requestDetail`, `repeatedQueries`, `aiSummary`. `source` = `{ app, onReload(listener), import? }` (`import` is needed for Run now / AI playground).
 
 ## Gotchas
 
@@ -423,6 +723,12 @@ Drivers: `console` (default), `json`, `file` (Node/Bun/Deno only), `http` (batch
 - `database/schema/*.ts` is read by drizzle-kit directly — do not use the `~` alias there.
 - Provider `shutdown()` runs on every dev hot reload, not only on process exit.
 - `APP_KEY` must be ≥ 32 characters and set as a real env var / secret in production; `haze key:generate --force` invalidates existing cookies, sessions and tokens.
+- Setting `otel.ignorePaths` **replaces** the default ignore list (health + `/__haze`); include them again or probes create spans.
+- The OTel SDK must start before the application — load it with `--import` (also for `worker.mjs`), not from app code. `enabled: true` alone exports nothing — hazejs never creates an SDK/exporter.
+- `/__haze`, the DevTools Requests/AI panels and AI content capture exist only in development; `dashboard.enabled: true` cannot turn them on in production — use `queueDashboard()` behind auth for production queue ops.
+- `@hazejs/devtools` Terminals can run shell commands: never disable `auth` on a dev server reachable from other machines (`--host 0.0.0.0`).
+- Health responses hide error messages in production (`check failed`); the real error is in the logs. Timeout messages are always shown.
+- `http` log channels buffer in memory and drop the oldest entries past `maxBuffer`; scripts that `process.exit()` without `app.dispose()` lose buffered lines unless they `await logger.flush()`.
 
 ## Serving a separately built frontend (backend-only projects)
 

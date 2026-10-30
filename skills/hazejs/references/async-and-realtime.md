@@ -44,7 +44,20 @@ export default defineJob({
 })
 ```
 
-`JobContext`: `id`, `name`, `attempt`, `queue`, `logger`, `app`, `signal`, `release(delay?)` (requeue without using an attempt), `batch()`.
+`JobContext`: `id`, `name`, `attempt` (from 1), `queue`, `logger`, `app`, `signal`, `release(delay?)` (requeue after `delay` s / `'30s'`, default 0, without using an attempt), `batch()` (snapshot read before the run, or `undefined`).
+
+| `defineJob` option | Default | |
+| --- | --- | --- |
+| `name` | file name | duplicates across files/modules fail at boot |
+| `tries` | `1` | total runs |
+| `backoff` | `0` | seconds, `'5m'`, per-attempt array (last repeats), `'exponential'` (2^n s) |
+| `timeout` | none | seconds or `'30s'`; aborts `job.signal`, counts as failure |
+| `queue` / `connection` | `'default'` / config `default` | |
+| `unique` | — | `true` or `{ key?, for? ('1d'), until? ('processed' \| 'processing') }` |
+| `middleware` | `[]` | after global `config/queue.ts` middleware |
+| `afterCommit` | `false` | |
+
+A successful run logs at debug: `Job "SendInvoice" done in 12ms (attempt 1/3)`; retries warn, final failures error.
 
 ```ts
 import { Queue } from '@hazejs/core'
@@ -93,6 +106,29 @@ export default defineQueueConfig(() => ({
 
 Chains, batches, unique jobs and middleware are implemented in the queue manager, so they work on every driver.
 
+| Connection option | Default |
+| --- | --- |
+| `memory.concurrency` | `1` |
+| `redis.connection` / `url` | `config/redis.ts` `default` (BullMQ gets its settings without `keyPrefix`, opens its own connections) / inline URL wins |
+| `redis.prefix` / `queues` / `keepCompleted` | `'haze'` / `['default']` (queues `queue:failed`/`retry` manage) / `1000` |
+| `database.connection` | default connection of `config/database.ts` (SQLite, libsql/Turso, D1, PostgreSQL, MySQL 8) |
+| `database.table` / `failedTable` | `'jobs'` / `'failed_jobs'` |
+| `database.retryAfter` | `'90s'` (reserved longer = abandoned → re-reserved) |
+| `database.sleep` / `maxSleep` | `1` s, doubles while idle / `5 × sleep` |
+| `cloudflare.binding` | `'QUEUE'` |
+| top-level `store` / `batches.store` / `batches.ttl` | default cache store / `store` / `'7d'` |
+
+- **Crash recovery**: `database` re-reserves rows older than `retryAfter` (PG/MySQL `FOR UPDATE SKIP LOCKED`; SQLite-family atomic `UPDATE … RETURNING`); a worker only deletes/releases a row still carrying its own `reserved_at`; a row out of tries goes to `failed_jobs`. `redis` uses BullMQ stalled-job detection. Either way a job can run twice after a crash — make jobs idempotent.
+- `database` queries run in the central (no-tenant) context; the job's tenant travels in the message.
+- Custom driver: `registerQueueDriver('sqs', (name, config) => driver)` in a provider's `register()` (built-ins `sync/memory/redis/cloudflare` can't be replaced). `QueueDriver = { driver, push(message, delaySeconds), consume(options) → stop, failed(), retry(id?), forget(id), flush(), counts?(), close() }`; type the config via `QueueDriverRegistry` declaration merging.
+- `app.make(QueueManager)`: `counts(connection?)` (`{ waiting, delayed, active, failed }` or `undefined`), `failed`, `retry`, `forget`, `flush`, `work({ connection?, queues?, concurrency? })` → `{ stop() }`.
+
+| Platform | Jobs run by |
+| --- | --- |
+| node / bun / deno / docker | `memory` in-process (single instance) or `redis`/`database` + `worker.mjs queue` |
+| cloudflare | `driver: 'cloudflare'`; Worker `queue()` acks / `message.retry({ delaySeconds })`; a released job is re-sent as a new message; declare `queues.producers`/`consumers` in `haze.config.ts` `cloudflare.wrangler` |
+| aws-lambda / vercel / netlify | no consumer entry: `redis`/`database` with a worker running elsewhere |
+
 ### Chains and batches
 
 ```ts
@@ -135,11 +171,18 @@ export default defineJob({
 })
 ```
 
-A duplicate unique dispatch: `Job.with(p).dispatch()` returns `{ skipped: true }`; `Job.dispatch(p)` returns the ID of the job already holding the lock. Unique locks are taken by the dispatcher and released by the worker, so with remote workers set `store` in `config/queue.ts` to a shared store (a `memory` store logs a warning). Custom middleware is `JobMiddleware = (payload, job, next) => ...`; return without calling `next()` to skip, call `job.release('30m')` first to retry later.
+| Middleware | Defaults / behaviour |
+| --- | --- |
+| `rateLimited(name, { max, per, key? })` | fixed window shared by every job using `name`; `key(payload)` splits it; over-limit runs are released to the next window |
+| `withoutOverlapping(key?, { releaseAfter?, expireAfter? })` | key = job name; lock `expireAfter` `'1h'`; others released after `releaseAfter` `1` s, or dropped with `false` |
+| `throttlesExceptions({ max?, per?, backoff?, key?, when? })` | `max` 10 within `per` `'10m'` opens the breaker (runs released until the window ends); exceptions still use attempts; `backoff` replaces the retry delay; `when(error)` filters; success resets |
+| `skipIf(pred)` | `pred(payload, job)` true → counts as done |
+
+Unique lock: taken at dispatch (cache lock on job name + key, owner = message ID), released when the job starts (`until: 'processing'`), when it finishes or finally fails (`'processed'`, default — not on retry/release), after `for`, or if the dispatch fails. Keys are tenant-scoped. A duplicate unique dispatch: `Job.with(p).dispatch()` returns `{ skipped: true }`; `Job.dispatch(p)` returns the ID of the job already holding the lock. Unique locks are taken by the dispatcher and released by the worker, so with remote workers set `store` in `config/queue.ts` to a shared store (a `memory` store logs a warning). Custom middleware is `JobMiddleware = (payload, job, next) => ...`; return without calling `next()` to skip, call `job.release('30m')` first to retry later.
 
 - Jobs without a payload (`handle()` with no / `void` payload): `await PruneTokens.dispatch()`, `PruneTokens.with()`, `s.job(PruneTokens)`.
 - Jobs, scheduled tasks and listeners run **in their application's context**: facades (`Queue`, `Events`, `Db`, `Cache`…), `useApp()`, `config()` and `inject()` resolve to the owning app — no `Db.withManager` job middleware needed; `runInApp(app, fn)` pins scripts.
-- **After commit**: `defineJob({ afterCommit: true })`, `Job.with(p).afterCommit().dispatch()` (→ `{ deferred: true }`), `dispatch(p, { afterCommit: true })`, `defineEvent({ afterCommit: true })`, `afterCommit(fn)` (core) / `Db.afterCommit(fn)` (orm): deferred until the outermost transaction commits, dropped on rollback, immediate outside a transaction.
+- **After commit**: `defineJob({ afterCommit: true })`, `Job.with(p).afterCommit().dispatch()` (→ `{ deferred: true }`), `dispatch(p, { afterCommit: true })`, `defineEvent({ afterCommit: true })`, `afterCommit(fn)` (core) / `Db.afterCommit(fn)` (orm): deferred until the outermost transaction commits, dropped on rollback, immediate outside a transaction. `{ afterCommit: false }` / `.afterCommit(false)` opts one dispatch out. A deferred `with().dispatch()` resolves at once to `{ id, skipped: false, deferred: true }` (`id` = the future job ID; unique checked at real dispatch); errors after commit (e.g. a failing `sync` job) are logged, not thrown. Without `@hazejs/orm`'s transaction hook, `afterCommit` dispatches immediately.
 - Two different jobs (or listeners) with the same name — e.g. a module's `app/job/Cleanup.ts` and the project's — fail at boot naming both sources; rename one or set `name`.
 - `database` driver `retryAfter` is per connection: keep it above the longest job `timeout`; put long jobs on their own connection.
 
@@ -180,7 +223,7 @@ export default defineRoutes((r) => {
 })
 ```
 
-Testing: `const fake = Queue.fake()` then `fake.assertDispatched(Job, p => ...)`, `assertNotDispatched`, `assertCount`, `assertChained`, `assertBatched`, `assertPushedUnique`, `assertSkipped`, `await fake.drain()`; `Queue.restore()`.
+Testing: `const fake = Queue.fake()` then `fake.assertDispatched(Job | 'Name', p => ...)`, `assertNotDispatched`, `assertCount`, `assertChained([A, B.with(p)])`, `assertBatched(b => b.name === 'import' && b.jobs.length === 2)`, `assertBatchCount`, `assertNothingBatched`, `assertPushedUnique`, `assertSkipped`, `await fake.drain()`; `Queue.restore()`. `drain()` runs each recorded job **once** (attempt 1) through the real pipeline (middleware, `release()`; delays ignored) and returns the `ProcessResult[]` — a failing job yields `{ status: 'retry' }` and is **not** re-queued; it simulates unique locks and records what drained jobs dispatch (next chain step, released jobs) — call it again to continue. Batched jobs are recorded in `fake.batches`, never run. A deferred (`afterCommit`) dispatch is recorded only after commit.
 
 ## Events
 
@@ -210,7 +253,10 @@ export default defineListener(OrderShipped, async ({ orderId }, ctx) => {
 })
 
 // one listener, several events: defineListener([OrderPaid, OrderRefunded], (payload, ctx) => ...)
+// options: { queue?: true | QueuedListenerOptions, name?: string } — name defaults to the file name
 ```
+
+`defineEvent<P>({ name: 'user.registered' })` overrides the event name (default: file name). An event without payload (`defineEvent()`) is emitted with `.emit()`. Two listener files with the same base name (`app/listener/Audit.ts`, `app/listener/admin/Audit.ts`) fail at boot (queued listeners register as job `listener:<name>`) — rename or pass `{ name }`. Errors from `afterCommit`-deferred listeners are logged (the transaction already committed). `app.make(EventManager).listeners(Event)` / `.events()` list registrations.
 
 ```ts
 await OrderShipped.emit({ orderId: 1, userId: 2 })
@@ -257,6 +303,16 @@ import { defineScheduleConfig } from '@hazejs/core'
 export default defineScheduleConfig({ timezone: 'Asia/Shanghai', store: 'redis', runInServer: false }) // timezone default UTC
 ```
 
+Signature defaults: `twiceDaily(first = 1, second = 13)`, `weeklyOn(day, time = '00:00')` (0 = Sunday), `monthlyOn(day = 1, time = '00:00')`; `weekly()` = Sunday 00:00, `monthly()` = the 1st 00:00, `daily()` = midnight. `at('09:00')` sets hour/minute on top of any frequency. `withoutOverlapping(ttl = '24h')`. `onFailure(error => …)`; `onSuccess(fn)`; `when`/`skip` filters may be async.
+
+| `config/schedule.ts` | Default |
+| --- | --- |
+| `timezone` | `'UTC'` (IANA name; per-task `timezone()` wins) |
+| `store` | default cache store (must be atomic for `onOneServer` / `withoutOverlapping`) |
+| `runInServer` | `false` |
+
+Programmatic (`app.make(Scheduler)`): `tasks()`, `due(date?)`, `runDue(date?)` → `TaskRun[]` (`{ name, status: 'ok' | 'failed' | 'skipped', reason?: 'filter' | 'overlapping' | 'other-server' | 'maintenance', error?, duration }`), `runTask(task)`, `work(signal?)`; `task.nextRun()`. Each run is reported as a `schedule` telemetry entry (dev dashboard, DevTools Tasks panel with **Run now**). Crontab: `* * * * * cd /srv/app && node dist/server/worker.mjs schedule:run`.
+
 `runInServer: true` runs due tasks inside the web process (dev, single instance); it starts with the HTTP server and never in tests / console commands. With several instances keep it off and run one `worker.mjs schedule` (or `onOneServer()` with a shared store).
 
 | Environment | Run with |
@@ -287,11 +343,20 @@ export default defineMailConfig(() => ({
 
 | Driver | Notes |
 | --- | --- |
-| `smtp` | `pnpm add nodemailer`; `url` or `host`/`port`/`secure`/`username`/`password`/`pool`/`options`. Not on Workers |
-| `resend` / `postmark` / `mailgun` | HTTP via `fetch`; work on Workers. Keys: `key` / `token`,`messageStream` / `key`,`domain`,`region` |
-| `ses` | `pnpm add @aws-sdk/client-sesv2`; `region`, keys optional |
+| `smtp` | `pnpm add nodemailer`; `url` (`smtps://user:pass@host:465`, wins) or `host` (`127.0.0.1`), `port` (587, or 465 when `secure`), `secure` (true on 465; 587 = STARTTLS), `username`, `password`, `pool` (`true`), `options` (passed to nodemailer). Not on Workers (stubbed) |
+| `resend` / `postmark` / `mailgun` | HTTP via `fetch`; work on Workers. `key` / `token`,`messageStream` / `key`,`domain`,`region` (`'us'`\|`'eu'`); all accept `endpoint` |
+| `ses` | `pnpm add @aws-sdk/client-sesv2`; `region`, `accessKeyId`, `secretAccessKey` (default AWS credential chain), `endpoint`, `configurationSet` |
 | `log` (default), `array` | Always available; `Mail.transport('array').messages` |
 | `custom` | `transport`: your `MailTransport` (`send(message)`, optional `close()`) |
+
+| `config/mail.ts` | Default |
+| --- | --- |
+| `default` | `'log'` (also when `config/mail.ts` is missing) |
+| `from` / `replyTo` | `from`: `'haze <noreply@example.com>'`; `replyTo`: — |
+| `queue` | `{ connection?, queue?, tries: 3, backoff: [10, 60] }` for `queue()` / `later()` |
+| `alwaysTo` | — redirects every mail; originals go to `X-Original-To` |
+
+Precedence: chain methods (`.from()`, `.cc()`…) > fields returned by the mail > `config/mail.ts`. A mail with no recipients throws. Addresses: `'a@x.com'`, `'Ada <a@x.com>'`, `{ address, name }`, or arrays. `Mail.mailer('resend').to(...)` also works. Transport factories `smtpTransport`, `resendTransport`, `postmarkTransport`, `mailgunTransport`, `sesTransport`, `logTransport`, `arrayTransport` are exported.
 
 ```ts
 // app/mail/WelcomeMail.ts   (npx haze make:mail Welcome → app/mail/WelcomeMail.ts)
@@ -306,7 +371,7 @@ export default defineMail((payload: { name: string, url: string }) => ({
     footer: 'Automated message.',
   }),
   // text (auto from html), from, replyTo, cc, bcc, attachments, headers, tags
-}), { name: 'WelcomeMail' }) // { name?, mailer? }
+}), { name: 'WelcomeMail' }) // { name?, mailer?, locale? } — render runs in that locale, so t() works
 ```
 
 Helpers: `` html`...` `` (escapes interpolations, joins arrays), `rawHtml(trusted)`, `escapeHtml`, `button(text, url, { color? })`, `mailLayout({ body, brand?, preheader?, footer?, color? })`, `htmlToText`. Attachments: `{ filename, content }` or `{ filename, disk, path, cid? }` (disk files read at send time).
@@ -317,10 +382,15 @@ await Mail.to({ address: user.email, name: user.name }).cc('team@x.com').bcc(['a
   .replyTo('support@x.com').from('Billing <billing@x.com>').mailer('resend').send(WelcomeMail, payload)
 await Mail.to(user.email).queue(WelcomeMail, payload) // dispatches built-in 'mail:send' job
 await Mail.to(user.email).later('10m', WelcomeMail, payload)
+await Mail.to(user.email).locale(user.locale).send(WelcomeMail, payload) // .locale() > defineMail locale > request locale; kept when queued
 await Mail.send({ to: 'ops@x.com', subject: 'Report', text: 'All good.' }) // raw message
 ```
 
-Queued mail is rendered at queue time (workers don't need the definition). Testing: `Mail.fake()` → `assertSent`, `assertNotSent`, `assertSentTimes`, `assertQueued`, `assertNothingSent`, `MailFake.hasRecipient(sent, addr)`.
+Queued mail is rendered at queue time (workers don't need the definition); inline attachment `content` is stored base64 in the job payload, disk attachments only by path — prefer disk attachments for large files. Attachment `contentType` is inferred from `filename`; `cid` embeds an inline image (`<img src="cid:logo">`). The render function may be `async`; `WelcomeMail.render(payload)` returns the `MailContent` (reuse it in notifications). TSX bodies: name the file `.tsx` and return `html: await renderToString(<Welcome … />)`, or `mailLayout({ body: rawHtml(await renderToString(...)) })`.
+
+Local preview: `docker run -p 1025:1025 -p 8025:8025 axllent/mailpit`, `MAIL_MAILER=smtp`, `MAIL_PORT=1025`, open `http://localhost:8025`. The dev dashboard also previews every sent mail.
+
+Testing: `Mail.fake()` → `assertSent(matcher, pred?)`, `assertNotSent`, `assertSentTimes(matcher, n)`, `assertQueued`, `assertNotQueued`, `assertNothingSent`, `assertNothingQueued`; `matcher` = a mail definition or `(recorded) => boolean` with `recorded = { mail?, payload, mailer, message, delay? }`; `fake.sent` / `fake.queued` arrays; `MailFake.hasRecipient(sent, addr)` checks to/cc/bcc case-insensitively; `Mail.restore()`. Combine with `Queue.fake()` + `drain()` when a job sends the mail.
 
 ## Notifications
 
@@ -373,7 +443,35 @@ export default defineNotificationConfig(() => ({
 }))
 ```
 
-The `broadcast` channel pushes to `private-<type>.<id>` (e.g. `private-User.1`) as event `notification`; authorize `c.private('User.{id}', ...)` and listen with ``echo.private(`User.${id}`).notification(cb)``. Custom channel: `registerNotificationChannel('sms', { send({ route, message }, { config }) {...} })` in a provider's `register()`, then `toSms`. Testing: `Notification.fake()` → `assertSentTo`, `assertNotSentTo`, `assertSentOnDemand`, `assertSentTimes`, `assertCount`.
+| `config/notification.ts` | Default |
+| --- | --- |
+| `channels.mail.mailer` | mail default mailer |
+| `channels.database.store` | — (store or `() => store`; `memoryNotificationStore()` for tests) |
+| `channels.broadcast.event` | `'notification'` |
+| `channels.{slack,webhook,wecom,dingtalk,feishu}` | `url`, `secret`, `headers`, `timeout` (10000 ms); robots also `key`; webhook `signatureHeader` (`X-Haze-Signature`), `timestampHeader` (`X-Haze-Timestamp`) |
+| `queue` | `{ connection?, queue?, tries: 3, backoff: [10, 60] }` |
+
+A notifiable's own route always beats the config default. `defineNotification({ name })` overrides the type (default: file name). Each notifiable gets one notification ID shared by its channels.
+
+- **Facade**: `Notification.send(n | n[], pending)`, `sendNow(n, pending, channels?)`, `route(channel, route)` (chainable; channels without a route and `database` are skipped), `notifications(n, { unread?, type?, limit?, offset? })`, `unread(n)`, `unreadCount(n)`, `markAsRead`, `markAllAsRead`, `fake()`, `restore()`; `notificationsOf(n, query)` helper. `app.make(NotificationManager).markAsUnread(ids)`.
+- **Queued**: every channel is rendered at send time; each job carries rendered message + route as JSON (workers need no definition; models in the payload are fine; later data changes aren't re-read).
+- **mail**: `toMail` returns mail content (`subject`, `html`, `text`, `attachments`…) plus optional `to`, `mailer`; recipient = `routeNotificationFor('mail')` → `email`/`name`. Reuse a mail: `toMail: user => WelcomeMail.render({ name: user.name })`. Goes through `Mail`, so `Mail.fake()` records it.
+- **database** record: `{ id, type, notifiableType, notifiableId, data, readAt, createdAt }` (`data` = `toDatabase`/`toArray`). Store interface: `insert`, `list`, `count`, `markAsRead`, `markAsUnread`, `markAllAsRead`, `delete`. No MongoDB store.
+- **broadcast**: data = `toBroadcast` (→ `toArray` → `toDatabase`) + `id`, `type`; `routeNotificationFor('broadcast')` may return other channel name(s).
+- **slack**: incoming webhook; `toSlack` returns text or `{ text, blocks, attachments, thread_ts, … }`.
+- **webhook**: JSON body = `toWebhook`; route = URL or `{ url, secret?, headers? }`; headers `X-Haze-Notification` (type), `X-Haze-Notification-Id`; with `secret`: `X-Haze-Timestamp` + `X-Haze-Signature: sha256=<hex HMAC-SHA256(secret, "<ts>.<body>")>`. Receiver: `await verifyWebhookSignature({ body: await ctx.req.text(), signature, timestamp, secret })` (rejects timestamps > 5 min old).
+- **wecom / dingtalk / feishu**: route = full webhook URL or just the key (WeCom `key`, DingTalk `access_token`, Feishu hook ID), string or `{ url, secret? }`. `markdown` → DingTalk markdown (`title` defaults to first line) / Feishu card (`title` = header); `atMobiles` unsupported on Feishu; `raw` sent as-is. DingTalk/Feishu sign with `secret`; WeCom has no signing. A non-zero `errcode`/`code` in the 200 response throws (retried when queued). Payload builders `wecomPayload`, `dingtalkPayload`, `feishuPayload` are exported.
+- **Custom channel**: `registerNotificationChannel('sms', defineNotificationChannel({ prepare?(ctx), send({ route, message }, { config }) }))` in a provider `register()` (process-wide) or `app.make(NotificationManager).extend(name, channel)` (one app). Default message = `to<Channel>()` result, route = `routeNotificationFor(channel)`; override with `prepare`. `send` runs in the worker when queued — JSON data only.
+
+```ts
+const notifications = Notification.fake()
+notifications.assertSentTo(ada, InvoicePaid, sent => sent.payload.amount === 99 && sent.channels.includes('mail'))
+const [sent] = notifications.sentTo(ada, InvoicePaid)
+expect(await sent.message('mail')).toMatchObject({ subject: 'Payment received' }) // renders that channel
+// also: assertNotSentTo, assertSentOnDemand (sent.notifiable.routes), assertSentTimes(def, n), assertNothingSentTo(n), assertNothingSent(), assertCount(n)
+```
+
+Records: `{ notifiable, payload, channels, queued, message(channel) }`; same type + ID count as the same notifiable. For real delivery in tests use `Mail.fake()`, `Broadcast.fake()`, `memoryNotificationStore()`.
 
 ## Broadcasting
 
@@ -405,7 +503,19 @@ export default defineChannels((c) => {
 })
 ```
 
-Names: public `news`, private `private-…`, presence `presence-…` — build with `privateChannel()` / `presenceChannel()`. Guests get 401; a throwing callback denies with 403. Params are strings.
+Names: public `news`, private `private-…`, presence `presence-…` — build with `privateChannel()` / `presenceChannel()`. Guests get 401; a throwing callback denies with 403 (logged). `{name}` matches one dot-separated segment; params are strings. Callback args: `(user, params, ctx: HttpContext)`; user from the default guard unless `guards` (any one authenticating suffices). Private: truthy = allow. Presence: return member object (no `id` → guard's user ID; members de-duplicated by `id`, so 3 tabs = 1 member) or `false`.
+
+| `config/broadcasting.ts` | Default |
+| --- | --- |
+| `path` | `'/broadcasting'` |
+| `routes` | `true` (`false` = no endpoints, e.g. Socket.IO only) |
+| `middleware` | `[]` route middleware (global middleware always runs) |
+| `bus` | `config/websocket.ts` Redis settings when its `broadcast.driver` is `redis`, else `{ driver: 'memory' }`; `{ driver: 'redis', connection?, url?, prefix? }` or your own `BroadcastBus` |
+| `transports` | `{ ws: true, sse: true }` |
+| `heartbeat` | `25` s (SSE keep-alive) |
+| `maxChannels` | `100` per SSE connection |
+
+Protocol (for non-Echo clients): WS `/broadcasting/ws` first sends `{ event: 'haze:connected', data: { socket_id } }`; client sends `{ event: 'subscribe', channel, auth? }`, `unsubscribe`, `{ event: 'whisper', channel, name, data }`, `ping`. Server messages are `{ event, channel?, data? }`, framework events `haze:subscribed`, `haze:subscription_error`, `haze:member_added`, `haze:member_removed`, `haze:pong`. `subscribe` without `auth` is authorized with the upgrade request's cookies/`Authorization`. SSE `GET /broadcasting/sse?channels=news,private-orders.1` authorizes each channel with the request; denied ones get `haze:subscription_error` instead of failing the stream. `POST /broadcasting/auth` (`socket_id`, `channel_name`, JSON or form) → `{ auth }` (+ `channel_data` for presence) = HMAC-SHA256 of `socket_id:channel[:channel_data]` with `APP_KEY` (any instance verifies); 400 invalid / 401 guest / 403 denied. Redis bus: shared command client + one subscriber connection; presence hash `<prefix>:presence:<channel>` (after the connection's `keyPrefix`, which doesn't apply to pub/sub).
 
 ```ts
 import { broadcast, Broadcast, presenceChannel, privateChannel } from '@hazejs/core'
@@ -425,17 +535,21 @@ import { io } from 'socket.io-client' // only for transport 'socket.io'
 export const echo = createEcho({
   transport: 'ws', // 'ws' (default) | 'sse' | 'socket.io' (+ io, namespace default '/broadcasting')
   headers: () => ({ authorization: `Bearer ${localStorage.getItem('token')}` }),
-  // url, path, authEndpoint, credentials, reconnect
+  // url (page origin), path ('/broadcasting'), authEndpoint ('<path>/auth'), credentials ('same-origin'; 'include' for cross-origin cookies),
+  // reconnect (true: 1s, 2s, 4s… max 30s), io, namespace ('/broadcasting'), ioOptions, WebSocket, fetch
 })
 
-echo.channel('news').listen('Published', post => {})
-echo.private('orders.1').listen('OrderShipped', o => {}).notification(n => {}).error(({ status }) => {})
-echo.join('chat.lobby').here(ms => {}).joining(m => {}).leaving(m => {})
+echo.channel('news').listen('Published', post => {}) // '.Published' (Echo-style leading dot) also works
+echo.private('orders.1').listen('OrderShipped', o => {}).notification(n => {}).subscribed(() => {}).error(({ status }) => {}) // 401/403
+  .stopListening('OrderShipped')
+echo.join('chat.lobby').here(ms => {}).joining(m => {}).leaving(m => {}) // echo.presence() = join()
   .listenForWhisper('typing', e => {}).whisper('typing', { name: 'Ada' })
 echo.leave('orders.1'); echo.socketId(); echo.disconnect()
 ```
 
-Socket.IO transport: `defineSocketIOConfig({ broadcasting: true })` in `config/socketio.ts` (needs the Socket.IO provider). Testing: `Broadcast.fake()` → `assertBroadcast`, `assertBroadcastOn(channel, event?, pred?)`, `assertNotBroadcast`, `assertBroadcastTimes`, `assertNothingBroadcast`.
+With session cookies the client echoes `XSRF-TOKEN` as `X-XSRF-TOKEN` on the auth request. `fetch`-based SSE can send `Authorization` (unlike `EventSource`); subscribing to another channel over SSE opens a new stream with the full list. Whispers: private/presence only, never over SSE. `echo.leave('x')` leaves `x`, `private-x` and `presence-x`.
+
+Socket.IO transport: `defineSocketIOConfig({ broadcasting: true })` (or `{ namespace: '/realtime' }`) in `config/socketio.ts` (needs the Socket.IO provider); each subscribed socket joins a room named after the channel; unsigned subscribes are authorized from the handshake (cookies or `io({ auth: { token } })`); delivery uses the broadcasting bus, so no Socket.IO `adapter` is needed for it. Testing (`broadcasts` array of `{ channels, event, data, except?, definition? }`; `Broadcast.restore()`; test channel callbacks via `POST /broadcasting/auth` with `actingAs()`): `Broadcast.fake()` → `assertBroadcast`, `assertBroadcastOn(channel, event?, pred?)`, `assertNotBroadcast`, `assertBroadcastTimes`, `assertNothingBroadcast`.
 
 ## WebSocket routes (`r.ws`, crossws)
 
@@ -477,7 +591,18 @@ import { defineWebSocketConfig } from '@hazejs/core'
 export default defineWebSocketConfig({ broadcast: { driver: 'redis', connection: 'default', channel: 'my-app:ws' } })
 ```
 
-Runtimes: dev, node/bun/deno/docker, Cloudflare (auto Durable Object `HazeWebSocket`). Not vercel/netlify/aws-lambda (426).
+Inline form: `r.ws('/api/ws', { open(peer) {…}, message(peer, msg) {…} })`. Hooks: `upgrade(request, ctx)`, `open(peer, ctx)`, `message(peer, message, ctx)`, `close(peer, { code, reason }, ctx)`, `error(peer, error, ctx)` — `ctx` (the upgrade request's) is always last. Peer: `id`, `send(data)`, `subscribe/unsubscribe(topic)`, `publish(topic, data)` (others only), `context`, `close(code?, reason?)`; message: `text()`, `json()`. A middleware response (e.g. 401 from `auth`) rejects the upgrade. `Socket.publish` passes strings / `Uint8Array` / `ArrayBuffer` through, JSON-encodes the rest. Redis fan-out (`config/websocket.ts` `broadcast`): `connection` (default `default`), `channel` (default `haze:ws`; `keyPrefix` doesn't apply), legacy inline `url` + `options` wins; both `Socket.publish` and `peer.publish` cross instances.
+
+Runtimes: dev (Vite HMR socket untouched; new connections get new code), node/bun/deno/docker (`haze preview` forwards upgrades), Cloudflare (auto Durable Object `HazeWebSocket` via `createWebSocketDurableObject()` from `@hazejs/core/cloudflare`, binding `HAZE_WEBSOCKET`; all connections share one DO so topics are global; force with `cloudflare.websocket`; Miniflare preview doesn't proxy WS — use `wrangler dev`). Not vercel/netlify/aws-lambda (426). Connections opened before a hot reload keep the old hooks.
+
+```ts
+// tests/ws.test.ts — test client is HTTP-only (expect 426 on GET); for real sockets serve on a random port
+const server = t.app.serve({ port: 0, hostname: '127.0.0.1', silent: true })
+await server.ready()
+const socket = new WebSocket(`${server.url!.replace(/^http/, 'ws').replace(/\/$/, '')}/api/ws`)
+// … await open, send, expect.poll(() => messages.at(-1)) …
+socket.close(); await server.close(true)
+```
 
 ## Socket.IO (`@hazejs/socket.io`)
 
@@ -570,14 +695,21 @@ export default defineCommand({
 })
 ```
 
-Names: `Inspire.ts`→`inspire`, `SendReport.ts`→`send:report`, `SendDailyReport.ts`→`send:daily-report`, `db/PruneOld.ts`→`db:prune-old`; trailing `Command` dropped; clashes with built-ins are skipped with a warning. `ctx`: `app`, `logger`, `name`, `rawArgs`, `confirm`, `ask`, `choice`, `prompt`. Throw → exit 1. The app is booted (facades, models, `config()` work) and disposed afterwards.
+Names: `Inspire.ts`→`inspire`, `SendReport.ts`→`send:report`, `SendDailyReport.ts`→`send:daily-report`, `db/PruneOld.ts`→`db:prune-old`; trailing `Command` dropped; clashes with built-ins are skipped with a warning. `ctx`: `app`, `logger`, `name`, `rawArgs`, `confirm(msg, initial?)` → boolean, `ask(msg, { default?, placeholder? })` → string, `choice(msg, options, initial?)`, `prompt(msg, options)` (raw consola prompt, e.g. `multiselect`). Throw → exit 1. The app is booted (facades, models, `config()` work) and disposed afterwards. Files in `app/command` whose default export isn't a command are ignored (shared helpers are fine).
+
+Arg definitions (citty): `type` `positional` (required unless `required: false` or `default`), `string` (`undefined` when omitted without default), `boolean` (`false` when omitted; `--no-x` negates), `enum` (`options`; other values error); each takes `description`, `default`, `alias` (string or array; not for positionals), `required`, `valueHint`. camelCase and kebab-case flags both work; positionals fill in definition order; `args._` holds all positionals incl. extras. Missing required / bad enum → usage printed, exit 1, `run()` not called. Types are inferred from the definitions. Programmatic / tests: `await runCommand(app, SendReport, ['ops@x.com', '--dry-run'])` → exit code.
 
 ```bash
 npx haze send:report ops@example.com --dry-run
 node dist/worker.mjs command send:report ops@example.com    # production (node/bun/deno/docker presets)
 npx haze repl                       # booted app + facades + models; top-level await; .reload, .exit
 npx haze repl -e "await User.count()"
+npx haze repl -e "const u = await User.findOrFail(1)
+return u.email"                      # several statements = async function body: use return
+node dist/worker.mjs command          # list commands; `command <name> --help` for usage
 ```
+
+REPL scope: `app`, `config`, `inject`, `useApp`, `Cache`, `Queue`, `Events`, `Storage`, `Mail`, `Db` (with `@hazejs/orm`), every export of `app/model/**/*.ts`. Records print all fields (including `hidden`). Source edits reload the app and refresh these names.
 
 ## Gotchas
 
@@ -601,3 +733,7 @@ npx haze repl -e "await User.count()"
 - **Presence members** leak in the Redis hash if a process crashes (no expiry); clear `<prefix>:presence:*` on redeploy if needed.
 - **Notifications**: a channel listed in `via` without its `to<Channel>` method throws; on-demand (`Notification.route`) skips `database`; robot rate limits aren't handled — queue with backoff.
 - **Commands**: don't prompt in unattended runs (cron/CI) — Ctrl+C/cancel exits 1; offer a `--force` flag.
+- **Webhook signatures** are computed over the exact body bytes: verify with `await ctx.req.text()`, not a re-serialized `ctx.body()`.
+- **Mail**: no recipient → throws; staging should set `alwaysTo` so real users never get test mail. Large inline attachments bloat queued payloads (base64) — use `{ disk, path }`.
+- **Unique jobs with a `memory` cache store** and a `redis`/`database` connection: the worker can't release the web process's lock, so further dispatches are skipped until `for` (default `1d`) expires. Set `store: 'redis'`.
+- **`database` queue `sleep`** doubles while idle up to `maxSleep`; a dispatch from another process may wait that long (same-process dispatches wake the worker immediately).

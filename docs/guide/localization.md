@@ -113,6 +113,7 @@ I18n.locale()                  // current locale
 I18n.setLocale('zh-CN')        // inside a request: this request only
 I18n.has('messages.welcome')
 I18n.locales()                 // supported locales
+I18n.load('en', { billing: { due: 'Due {date}' } }) // merge translations at runtime, e.g. from a package's provider
 ```
 
 ### Outside requests

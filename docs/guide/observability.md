@@ -55,7 +55,7 @@ The readiness response looks like this:
 - A check passes when it returns nothing, `true` or a string (shown as `message`). It fails when it returns `false` or throws. It can also return `{ status: 'degraded', message }`.
 - A failing **critical** check (the default) makes the status `down`. A failing non-critical check (`critical: false`), or one that returns `degraded`, makes it `degraded`.
 - Each check gets a timeout (`timeout`, 5000 ms by default; per check with `{ check, timeout }`). When it runs out, the check's `signal` is aborted.
-- Error messages appear in the response outside production. In production they are logged and the response only says `check failed`, so hostnames and connection strings don't leak. Set `verbose: true` to show them anyway.
+- Error messages appear in the response outside production. In production, errors thrown by a check are logged and the response only says `check failed`, so hostnames and connection strings don't leak. Set `verbose: true` to show them anyway. Timeout messages (`timed out after 3000ms`) are always shown.
 - `cache: 5000` reuses the readiness result for 5 seconds, so frequent probes don't hammer the database.
 
 The endpoints are served before global middleware: authentication, CSRF and rate limiting don't apply, and responses are not wrapped in the response envelope. If you define your own `GET /health` route, yours wins. Set `enabled: false` to turn them off, or `path` to move them.
@@ -150,7 +150,7 @@ When `otel.enabled` is false (the default), or when the package is missing, ever
 | `cache.get`, `cache.set`, … (opt-in) | CLIENT | `haze.cache.store`, `haze.cache.key`, `haze.cache.hit` |
 | `GET` (`tracedFetch`, [`Http`](./http-client)) | CLIENT | `http.request.method`, `url.full`, `server.address`, `http.response.status_code` |
 
-Responses with a 5xx status mark the span as an error, and the exception the handler rendered is recorded as a span event. Turn individual span types off with `traces: { db: false, ai: false, … }`. Health check and dashboard paths are ignored by default.
+Responses with a 5xx status mark the span as an error, and the exception the handler rendered is recorded as a span event. Turn individual span types off with `traces: { db: false, ai: false, … }`. Health check and dashboard paths are ignored by default. Setting `ignorePaths` replaces that default list instead of adding to it, so include `/health` and `/__haze` again, as in the example above.
 
 Your own spans nest under the request span automatically:
 
@@ -238,12 +238,15 @@ The data is also available as JSON:
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /__haze/api/entries?type=query&requestId=&limit=&after=` | Entries, newest first (`type`: `request`, `query`, `job`, `mail`, `event`, `cache`, `log`, `exception`, `ai`) |
+| `GET /__haze/api/entries?type=query&requestId=&jobId=&limit=&after=` | Entries, newest first (`type`: `request`, `query`, `job`, `mail`, `event`, `cache`, `log`, `exception`, `ai`, `http`, `schedule`; `limit` defaults to 100, at most 1000) |
 | `GET /__haze/api/entries/:id` | One entry |
+| `GET /__haze/api/requests` | Recorded requests, newest first |
 | `GET /__haze/api/requests/:requestId` | A request and everything linked to it |
 | `GET /__haze/api/stats` | Counts per type |
 | `GET /__haze/api/stream` | Server-Sent Events: `event: entry` for each new entry |
+| `GET /__haze/api/mail/:id/preview` | The rendered HTML of a mail entry, sandboxed with a Content Security Policy |
 | `POST /__haze/api/clear` | Clears the buffers |
+| `GET /__haze/api/queues`, `POST /__haze/api/queues/:connection/{retry,forget,flush}` | The [queue dashboard](#queue-dashboard) API: counts and failed jobs per connection; retry, forget (body `{ id }`) or flush |
 
 ### How recording works
 
@@ -287,4 +290,4 @@ export default defineAbilities({
 
 This registers `GET /admin/queues` (the page) and `/admin/queues/api` (the JSON API). The routes are hidden from OpenAPI. Retry, forget and flush require the `x-haze-dashboard: 1` header, which the page sends along with the `XSRF-TOKEN` cookie value, so they work with CSRF protection and can't be triggered from another site. The default `path` is `/__haze/queues`; in development the dev dashboard answers that path first.
 
-Counts are available for the `memory` and `redis` drivers. Cloudflare Queues are consumed by the Worker, so their failed jobs live in the dead-letter queue you configured in wrangler.
+Counts are available for the `memory` and `redis` drivers and the `database` driver of `@hazejs/orm`. Cloudflare Queues are consumed by the Worker, so their failed jobs live in the dead-letter queue you configured in wrangler.

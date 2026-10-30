@@ -239,11 +239,11 @@ export default defineConfig(() => ({
 | `index.schedule` | Scheduled tasks, triggered by an EventBridge rule `rate(1 minute)` |
 | `index.migrate` | Production migrations (only with `@hazejs/orm`) |
 
-All three use the same bundle. WebSocket and Socket.IO are not available on Lambda.
+All three use the same bundle. WebSocket and Socket.IO are not available on Lambda. `ctx.ip` (and so rate limiting) uses the event's `sourceIp` for API Gateway and Function URL events; ALB events carry no source address, so behind an ALB set `trustProxy: true` in `config/app.ts`.
 
 ## Vercel
 
-The `vercel` preset writes the [Build Output API](https://vercel.com/docs/build-output-api) layout to `.vercel/output`: static files in `static/`, the server in `functions/__server.func` (Node.js 22) and routing in `config.json`. Deploy it with `vercel deploy --prebuilt`.
+The `vercel` preset writes the [Build Output API](https://vercel.com/docs/build-output-api) layout to `.vercel/output`: static files in `static/`, the server in `functions/__server.func` (Node.js 22) and routing in `config.json`. Deploy it with `vercel deploy --prebuilt`. Vercel rewrites `X-Forwarded-For`, so set `trustProxy: true` in `config/app.ts` for `ctx.ip` and rate limiting to see the real client.
 
 If the project has scheduled tasks, a Vercel Cron job calls `/__haze/schedule` every minute. Set `CRON_SECRET` (`vercel env add CRON_SECRET`); requests without `Authorization: Bearer $CRON_SECRET` get a 401. Hobby plans only allow daily crons, so adjust the expression:
 
@@ -259,11 +259,11 @@ export default defineHazeConfig({
 
 ## Netlify
 
-The `netlify` preset builds the server to `dist/server` and writes a Netlify Functions (v2) entry at `.netlify/v1/functions/haze-server.mjs`. If there is no `netlify.toml`, one is created with the build command and publish directory; full-stack builds also get a `_redirects` SPA fallback. Deploy with `netlify deploy --build`.
+The `netlify` preset builds the server to `dist/server` and writes a Netlify Functions (v2) entry at `.netlify/v1/functions/haze-server.mjs`. If there is no `netlify.toml`, one is created with the build command and publish directory; full-stack builds also get a `_redirects` SPA fallback. Deploy with `netlify deploy --build`. Netlify rewrites `X-Forwarded-For`, so set `trustProxy: true` in `config/app.ts` for `ctx.ip` and rate limiting to see the real client.
 
 ## Cloudflare
 
-The `cloudflare` preset bundles everything into a single `dist/index.mjs` and generates `dist/wrangler.json` with `nodejs_compat` enabled. For full-stack projects, `dist/client` is served by Workers Assets with SPA fallback, and the backend prefixes are routed to the Worker first.
+The `cloudflare` preset bundles everything into a single `dist/index.mjs` and generates `dist/wrangler.json` with `nodejs_compat` enabled. For full-stack projects, `dist/client` is served by Workers Assets with SPA fallback, and the backend prefixes are routed to the Worker first. The generated entry passes `cf-connecting-ip` as the client address, so `ctx.ip` and rate limiting work without `trustProxy`.
 
 ```bash
 haze build --preset cloudflare

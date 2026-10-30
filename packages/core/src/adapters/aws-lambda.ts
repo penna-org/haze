@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { setClientAddress } from '../http/client-ip'
 
 /**
  * AWS Lambda 适配：API Gateway HTTP API（v2）、REST API（v1）、ALB 与 Lambda Function URL 事件
@@ -16,6 +17,8 @@ export interface LambdaEvent {
   cookies?: string[]
   requestContext?: {
     http?: { method: string, sourceIp?: string }
+    /** v1（REST API）事件的客户端地址 */
+    identity?: { sourceIp?: string }
     domainName?: string
   }
   // v1 / ALB
@@ -98,7 +101,11 @@ export function lambdaEventToRequest(event: LambdaEvent): Request {
         ? new Uint8Array(Buffer.from(event.body!, 'base64'))
         : event.body!)
     : undefined
-  return new Request(url, { method, headers, body })
+  // API Gateway / Function URL 给出的客户端地址（ALB 事件没有，位于 ALB 之后请开启 trustProxy）
+  const sourceIp = v2
+    ? event.requestContext?.http?.sourceIp
+    : event.requestContext?.identity?.sourceIp
+  return setClientAddress(new Request(url, { method, headers, body }), sourceIp)
 }
 
 const TEXT_TYPE = /^(?:text\/|application\/(?:json|xml|javascript|x-www-form-urlencoded|.*\+json|.*\+xml))/

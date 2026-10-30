@@ -239,11 +239,11 @@ export default defineConfig(() => ({
 | `index.schedule` | 定时任务，由 EventBridge 规则 `rate(1 minute)` 触发 |
 | `index.migrate` | 生产迁移（仅在使用 `@hazejs/orm` 时） |
 
-三者使用同一份产物。Lambda 上不支持 WebSocket 与 Socket.IO。
+三者使用同一份产物。Lambda 上不支持 WebSocket 与 Socket.IO。`ctx.ip`（以及限流）使用 API Gateway 与 Function URL 事件中的 `sourceIp`；ALB 事件不带来源地址，位于 ALB 之后时请在 `config/app.ts` 中设置 `trustProxy: true`。
 
 ## Vercel
 
-`vercel` 预设按 [Build Output API](https://vercel.com/docs/build-output-api) 的结构输出到 `.vercel/output`：静态文件在 `static/`，服务端在 `functions/__server.func`（Node.js 22），路由规则在 `config.json`。用 `vercel deploy --prebuilt` 部署。
+`vercel` 预设按 [Build Output API](https://vercel.com/docs/build-output-api) 的结构输出到 `.vercel/output`：静态文件在 `static/`，服务端在 `functions/__server.func`（Node.js 22），路由规则在 `config.json`。用 `vercel deploy --prebuilt` 部署。Vercel 会重写 `X-Forwarded-For`，请在 `config/app.ts` 中设置 `trustProxy: true`，`ctx.ip` 与限流才能看到真实客户端。
 
 项目中有定时任务时，会自动配置 Vercel Cron 每分钟调用 `/__haze/schedule`。请设置 `CRON_SECRET`（`vercel env add CRON_SECRET`），没有携带 `Authorization: Bearer $CRON_SECRET` 的请求会得到 401。Hobby 计划只允许每天执行一次，需要调整表达式：
 
@@ -259,11 +259,11 @@ export default defineHazeConfig({
 
 ## Netlify
 
-`netlify` 预设把服务端构建到 `dist/server`，并在 `.netlify/v1/functions/haze-server.mjs` 生成 Netlify Functions（v2）入口。项目中没有 `netlify.toml` 时会自动生成一份，包含构建命令与发布目录；全栈项目还会生成用于 SPA 回退的 `_redirects`。用 `netlify deploy --build` 部署。
+`netlify` 预设把服务端构建到 `dist/server`，并在 `.netlify/v1/functions/haze-server.mjs` 生成 Netlify Functions（v2）入口。项目中没有 `netlify.toml` 时会自动生成一份，包含构建命令与发布目录；全栈项目还会生成用于 SPA 回退的 `_redirects`。用 `netlify deploy --build` 部署。Netlify 会重写 `X-Forwarded-For`，请在 `config/app.ts` 中设置 `trustProxy: true`，`ctx.ip` 与限流才能看到真实客户端。
 
 ## Cloudflare
 
-`cloudflare` 预设把全部代码打包为单个 `dist/index.mjs`，并生成开启了 `nodejs_compat` 的 `dist/wrangler.json`。全栈项目的 `dist/client` 由 Workers Assets 托管（带 SPA 回退），后端前缀下的请求优先交给 Worker。
+`cloudflare` 预设把全部代码打包为单个 `dist/index.mjs`，并生成开启了 `nodejs_compat` 的 `dist/wrangler.json`。全栈项目的 `dist/client` 由 Workers Assets 托管（带 SPA 回退），后端前缀下的请求优先交给 Worker。生成的入口会把 `cf-connecting-ip` 作为客户端地址，`ctx.ip` 与限流无需 `trustProxy` 即可工作。
 
 ```bash
 haze build --preset cloudflare

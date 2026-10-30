@@ -4,10 +4,6 @@ hazejs is a batteries-included TypeScript backend framework. It brings the produ
 
 The same application runs on Node.js, Bun, Deno, Docker, Cloudflare Workers, Vercel, Netlify and AWS Lambda, and can serve a Vue, React or any other Vite frontend from the same port with a single build.
 
-::: warning Pre-release
-hazejs is in `0.x`. APIs may still change before 1.0, and the packages are not published to npm yet. See the [contributing guide](https://github.com/penna-org/haze/blob/main/CONTRIBUTING.md) to try it from source.
-:::
-
 ## Philosophy
 
 **Convention over configuration.** Controllers live in `app/controller`, config in `config/`, routes in `route/`, jobs in `app/job`. Most directories are discovered at build time, so there is no registration boilerplate — and `haze make:*` generates the files for you. See [Directory Structure](./directory-structure).
@@ -110,7 +106,7 @@ hazejs is a good fit when you want:
 - the freedom to deploy the same code to a VPS, a container, serverless functions or Cloudflare Workers;
 - a familiar structure if you come from Laravel or ThinkPHP.
 
-It is probably not the right choice if you only need a handful of endpoints (a micro-router is lighter), if you need a stable 1.0 API today, or if you need an ecosystem of third-party plugins as large as Express's.
+It is probably not the right choice if you only need a handful of endpoints (a micro-router is lighter), or if you need an ecosystem of third-party plugins as large as Express's.
 
 ## Next steps
 

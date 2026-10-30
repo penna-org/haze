@@ -203,7 +203,7 @@ export default defineSecureHeadersConfig({
 })
 ```
 
-每个选项（`contentSecurityPolicy`、`strictTransportSecurity`、`frameOptions`、`referrerPolicy`、`crossOriginOpenerPolicy`、`crossOriginResourcePolicy`、`permissionsPolicy`）传字符串覆盖默认值，传 `false` 不发送该响应头。
+每个选项（`contentSecurityPolicy`、`strictTransportSecurity`、`frameOptions`、`referrerPolicy`、`crossOriginOpenerPolicy`、`crossOriginResourcePolicy`、`permissionsPolicy`）传字符串覆盖默认值，传 `false` 不发送该响应头；其中 `frameOptions` 只接受 `'DENY'` 或 `'SAMEORIGIN'`。`headers` 最后合并，因此也能覆盖固定发送的响应头（`X-Content-Type-Options`、`X-XSS-Protection` 等），值为空字符串时不发送该响应头。
 
 ## 限流
 
@@ -258,7 +258,9 @@ const plain = await Crypt.decryptString(secret)
 
 ### 密钥轮换
 
-直接更换 `APP_KEY` 会导致已有的密文无法解密。把旧密钥放进 `APP_PREVIOUS_KEYS`（逗号分隔）或 `config/app.ts` 的 `previousKeys`：解密时先用当前密钥，再依次尝试旧密钥；新数据始终用当前密钥加密。旧密钥同样让[签名链接](./routing#签名链接)保持有效。
+直接更换 `APP_KEY` 会导致已有的密文无法解密。把旧密钥放进 `APP_PREVIOUS_KEYS`（逗号分隔）或 `config/app.ts` 的 `previousKeys`：解密时先用当前密钥，再依次尝试旧密钥；新数据始终用当前密钥加密。旧密钥同样让[签名链接](./routing#签名链接)（包括邮箱验证链接）保持有效；两步验证的密钥用 `Crypt` 加密，也仍然可以读取。
+
+除此之外旧密钥不起作用：会话、签名 Cookie、OAuth 的 state Cookie，以及用旧密钥签发的 JWT（未单独设置 `secret` 的 `HS*` Guard）都会失效，所以轮换后所有用户都需要重新登录。
 
 ```bash
 APP_KEY=new-key...
@@ -279,4 +281,8 @@ r.post('/auth/avatar', [AuthController, 'avatar']).middleware(['auth', 'bodyLimi
 
 ## 反向代理
 
-应用部署在可信的反向代理或负载均衡之后时，在 `config/app.ts` 中设置 `trustProxy: true`。此后 `ctx.ip` 取自 `X-Forwarded-For`（影响限流），协议取自 `X-Forwarded-Proto`（决定是否发送 HSTS）。客户端能直接访问应用时请保持关闭，否则这些请求头可以被伪造。
+应用部署在可信的反向代理或负载均衡之后时，在 `config/app.ts` 中设置 `trustProxy: true`。此后 `ctx.ip` 取自 `X-Forwarded-For`（限流按它计数），协议取自 `X-Forwarded-Proto`（决定是否发送 HSTS）。客户端能直接访问应用时请保持关闭，否则这些请求头可以被伪造。
+
+代理是把自己看到的地址*追加*到 `X-Forwarded-For` 末尾的，最左一项是客户端自己发来的内容。因此 hazejs 取最近的可信代理追加的那一项，也就是最右一项。有多层可信代理时（比如 CDN 之后还有自己的负载均衡），改为填写层数：`trustProxy: 2` 取从右数第二项。客户端自带 `X-Forwarded-For` 并不能绕过限流。
+
+自己终止连接的平台不需要 `trustProxy`：Cloudflare Workers 的入口会把 `cf-connecting-ip` 作为客户端地址，AWS Lambda 适配器使用事件中的 `sourceIp`（API Gateway 与 Function URL；位于 ALB 之后时设置 `trustProxy: true`）。Vercel 与 Netlify 会重写 `X-Forwarded-For`，请设置 `trustProxy: true`。自定义入口可以用 `@hazejs/core` 的 `setClientAddress(request, ip)` 传入平台提供的地址。完全取不到地址时，`throttle` 把所有匿名请求计在同一个键下，并在非调试模式下告警一次。

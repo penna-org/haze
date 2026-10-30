@@ -478,15 +478,20 @@ export const config = {
       staticFromServer: undefined,
     }),
     entry: context => `${lazyApp(context, `env: false,`)}
-import { QueueManager, Scheduler, setPlatformBindings } from '@hazejs/core'
+import { QueueManager, Scheduler, setClientAddress, setPlatformBindings } from '@hazejs/core'
 ${context.websocket
   ? `import { createWebSocketDurableObject } from '@hazejs/core/cloudflare'
 
 // WebSocket：所有连接在同一个 Durable Object 中，订阅 / 广播全局生效；钩子在 DO 内经应用解析（含中间件）
-const websocket = createWebSocketDurableObject({ fetch: async request => (await getApp()).fetch(request), bind: env => bind(env) })
+const websocket = createWebSocketDurableObject({ fetch: async request => (await getApp()).fetch(withClientIp(request)), bind: env => bind(env) })
 export const HazeWebSocket = websocket.HazeWebSocket
 `
   : ''}
+/** Cloudflare 在边缘写入 cf-connecting-ip（客户端传来的会被覆盖），作为 ctx.ip */
+function withClientIp(request) {
+  return setClientAddress(request, request.headers.get('cf-connecting-ip'))
+}
+
 function bind(env) {
   setPlatformBindings(env)
   if (!app) {
@@ -505,7 +510,7 @@ ${context.websocket
   ? `    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket')
       return websocket.handleUpgrade(request, env, ctx)
 `
-  : ''}    return (await getApp()).fetch(request)
+  : ''}    return (await getApp()).fetch(withClientIp(request))
   },
   /** Cloudflare Queues 消费：重试映射为 message.retry({ delaySeconds }) */
   async queue(batch, env) {

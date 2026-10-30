@@ -94,6 +94,30 @@ describe('throttle', () => {
     // 不同 IP 分别计数
     expect((await hit('10.0.0.2')).status).toBe(200)
   })
+
+  it('keys on the address the trusted proxy appended, not on what the client sent', async () => {
+    const one = await boot(r => r.get('/limited', () => 'ok').middleware('throttle:1,60'), {
+      config: {
+        app: { trustProxy: true },
+      },
+    })
+    const hit = (app: Awaited<ReturnType<typeof boot>>, forwardedFor: string) => app.request('/limited', {
+      headers: { 'x-forwarded-for': forwardedFor },
+    })
+    expect((await hit(one, '6.6.6.6, 20.0.0.1')).status).toBe(200)
+    // 客户端换一个伪造的最左项，仍然算同一个客户端
+    expect((await hit(one, '7.7.7.7, 20.0.0.1')).status).toBe(429)
+    expect((await hit(one, '20.0.0.2')).status).toBe(200)
+
+    // 两层可信代理：从右数第二项
+    const two = await boot(r => r.get('/limited', () => 'ok').middleware('throttle:1,60'), {
+      config: {
+        app: { trustProxy: 2 },
+      },
+    })
+    expect((await hit(two, '9.9.9.9, 30.0.0.1, 172.16.0.2')).status).toBe(200)
+    expect((await hit(two, '8.8.8.8, 30.0.0.1, 172.16.0.3')).status).toBe(429)
+  })
 })
 
 describe('secureHeaders', () => {

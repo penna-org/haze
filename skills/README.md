@@ -4,7 +4,7 @@
 
 | Skill | Use it for |
 | --- | --- |
-| [`hazejs`](./hazejs/SKILL.md) | Building apps with hazejs: routing, controllers, validation, database, auth, queues and realtime, cache / storage / i18n / AI, testing, CLI and deployment. The entry file points to one reference per area. |
+| [`hazejs`](./hazejs/SKILL.md) | Building apps with hazejs: routing, controllers, validation, container and modules, database, auth, queues and realtime, cache / storage / i18n / AI, GraphQL, microservices, testing, CLI and deployment. The entry file points to one reference per area. |
 | [`hazejs-migration`](./hazejs-migration/SKILL.md) | Porting an existing Fastify, Express, Koa, Hono or NestJS backend to hazejs while keeping its business code and API contract, and proving the port with the original tests. Distilled from migrating a 32k-line Fastify backend. |
 | [`hazejs-contributing`](./hazejs-contributing/SKILL.md) | Working on the framework itself: toolchain, tests, bilingual docs, design records and changesets. |
 

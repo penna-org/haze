@@ -95,9 +95,10 @@ describe('vite preview runs the build output of every preset', () => {
     // Socket.IO：node / bun / docker 的产物（Deno 不支持 socket.io 服务端）
     if (['node', 'bun', 'docker'].includes(preset)) {
       expect(await socketIoFirst(`${url}/chat`, 'online')).toBe(1)
-      expect(await socketIoFirst(`${url}/chat`, 'online', {
+      // 上一个（轮询）客户端的断开在服务端异步处理，bun 引擎上稍慢：等在线数回到 1
+      await expect.poll(() => socketIoFirst(`${url}/chat`, 'online', {
         transports: ['websocket'],
-      })).toBe(1)
+      }), { timeout: 5000, interval: 200 }).toBe(1)
     }
   })
 
