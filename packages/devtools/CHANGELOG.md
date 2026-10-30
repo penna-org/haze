@@ -1,5 +1,12 @@
 # @hazejs/devtools
 
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies [[`57b3b34`](https://github.com/penna-org/haze/commit/57b3b34daf04d05252f6fc5e0cd059b6676ca116)]:
+  - @hazejs/core@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

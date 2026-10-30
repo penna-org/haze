@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/ai",
   "type": "module",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "AI toolkit for hazejs: one API for OpenAI, Anthropic, Gemini, Azure, Bedrock, Cloudflare and OpenAI-compatible providers — text, streaming, tools, structured output, embeddings, agents, images, speech and MCP",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/ai#readme",

@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/oauth",
   "type": "module",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "OAuth / OpenID Connect social login for hazejs: GitHub, Google, Apple, Microsoft, GitLab, Discord, WeChat, QQ, DingTalk, Feishu / Lark, WeCom, Alipay and generic OIDC",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/oauth#readme",
