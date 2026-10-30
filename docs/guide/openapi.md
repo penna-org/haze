@@ -116,6 +116,7 @@ r.get('/internal/metrics', [MetricsController, 'index']).doc({ hidden: true })
 | `responses` | Extra responses: `{ 404: { description, schema?, contentType? } }`. These schemas are not wrapped |
 | `contentType` | Request body content type, when the default is wrong |
 | `security` | Replaces the security requirement; `[]` means no authentication |
+| `extensions` | Specification extensions copied onto the operation, e.g. `{ 'x-permission': ['user:delete'] }` |
 
 Resource routes accept `tags`, `deprecated` and `hidden` for all their routes:
 

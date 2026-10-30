@@ -167,7 +167,7 @@ Issues from other validators (arktype …) keep their own messages.
 
 ## Framework messages
 
-The framework's built-in error messages — unmatched routes, 401, 403, 404, 419, 429, 500 and invalid signatures — are translated the same way. Override them in `lang/<locale>/http.ts`:
+The framework's built-in error messages — unmatched routes, 401, 403, 404, 419, 429, 500, invalid signatures and `@hazejs/orm` unique constraint violations (`unique_violation`) — are translated the same way. Override them in `lang/<locale>/http.ts`:
 
 ```ts
 // lang/en/http.ts

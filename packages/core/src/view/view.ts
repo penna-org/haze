@@ -5,7 +5,7 @@ import type { RawHtml } from '../mail/layout'
 import type { Component, ViewChild, ViewNode } from './jsx'
 import { useI18n } from '../i18n/manager'
 import { escapeHtml, rawHtml } from '../mail/layout'
-import { getRequestStore } from '../request'
+import { getContextApp, getRequestStore } from '../request'
 import { isViewNode, jsx, renderChild } from './jsx'
 
 export interface ViewResponseInit {
@@ -62,7 +62,7 @@ export async function toViewNode(input: ViewInput, props: Record<string, unknown
 }
 
 function currentApp(): Application {
-  const app = getRequestStore()?.app
+  const app = getContextApp()
   if (!app)
     throw new Error('Rendering a view by name needs an application (call it within a request)')
   return app
@@ -88,7 +88,7 @@ export async function renderViewResponse(node: ViewChild, ctx: HttpContext | und
 export async function contextView(ctx: HttpContext, input: ViewInput, propsOrInit?: Record<string, unknown> | ViewResponseInit, init?: ViewResponseInit): Promise<Response> {
   const node = isViewNode(input)
     ? input
-    : await toViewNode(input, propsOrInit as Record<string, unknown> | undefined, getRequestStore()?.app)
+    : await toViewNode(input, propsOrInit as Record<string, unknown> | undefined, getContextApp())
   const options = isViewNode(input)
     ? propsOrInit as ViewResponseInit | undefined
     : init

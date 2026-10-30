@@ -114,7 +114,8 @@ r.patch('/posts/:id', [PostController, 'update']).middleware('can:update,Post,id
 
 | Form | Checks |
 |------|--------|
-| `can:<ability>` | An ability from `defineAbilities` |
+| `can:<ability>` | An ability from `defineAbilities` (or decided by `gate.fallback()`) |
+| `can:a\|b` | Passes when the user has **any** of the abilities |
 | `can:<ability>,<Model>` | A class-level ability on the policy for `<Model>` |
 | `can:<ability>,<Model>,<param>` | Loads the model with `Model.findOrFail(ctx.param(param))` (missing → `404`), then checks the instance |
 
@@ -170,6 +171,24 @@ export default defineProvider({
     })
   },
 })
+```
+
+### Data-driven abilities
+
+When abilities are permission codes stored with roles in the database — and new ones appear at runtime — register a fallback instead of defining each one. It decides every ability that has no definition; `before` hooks still run first, and returning `undefined` denies:
+
+```ts
+gate.fallback((user: AuthUser | undefined, ability) => user?.permissions.includes(ability))
+```
+
+`await ctx.authorizeAny(['report:export', 'report:manage'])` (and `gate.authorizeAny(user, abilities)`) passes when any of the abilities is granted; the `can:a|b` middleware does the same.
+
+A denied signed-in user gets an `AuthorizationException` (a `ForbiddenException`, status 403) carrying `abilities` (the ability, or every candidate for `authorizeAny`) and `reason` (the `deny()` message, if any). An exception handler can use them to name the missing permission or localize the message:
+
+```ts
+// app/exception/Handler.ts
+if (error instanceof AuthorizationException && !error.reason)
+  return { statusCode: 403, code: 'forbidden', message: `Missing permission: ${error.abilities.join(', ')}` }
 ```
 
 ## How a decision is made

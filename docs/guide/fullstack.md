@@ -58,6 +58,8 @@ Keep options in `haze.config.ts` so the CLI and the plugin agree. If you pass `s
 pnpm dev   # runs haze dev, which starts Vite with your vite.config.ts
 ```
 
+`haze dev`, `haze build` and `haze preview` treat a project as full-stack when its `vite.config.*` imports `@hazejs/vite`. A `vite.config.ts` that only holds tooling settings (vite-plus `run` tasks, lint or test options in a monorepo) is ignored, and the project stays a backend-only project.
+
 You can also run `vite` directly. Either way there is a single server, on Vite's port (`5173` by default):
 
 - Requests whose path matches the prefix (`/api`, `/api/…`, `/api?…`) go to the backend. The plugin registers its middleware before Vite's own, so API requests never hit the static file handler or the SPA fallback.
@@ -210,7 +212,17 @@ A single process serves the API and the frontend:
 
 - requests under the prefix go to the application;
 - other `GET` / `HEAD` requests are served from `dist/client`; files under `/assets/` get a long-lived immutable `Cache-Control`;
-- unmatched requests that accept HTML fall back to `index.html` (no-cache), so client-side routing in history mode works. API paths never fall back.
+- HTML pages (`index.html`) are sent with `Cache-Control: no-cache`, so a new release shows up on the next reload;
+- unmatched requests that accept HTML fall back to `index.html` (no-cache), so client-side routing in history mode works. API paths never fall back;
+- global middleware (`secureHeaders`, `cors`, …) runs before static files are served, so pages get the same security headers as the API.
+
+When you serve a frontend build yourself (`createApplication({ static })`), `precompressed: true` returns the `.br` / `.gz` copies produced at build time according to `Accept-Encoding` (brotli preferred when both are accepted) instead of compressing on every request — worth it for large bundles and `.wasm` files:
+
+```ts
+await createApplication({
+  static: { dir: '/srv/web', spaFallback: true, exclude: ['/api'], precompressed: true },
+})
+```
 
 On `vercel`, `netlify` and `cloudflare` the frontend is served by the platform's CDN and only the prefix reaches your function.
 

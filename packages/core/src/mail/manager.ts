@@ -7,7 +7,7 @@ import { useI18n } from '../i18n/manager'
 import { recordTelemetry, telemetryActive } from '../observability/telemetry'
 import { defineJob } from '../queue/job'
 import { QueueManager } from '../queue/manager'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { fromBase64, toBase64 } from '../storage/content'
 import { StorageManager } from '../storage/manager'
 import { contentTypeOf } from '../storage/mime'
@@ -473,7 +473,7 @@ export function setMailManager(manager: MailManager | undefined): void {
 }
 
 export function useMailManager(): MailManager {
-  const manager = getRequestStore()?.container.make(MailManager) ?? fallback
+  const manager = getContextContainer()?.make(MailManager) ?? fallback
   if (!manager)
     throw new Error('Mail is not available: the application has not booted')
   return manager

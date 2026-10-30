@@ -1,6 +1,6 @@
 import type { AbstractConstructor, Constructor } from '../utils'
 import type { InjectionKey } from './token'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { isClass } from '../utils'
 import { CircularDependencyError, ContainerError, ResolutionError, ScopeError } from './errors'
 import { keyName } from './token'
@@ -258,7 +258,7 @@ function assertNoSingletonParent(key: InjectionKey<any>): void {
  * - 请求处理过程中（自动使用当前请求的子容器）
  */
 export function inject<T>(key: InjectionKey<T>): T {
-  const container = currentContext?.container ?? getRequestStore()?.container
+  const container = currentContext?.container ?? getContextContainer()
   if (!container) {
     throw new ContainerError(
       `inject(${keyName(key)}) must be called during construction by the container, inside container.call(), or within a request`,

@@ -6,12 +6,14 @@ import process from 'node:process'
 import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { importFromApp } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 import { binOf } from '../resolve'
 
 interface ConnectionConfig {
-  driver: 'sqlite' | 'turso' | 'd1' | 'postgres' | 'pglite' | 'mysql' | 'mongodb'
+  driver: 'sqlite' | 'turso' | 'd1' | 'postgres' | 'node-postgres' | 'pglite' | 'mysql' | 'mongodb'
   url?: string
+  casing?: 'snake_case' | 'camelCase'
   schema?: string
   migrations?: string
 }
@@ -110,6 +112,10 @@ export const generateCommand = defineCommand({
       `--dialect=${target.dialect}`,
       `--schema=${relative(root, target.schema)}/*.ts`,
       `--out=${relative(root, target.migrations)}`,
+      // 与运行时连接的 casing 一致：没有写列名的字段按它生成列名
+      ...(target.config.casing
+        ? [`--casing=${target.config.casing}`]
+        : []),
       ...(args.name
         ? [`--name=${args.name}`]
         : []),
@@ -135,7 +141,7 @@ export const migrateCommand = defineCommand({
     const root = resolveRoot(args.root)
     await withApp(root, async (server, _database, srcDir) => {
       // 与生产迁移入口（migrate.mjs / Lambda index.migrate）相同的实现，只是从源码目录读取迁移
-      const orm = await server.import<typeof import('@hazejs/orm')>('@hazejs/orm')
+      const orm = await importFromApp<typeof import('@hazejs/orm')>(server, root, '@hazejs/orm')
       const results = await orm.runMigrations({ srcDir, connection: args.connection, all: args.all })
       // 每个连接先执行模块的迁移（按启用顺序，各自的记录表），最后是项目自身的迁移
       for (const result of results) {

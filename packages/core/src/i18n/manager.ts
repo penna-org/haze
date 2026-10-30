@@ -4,7 +4,7 @@ import type { ModuleRecord } from '../utils'
 import type { I18nConfig, LocaleDetector } from './config'
 import type { FrameworkMessages } from './messages'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { getRequestStore } from '../request'
+import { getContextContainer, getRequestStore } from '../request'
 import { deepMerge, isPlainObject, unwrapDefault } from '../utils'
 import { defaultI18nConfig } from './config'
 import { frameworkMessages } from './messages'
@@ -351,7 +351,7 @@ export function setI18nManager(manager: I18nManager | undefined): void {
 
 /** 当前应用的多语言管理器；应用未注册时返回一个只含框架内置翻译、未启用的实例 */
 export function useI18n(): I18nManager {
-  const container = getRequestStore()?.container
+  const container = getContextContainer()
   if (container?.has(I18nManager))
     return container.make(I18nManager)
   return fallback ?? (standalone ??= new I18nManager())
@@ -374,7 +374,7 @@ export function setRequestLocale(ctx: HttpContext, locale: string): void {
 
 /** 是否需要翻译框架消息（已注册多语言且存在 config/i18n.ts） */
 export function i18nEnabled(): boolean {
-  const container = getRequestStore()?.container
+  const container = getContextContainer()
   if (container?.has(I18nManager))
     return container.make(I18nManager).enabled
   return fallback?.enabled ?? false

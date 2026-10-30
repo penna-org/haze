@@ -25,12 +25,13 @@ export class SearchController {
 
 | 方法 | 返回值 |
 |------|--------|
-| `ctx.param(name)` / `ctx.params()` | 路由参数，始终是字符串 |
+| `ctx.param(name)` / `ctx.params()` | 路由参数（已 URL 解码的字符串） |
 | `ctx.query(name)` / `ctx.query()` | 查询参数；按名读取时，重复的参数取第一个值 |
 | `await ctx.body<T>()` | 解析后的请求体 |
 | `ctx.header(name)` | 请求头的值或 `undefined` |
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookie 的值；签名 Cookie 被篡改时返回 `undefined` |
 | `ctx.ip` | 客户端 IP；仅当 `app.trustProxy` 为 `true` 时读取 `X-Forwarded-For` |
+| `ctx.origin` / `ctx.secure` | 客户端访问的地址（`https://admin.example.com`）与是否为 https；仅当 `app.trustProxy` 为 `true` 时读取 `X-Forwarded-Proto` / `X-Forwarded-Host` |
 | `ctx.method`、`ctx.path`、`ctx.url` | 请求方法、路径、完整的 `URL` |
 | `ctx.req` | 原生的 Web `Request` |
 

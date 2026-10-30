@@ -4,6 +4,7 @@ import type { ScheduleDefinition, ScheduledTask } from './schedule'
 import { CacheManager } from '../cache/manager'
 import { MaintenanceManager } from '../maintenance/manager'
 import { QueueManager } from '../queue/manager'
+import { runInApp } from '../request'
 import { isScheduleDefinition, Schedule } from './schedule'
 
 export interface ScheduleConfig {
@@ -11,6 +12,8 @@ export interface ScheduleConfig {
   timezone?: string
   /** onOneServer / withoutOverlapping 使用的缓存存储（须为原子存储），默认缓存的默认存储 */
   store?: string
+  /** 在 HTTP 服务器进程中执行定时任务（单进程部署、开发），不需要另外运行 haze schedule:work；默认 false */
+  runInServer?: boolean
 }
 
 /** `config/schedule.ts` 的默认导出 */
@@ -45,12 +48,12 @@ export class Scheduler {
     return this
   }
 
-  /** 全部定时任务 */
+  /** 全部定时任务（defineSchedule 的回调在应用上下文中执行，收到应用；s.job() 投递到这个应用的队列） */
   tasks(): ScheduledTask[] {
     if (!this.#tasks) {
       const queue = this.app.make(QueueManager)
-      const schedule = new Schedule(job => queue.nameOf(job))
-      this.#definitions.forEach(definition => definition.define(schedule))
+      const schedule = new Schedule(job => queue.nameOf(job), (job, payload, options) => queue.dispatch(job, payload, options))
+      runInApp(this.app, () => this.#definitions.forEach(definition => definition.define(schedule, this.app)))
       this.#tasks = schedule.tasks
     }
     return this.#tasks
@@ -68,8 +71,15 @@ export class Scheduler {
     return cache
   }
 
-  /** 执行一个任务（含 onOneServer / withoutOverlapping 检查） */
-  async runTask(task: ScheduledTask, date: Date = new Date()): Promise<TaskRun> {
+  /**
+   * 执行一个任务（含 onOneServer / withoutOverlapping 检查）：在应用上下文中执行，
+   * 条件、任务函数与钩子中的门面（Queue、Events、Db、useApp()、config()、inject()）解析到这个应用
+   */
+  runTask(task: ScheduledTask, date: Date = new Date()): Promise<TaskRun> {
+    return runInApp(this.app, () => this.#runTask(task, date))
+  }
+
+  async #runTask(task: ScheduledTask, date: Date): Promise<TaskRun> {
     const started = performance.now()
     const logger = this.app.logger.child({ task: task.name })
     if (!(await task.passesFilters())) {
@@ -106,11 +116,16 @@ export class Scheduler {
     try {
       await task.run()
       await task.onSuccessHook?.()
-      logger.info(`Scheduled task done in ${Math.round(performance.now() - started)}ms`)
+      // s.job()：这里只是投递到队列，任务由 worker 执行（执行结果见队列日志）
+      logger.info(task.kind === 'job'
+        ? `Scheduled job dispatched to the queue in ${Math.round(performance.now() - started)}ms`
+        : `Scheduled task done in ${Math.round(performance.now() - started)}ms`)
       return { name: task.name, status: 'ok', duration: performance.now() - started }
     }
     catch (error) {
-      logger.error('Scheduled task failed', error)
+      logger.error(task.kind === 'job'
+        ? 'Scheduled job could not be dispatched'
+        : 'Scheduled task failed', error)
       await Promise.resolve(task.onFailureHook?.(error)).catch(hookError => logger.error('onFailure hook threw', hookError))
       return {
         name: task.name,

@@ -45,6 +45,9 @@
       ],
       "@hazejs/oauth": [
         "./packages/oauth/src/index.ts"
+      ],
+      "@hazejs/devtools": [
+        "./packages/devtools/src/index.ts"
       ]
     }
   },

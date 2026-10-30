@@ -116,6 +116,7 @@ r.get('/internal/metrics', [MetricsController, 'index']).doc({ hidden: true })
 | `responses` | 额外的响应：`{ 404: { description, schema?, contentType? } }`，这里的 schema 不会被包装 |
 | `contentType` | 默认推断的请求体类型不对时手动指定 |
 | `security` | 替换安全要求；`[]` 表示无需认证 |
+| `extensions` | 规范扩展字段，原样写入 operation，如 `{ 'x-permission': ['user:delete'] }` |
 
 资源路由可以为其下所有路由统一设置 `tags`、`deprecated` 与 `hidden`：
 

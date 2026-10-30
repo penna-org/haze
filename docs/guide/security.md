@@ -190,7 +190,7 @@ Anchor regular-expression origins (`/^https:\/\/app\.example\.com$/`); unanchore
 
 ## Security headers
 
-`secureHeaders` sets helmet-style defaults: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, and a few others. `Strict-Transport-Security` is only sent on HTTPS requests when `app.debug` is off.
+`secureHeaders` sets helmet-style defaults: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, and a few others. `Cross-Origin-Opener-Policy` and `Origin-Agent-Cluster` are only sent on HTTPS requests (browsers ignore them over plain HTTP, and COOP logs a console error), and `Strict-Transport-Security` only on HTTPS requests when `app.debug` is off. Behind a proxy, set `app.trustProxy` so `X-Forwarded-Proto` counts. When the app serves a frontend build (`static`), global middleware such as `secureHeaders` and `cors` apply to those pages and assets too.
 
 ```ts
 // config/secureHeaders.ts

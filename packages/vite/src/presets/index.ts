@@ -66,6 +66,9 @@ const { values } = parseArgs({
 const app = await createApp({ mode: 'production' })
 try {
   for (const result of await runMigrations({ files, connection: values.connection, all: values.all })) {
+    // 没有迁移的目录（如没有 database/migrations 的本地模块）不输出
+    if (result.skipped === 'no-migrations')
+      continue
     app.logger.info(result.skipped
       ? \`[\${result.connection}] skipped (\${result.skipped})\`
       : \`[\${result.connection}] \${result.applied} of \${result.total} migrations applied (\${result.folder})\`)
@@ -260,6 +263,9 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY . .
 EXPOSE ${context.port}
+# 存活检查：/health/live（config/health.ts 修改了 path 或关闭健康检查时请同步调整）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \\
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||${context.port})+'/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 CMD ["node", "server/index.mjs"]
 `)
       await writeFile(join(context.outDir, '.dockerignore'), 'node_modules\nDockerfile\n.dockerignore\n')

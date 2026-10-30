@@ -70,7 +70,8 @@ export default defineNamespace({
 ```
 
 - 令牌取自客户端的 `auth.token`（按 Bearer 令牌处理）或握手请求的 `Authorization` 头；Session Guard 读取握手请求的 Cookie。
-- 未登录时拒绝连接，客户端收到 `connect_error`，message 为 `unauthorized`。
+- 未登录时拒绝连接，客户端收到 `connect_error`，`error.data` 为 `{ status, code }`，code 与 HTTP 接口一致（`unauthenticated`、`token_invalid`，或 Guard 的 `resolveUser` 抛出的异常自己的 code），客户端据此决定重新登录还是刷新令牌后重连。
+- `authenticate({ headers: auth => ({ 'x-org-id': auth.org }) })` 把握手 `auth` 中的其它字段作为请求头交给 Guard，`resolveUser` 看到的请求头与 HTTP 接口相同。
 - `authenticate({ optional: true })` 允许游客连接，此时 `socket.data.user` 为 `undefined`。
 
 ## 在任意位置推送

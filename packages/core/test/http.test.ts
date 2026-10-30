@@ -175,6 +175,29 @@ describe('controllers and dependency injection', () => {
 })
 
 describe('middleware', () => {
+  it('exposes the matched route (pattern, name, meta) as ctx.route', async () => {
+    const seen: unknown[] = []
+    const app = await boot((r) => {
+      r.group({ prefix: '/api', as: 'api.' }, (r) => {
+        r.get('/users/:id', ctx => ctx.route)
+          .name('users.show')
+          .meta({ summary: '用户详情' })
+          .middleware(async (ctx, next) => {
+            seen.push(ctx.route?.meta.summary)
+            return next()
+          })
+      })
+    })
+    const body = await (await app.request('/api/users/7')).json() as any
+    expect(body.data ?? body).toEqual({
+      method: 'GET',
+      path: '/api/users/:id',
+      name: 'api.users.show',
+      meta: { summary: '用户详情' },
+    })
+    expect(seen).toEqual(['用户详情'])
+  })
+
   const trace: string[] = []
   const mark = (name: string): MiddlewareHandler => async (_ctx, next) => {
     trace.push(`${name}:in`)
@@ -345,6 +368,35 @@ describe('validation', () => {
     })
   })
 
+  it('decodes route parameters before reading and validating them', async () => {
+    const Params = v.object({
+      name: v.string(),
+    })
+    const app = await boot(r => r.get('/files/:name', (ctx: HttpContext<{ params: typeof Params }>) => ({
+      param: ctx.param('name'),
+      validated: ctx.validated.params.name,
+    })).validate({ params: Params }))
+    const res = await app.request(`/files/${encodeURIComponent('季度 报表/终版')}`)
+    expect((await json(res)).data).toEqual({ param: '季度 报表/终版', validated: '季度 报表/终版' })
+  })
+
+  it('reports the client origin, trusting forwarded headers only when configured', async () => {
+    const routes: RouteRegistrar = r => r.get('/origin', (ctx: HttpContext) => ({ origin: ctx.origin, secure: ctx.secure }))
+    const forwarded = {
+      headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'admin.example.com' },
+    }
+    const direct = await boot(routes)
+    expect((await json(await direct.request('http://localhost:3000/origin', forwarded))).data)
+      .toEqual({ origin: 'http://localhost:3000', secure: false })
+    const proxied = await boot(routes, {
+      config: {
+        app: { trustProxy: true },
+      },
+    })
+    expect((await json(await proxied.request('http://localhost:3000/origin', forwarded))).data)
+      .toEqual({ origin: 'https://admin.example.com', secure: true })
+  })
+
   it('responds 422 with all field issues', async () => {
     const app = await boot(r => r.post('/users', () => 'ok').validate({
       body: CreateUser,
@@ -468,10 +520,16 @@ describe('application lifecycle', () => {
       providers: [
         defineProvider({
           register: () => void order.push('a:register'),
-          boot: () => void order.push('a:boot'),
+          boot: app => app.onBooted(async (app) => {
+            order.push('a:booted')
+            await app.onBooted(() => void order.push('a:booted:nested'))
+          }),
           shutdown: () => void order.push('a:shutdown'),
         }),
         ProviderClass,
+        defineProvider({
+          boot: () => void order.push('b:boot'),
+        }),
       ],
       setup: () => void order.push('setup'),
     })
@@ -480,7 +538,10 @@ describe('application lifecycle', () => {
       'a:register',
       'class:register',
       'setup',
-      'a:boot',
+      // onBooted 的回调在全部提供者 boot 之后执行；启动完成后注册的立即执行
+      'b:boot',
+      'a:booted',
+      'a:booted:nested',
       'class:shutdown',
       'a:shutdown',
     ])
@@ -556,6 +617,106 @@ describe('static files', () => {
     expect((await app.request('/../package.json')).status).toBe(404)
     expect((await app.request('/%2e%2e/%2e%2e/etc/passwd')).status).toBe(404)
     expect((await app.request('/users/42', html)).status).toBe(404)
+  })
+
+  it('reads config/static.ts in backend-only projects, relative to the project root', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = mkdtempSync(join(tmpdir(), 'haze-static-root-'))
+    mkdirSync(join(root, 'web'))
+    writeFileSync(join(root, 'web', 'index.html'), '<div id="web"></div>')
+    const app = await boot(r => r.get('/api/ping', () => 'pong'), {
+      rootDir: root,
+      config: {
+        static: {
+          dir: 'web',
+          spaFallback: true,
+          exclude: ['/api'],
+        },
+      },
+    })
+    expect(await (await app.request('/', html)).text()).toBe('<div id="web"></div>')
+    expect(await (await app.request('/settings', html)).text()).toBe('<div id="web"></div>')
+    expect(await (await app.request('/api/ping')).text()).toBe('pong')
+    // 没有配置 dir（如环境变量未设置）时不托管
+    const off = await boot(r => r.get('/api/ping', () => 'pong'), {
+      rootDir: root,
+      config: {
+        static: { dir: undefined },
+      },
+    })
+    expect((await off.request('/', html)).status).toBe(404)
+  })
+
+  it('serves pages without caching and applies global middleware such as secureHeaders', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'haze-static-'))
+    writeFileSync(join(dir, 'index.html'), '<div id="app"></div>')
+    const app = await boot(r => r.get('/api/ping', () => 'pong'), {
+      static: {
+        dir,
+        spaFallback: true,
+        exclude: ['/api'],
+      },
+      config: {
+        middleware: {
+          global: ['secureHeaders'],
+        },
+      },
+    })
+    for (const url of ['/', '/users/42']) {
+      const page = await app.request(url, html)
+      expect(page.headers.get('cache-control')).toBe('no-cache')
+      expect(page.headers.get('x-frame-options')).toBe('SAMEORIGIN')
+      expect(page.headers.get('x-content-type-options')).toBe('nosniff')
+    }
+  })
+
+  it('serves precompressed copies by Accept-Encoding', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { gzipSync } = await import('node:zlib')
+    const dir = mkdtempSync(join(tmpdir(), 'haze-static-'))
+    writeFileSync(join(dir, 'app.js'), 'console.log("plain")')
+    writeFileSync(join(dir, 'app.js.gz'), gzipSync('console.log("plain")'))
+    writeFileSync(join(dir, 'only.js'), 'only plain')
+    writeFileSync(join(dir, 'both.js'), 'both')
+    writeFileSync(join(dir, 'both.js.br'), 'br-bytes')
+    writeFileSync(join(dir, 'both.js.gz'), 'gz-bytes')
+    const app = await boot(r => r.get('/api/ping', () => 'pong'), {
+      static: { dir, precompressed: true },
+    })
+
+    const gzip = await app.request('/app.js', {
+      headers: { 'accept-encoding': 'gzip' },
+    })
+    expect(gzip.headers.get('content-encoding')).toBe('gzip')
+    expect(gzip.headers.get('content-type')).toContain('javascript')
+    expect(gzip.headers.get('vary')).toContain('accept-encoding')
+
+    const plain = await app.request('/app.js')
+    expect([
+      plain.headers.get('content-encoding'),
+      await plain.text(),
+    ]).toEqual([null, 'console.log("plain")'])
+    // 同等权重时按配置顺序（br 优先），q=0 表示拒绝
+    expect((await app.request('/both.js', {
+      headers: { 'accept-encoding': 'gzip, deflate, br' },
+    })).headers.get('content-encoding')).toBe('br')
+    expect((await app.request('/both.js', {
+      headers: { 'accept-encoding': 'br;q=0, gzip' },
+    })).headers.get('content-encoding')).toBe('gzip')
+    // 没有压缩副本时返回原文件；直接请求 .gz 文件本身不标记 content-encoding
+    expect((await app.request('/only.js', {
+      headers: { 'accept-encoding': 'gzip' },
+    })).headers.get('content-encoding')).toBeNull()
+    expect((await app.request('/app.js.gz', {
+      headers: { 'accept-encoding': 'gzip' },
+    })).headers.get('content-encoding')).toBeNull()
   })
 })
 

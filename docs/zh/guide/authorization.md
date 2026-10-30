@@ -114,7 +114,8 @@ r.patch('/posts/:id', [PostController, 'update']).middleware('can:update,Post,id
 
 | 写法 | 检查内容 |
 |------|----------|
-| `can:<ability>` | `defineAbilities` 中的能力 |
+| `can:<ability>` | `defineAbilities` 中的能力（或由 `gate.fallback()` 判断） |
+| `can:a\|b` | 拥有其中**任一**能力即可 |
 | `can:<ability>,<Model>` | `<Model>` 策略中的类级能力 |
 | `can:<ability>,<Model>,<param>` | 先用 `Model.findOrFail(ctx.param(param))` 加载模型（不存在时 `404`），再检查该实例 |
 
@@ -170,6 +171,24 @@ export default defineProvider({
     })
   },
 })
+```
+
+### 数据驱动的能力
+
+能力是存在数据库角色中的权限码、运行时还会新增时，不必逐个定义，注册一个 fallback：所有没有定义的能力都交给它判断，`before` 钩子仍然先执行，返回 `undefined` 时拒绝：
+
+```ts
+gate.fallback((user: AuthUser | undefined, ability) => user?.permissions.includes(ability))
+```
+
+`await ctx.authorizeAny(['report:export', 'report:manage'])`（以及 `gate.authorizeAny(user, abilities)`）拥有其中任一能力即通过，`can:a|b` 中间件同理。
+
+已登录用户被拒绝时抛出 `AuthorizationException`（`ForbiddenException` 的子类，状态 403），带有 `abilities`（被拒绝的能力，`authorizeAny` 时为全部候选）与 `reason`（`deny()` 给出的原因）。异常处理器可以据此说明缺少哪个权限，或按语言改写消息：
+
+```ts
+// app/exception/Handler.ts
+if (error instanceof AuthorizationException && !error.reason)
+  return { statusCode: 403, code: 'forbidden', message: `缺少权限：${error.abilities.join('、')}` }
 ```
 
 ## 判断顺序

@@ -163,9 +163,39 @@ const user = await User.findOrEmpty(id)                 // never undefined
 if (user.isEmpty()) { /* ... */ }
 ```
 
-Static `update()`, `saveAll()` and `destroy()` go through each model, so events, timestamps and soft deletes apply. Run several writes atomically with `User.transaction(...)`, see [Transactions](./transactions).
+Static `update()`, `saveAll()` and `destroy()` go through each model, so events, timestamps and soft deletes apply. That also means they first **select the matching rows and then write them one by one**: N+1 statements, not atomic, and a read of every column (slow on tables with large JSON documents). Pick the form by what you need:
 
-Other instance helpers: `isDirty(key?)`, `getDirty()`, `getOriginal(key?)`, `getData()`, `refresh()` (reload from the database) and the `exists` getter.
+| You need | Use |
+|----------|-----|
+| Model events, `updatedAt`, readonly fields | `User.update(data, where)` / `User.destroy(ids)` (load, then save / delete each model) |
+| One `UPDATE` by primary key, `updatedAt` maintained, no events | `User.updateById(id, data)` |
+| One atomic statement with a condition, checking the affected count | `User.where(...).update(data)` / `User.where(...).delete()` (soft deletes and global scopes apply) or `Db.table(t)` |
+
+```ts
+await Article.updateById(1, { body: hugeJson })        // UPDATE ... WHERE id = 1, returns the affected count
+await Article.updateById([1, 2], { status: 0 })
+
+// conditional update; check whether it happened
+const claimed = await Job.where('id', id).where('status', 'pending').update({ status: 'running' })
+if (claimed === 0) { /* someone else got it */ }
+
+await Article.query().delete(1)                        // one statement; soft delete when enabled
+```
+
+`updateById()` ignores `undefined` values and [read-only fields](#read-only-fields), sets `updatedAt`, increments the [optimistic lock](#optimistic-locking) version (without checking it) and respects soft deletes, global scopes and tenancy. It fires no model events.
+
+`create()` (and `save()` on a new model) writes `createdAt` / `updatedAt` from the application's clock, not the database's — the column's `defaultNow()` is not used when the model sets a value. Keep that in mind when comparing these timestamps with `now()` in SQL, or set the value yourself. Values passed to `create()` may be drizzle `sql` expressions; the returned model holds the stored values.
+
+Other instance helpers: `isDirty(key?)`, `getDirty()`, `getOriginal(key?)`, `getData()` (the raw attributes, typed as the table's row), `refresh()` (reload from the database) and the `exists` getter.
+
+### Composite primary keys
+
+Models need a single-column primary key. On a table with a composite key (`primaryKey({ columns: [...] })`), `find(id)`, updating through `save()`, `delete()`, `destroy()` and `updateById()` throw ("has no single-column primary key"). Query such tables with `Db.table()` (or the model's query methods with explicit conditions), and give `upsert()` an explicit `target`:
+
+```ts
+await Db.table(userRoles).where({ userId, roleId }).delete()
+await Db.table(userRoles).upsert({ userId, roleId, grantedAt: new Date() }, { target: ['userId', 'roleId'] })
+```
 
 ### Read-only fields
 
@@ -183,7 +213,7 @@ With `optimLock`, every update checks that the row has not changed since it was 
 
 ```ts
 export class Article extends Model.define(articles) {
-  static override optimLock = true // needs an integer lockVersion column (default 0)
+  static override optimLock = true // needs an integer lockVersion column
 }
 
 const a = await Article.findOrFail(1)
@@ -193,6 +223,8 @@ await a.save()      // lockVersion 0 → 1
 b.title = 'Two'
 await b.save()      // throws OptimisticLockException (409)
 ```
+
+A new model leaves the version column to its database default (for example `integer('revision').notNull().default(1)`); only a column without a default starts at `0`.
 
 Bulk `update()` / `delete()` on a query run as a single statement. They skip model events and timestamps, and refuse to run without a condition unless you pass `{ all: true }`.
 
@@ -372,7 +404,18 @@ await User.withCount('posts').has('posts', '>=', 3).select()   // see Relations
 ## Errors
 
 - `ModelNotFoundException`: thrown by `findOrFail()`, rendered as `404`.
-- `UniqueConstraintException`: duplicate keys on any driver, rendered as `409`.
+- `UniqueConstraintException`: duplicate keys on any driver, rendered as `409` with `code: 'unique_violation'`. The default message is translated through `http.unique_violation` when [localization](./localization#framework-messages) is configured. The exception carries what the driver reported: `constraint` (PostgreSQL constraint, MySQL key, MongoDB index), `table`, `columns` (database column names; PostgreSQL, SQLite, MongoDB) and `detail` — for example to tell which field was taken:
+
+  ```ts
+  try {
+    await User.create(input)
+  }
+  catch (error) {
+    if (error instanceof UniqueConstraintException && error.columns?.includes('email'))
+      throw new ValidationException([{ path: 'email', message: 'Email already registered' }])
+    throw error
+  }
+  ```
 - `OptimisticLockException`: a stale model was saved under [optimistic locking](#optimistic-locking), rendered as `409`.
 
 ## MongoDB

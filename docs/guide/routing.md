@@ -54,7 +54,7 @@ r.get('/posts/:postId/comments/:id', (ctx) => {
 })
 ```
 
-Raw parameter values are always strings. Use a schema to turn them into numbers.
+Parameter values are URL-decoded strings (`/files/%E6%96%87` gives `文`). Use a schema to turn them into numbers.
 
 ## Groups
 
@@ -250,7 +250,9 @@ pnpm routes            # haze route:list
 npx haze route:list --json
 ```
 
-The table shows method, path, name, handler (`UserController@show` or `closure`) and the fully expanded middleware list, including controller middleware. With multiple apps, it also shows the app and domain columns.
+The table shows method, path, name, handler (`UserController@show` or `closure`) and the fully expanded middleware list, including controller middleware. Middleware passed as a function or class shows as `name()`, so it is never mistaken for an alias such as `auth` or `guest`.
+
+With `--json`, stdout carries only the JSON (logs printed while the app boots go to stderr), so `haze route:list --json > routes.json` works. With multiple apps, it also shows the app and domain columns.
 
 ::: tip
 Unknown middleware names and duplicate route names make the app fail at boot, so `route:list` doubles as a quick sanity check in CI.

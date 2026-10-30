@@ -58,6 +58,8 @@ export default defineHazeConfig({
 pnpm dev   # 执行 haze dev，用项目的 vite.config.ts 启动 Vite
 ```
 
+`haze dev`、`haze build`、`haze preview` 在 `vite.config.*` 引入了 `@hazejs/vite` 时按全栈项目处理。只放工具配置的 `vite.config.ts`（monorepo 中 vite-plus 的 `run` 任务、lint、测试选项）会被忽略，项目仍是纯后端项目。
+
 也可以直接运行 `vite`。两种方式都只有一个服务器，使用 Vite 的端口（默认 `5173`）：
 
 - 路径匹配前缀的请求（`/api`、`/api/…`、`/api?…`）交给后端处理。插件的中间件注册在 Vite 内置中间件之前，接口请求不会落入静态资源处理或 SPA 回退。
@@ -210,7 +212,17 @@ pnpm start   # haze start，或 node dist/server/index.mjs
 
 - 前缀下的请求交给应用处理；
 - 其余 `GET` / `HEAD` 请求从 `dist/client` 提供静态文件，`/assets/` 下的文件带长期缓存的 immutable `Cache-Control`；
-- 没有匹配到文件、且接受 HTML 的请求回退到 `index.html`（no-cache），前端路由的 history 模式因此可以正常工作。接口路径不会回退。
+- HTML 页面（`index.html`）带 `Cache-Control: no-cache`，发布新版本后刷新即生效；
+- 没有匹配到文件、且接受 HTML 的请求回退到 `index.html`（no-cache），前端路由的 history 模式因此可以正常工作。接口路径不会回退；
+- 全局中间件（`secureHeaders`、`cors` 等）在提供静态文件之前执行，页面与接口带同样的安全响应头。
+
+自己托管前端构建产物时（`createApplication({ static })`），`precompressed: true` 按 `Accept-Encoding` 直接返回构建时生成的 `.br` / `.gz` 副本（都接受时优先 brotli），不在每次请求时压缩——对体积大的包和 `.wasm` 文件很有用：
+
+```ts
+await createApplication({
+  static: { dir: '/srv/web', spaFallback: true, exclude: ['/api'], precompressed: true },
+})
+```
 
 在 `vercel`、`netlify`、`cloudflare` 上，前端由平台的 CDN 提供，只有前缀下的请求才会到达函数。
 

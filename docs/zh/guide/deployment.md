@@ -23,7 +23,7 @@ export default defineHazeConfig({
 
 全栈项目中，`haze build` 会按 `vite.config.ts` 执行 `vite build`，一次产出 `dist/client` 与服务端产物。直接运行 `vite build` 时，预设取自 `haze.config.ts` 或环境变量 `HAZE_PRESET`。
 
-其它构建参数：`--minify`（默认不压缩）与 `--outDir`（仅纯后端项目；全栈项目请在 `haze.config.ts` 中设置 `outDir`）。
+其它构建参数：`--minify`（默认不压缩）与 `--outDir`（仅纯后端项目；全栈项目请在 `haze.config.ts` 中设置 `outDir`）。纯后端项目每次构建前会清空输出目录（仅当它位于项目目录之内），上次构建或其它预设留下的文件不会进入 Docker 构建上下文。
 
 ## 部署预设
 
@@ -119,6 +119,8 @@ node dist/worker.mjs command inspire --all     # 运行其中一个，退出码�
 
 worker 收到 `SIGTERM` / `SIGINT` 后会等执行中的任务完成再退出。全栈项目（以及 `deno` 预设）的路径为 `dist/server/worker.mjs`；Docker 中为 `docker run <镜像> node server/worker.mjs queue`。
 
+Web 服务收到 `SIGTERM` / `SIGINT` 同样优雅退出：停止接受新连接，等待在途请求完成，再释放应用（队列连接、数据库连接池、进程内的 worker）。WebSocket、SSE 与 keep-alive 这类长连接不会自己结束，超过 `app.shutdownTimeout`（默认 `10` 秒，可写秒数或 `'30s'`）后强制断开。编排平台的等待时间要比它长（Docker 的 `stop_grace_period` 默认 10 秒，Kubernetes 的 `terminationGracePeriodSeconds` 默认 30 秒）。
+
 `--connection` 是 `config/queue.ts` 中的队列连接。worker 与 Web 进程读取同一个 `REDIS_URL`（或 `config/redis.ts`），每个环境只需设置一次 [Redis](./redis) 连接。
 
 `worker.mjs command` 不依赖命令行工具和源码，直接运行 `app/command` 下的[自定义命令](./console)，生产环境中的一次性维护操作和由 cron 触发的脚本都可以放在这里。Serverless 与 Edge 预设没有命令入口。
@@ -211,7 +213,21 @@ docker build -t my-app dist
 docker run -p 3000:3000 -e APP_KEY=<key> my-app
 ```
 
-生成的 `dist/Dockerfile` 基于 `node:22-slim`。业务代码与纯 JS 依赖已经打包，运行时 `package.json` 只列出 external 的驱动，它们在镜像内以 `npm install --omit=dev` 安装，原生二进制因此是 Linux 版本。同时还会生成 `.dockerignore`。
+生成的 `dist/Dockerfile` 基于 `node:22-slim`。业务代码与纯 JS 依赖已经打包，运行时 `package.json` 只列出 external 的驱动，它们在镜像内以 `npm install --omit=dev` 安装，原生二进制因此是 Linux 版本。同时还会生成 `.dockerignore`，镜像带有访问 `/health/live` 的 `HEALTHCHECK`（在 `config/health.ts` 中修改了健康检查路径时请同步调整）。
+
+纯后端项目也可以托管另外构建的前端：把前端构建产物复制进镜像，在 `config/static.ts` 中指向它（相对路径按项目根目录解析；`dir` 未设置时不托管）：
+
+```ts
+// config/static.ts
+import { defineConfig, env } from '@hazejs/core'
+
+export default defineConfig(() => ({
+  dir: env('WEB_DIST_DIR'),
+  spaFallback: true,
+  precompressed: true,
+  exclude: ['/api', '/socket.io'],
+}))
+```
 
 ## AWS Lambda
 

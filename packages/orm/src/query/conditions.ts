@@ -98,8 +98,9 @@ export class Conditions<T extends Table> {
    * - `where(eq(users.id, 1))`（drizzle 表达式）
    * - `where(q => q.where('a', 1).orWhere('b', 2))`（括号分组）
    * - `where('id', 'in', Db.table(posts).field('userId'))`（子查询）
+   * - `where(and(a, cond ? b : undefined))`：drizzle 的 `and()` / `or()` 可能返回 undefined，此时忽略该条件
    */
-  where(condition: WhereCondition<T>): this
+  where(condition: WhereCondition<T> | undefined): this
   where<K extends ColumnKey<T>>(column: K, value: Row<T>[K] | Array<Row<T>[K]> | null | SubqueryLike): this
   where<K extends ColumnKey<T>>(column: K, operator: Operator, value: unknown): this
   where(column: FieldPath, value: unknown): this
@@ -108,7 +109,7 @@ export class Conditions<T extends Table> {
     return this.addCondition('and', args)
   }
 
-  orWhere(condition: WhereCondition<T>): this
+  orWhere(condition: WhereCondition<T> | undefined): this
   orWhere<K extends ColumnKey<T>>(column: K, value: Row<T>[K] | Array<Row<T>[K]> | null | SubqueryLike): this
   orWhere<K extends ColumnKey<T>>(column: K, operator: Operator, value: unknown): this
   orWhere(column: FieldPath, value: unknown): this
@@ -118,7 +119,7 @@ export class Conditions<T extends Table> {
   }
 
   /** orWhere() 的别名（ThinkPHP 写法） */
-  whereOr(condition: WhereCondition<T>): this
+  whereOr(condition: WhereCondition<T> | undefined): this
   whereOr<K extends ColumnKey<T>>(column: K, value: Row<T>[K] | Array<Row<T>[K]> | null | SubqueryLike): this
   whereOr<K extends ColumnKey<T>>(column: K, operator: Operator, value: unknown): this
   whereOr(column: FieldPath, value: unknown): this
@@ -128,7 +129,9 @@ export class Conditions<T extends Table> {
   }
 
   /** 对一组条件取反：`whereNot(q => q.where('status', 0).orWhere('age', '<', 18))` */
-  whereNot(condition: WhereCondition<T>): this {
+  whereNot(condition: WhereCondition<T> | undefined): this {
+    if (condition === undefined)
+      return this
     const build = this.parseCondition([condition])
     return this.pushFragment('and', (ctx) => {
       const inner = build(ctx)
@@ -324,9 +327,21 @@ export class Conditions<T extends Table> {
       : this.whereTimeRange(column, to, from)
   }
 
-  /** 条件成立时才应用：`.when(keyword, q => q.whereLike('name', `%${keyword}%`))`，可传入不成立时的回调 */
+  /**
+   * 条件成立时才应用：`.when(keyword, q => q.whereLike('name', `%${keyword}%`))`，可传入不成立时的回调。
+   * 跳过的“空值”是 undefined、null、false 与 ''（0 与空数组不跳过）；三态布尔等只需跳过 undefined / null 时用 whenDefined()
+   */
   when<V>(value: V, callback: (query: this, value: NonNullable<V>) => unknown, otherwise?: (query: this) => unknown): this {
     if (value !== undefined && value !== null && value !== false && value !== '')
+      callback(this, value as NonNullable<V>)
+    else
+      otherwise?.(this)
+    return this
+  }
+
+  /** 只在值不是 undefined / null 时应用（false、0、'' 照常应用）：`.whenDefined(enabled, (q, value) => q.where('enabled', value))` */
+  whenDefined<V>(value: V, callback: (query: this, value: NonNullable<V>) => unknown, otherwise?: (query: this) => unknown): this {
+    if (value !== undefined && value !== null)
       callback(this, value as NonNullable<V>)
     else
       otherwise?.(this)
@@ -391,6 +406,9 @@ export class Conditions<T extends Table> {
 
   // 不使用 #私有成员：clone() 通过原型复制实例，私有成员会失去品牌检查
   protected addCondition(bool: Part['bool'], args: unknown[]): this {
+    // where(and(...)) 中 and() / or() 没有条件时返回 undefined：忽略
+    if (args.length === 1 && args[0] === undefined)
+      return this
     return this.pushFragment(bool, this.parseCondition(args))
   }
 

@@ -238,6 +238,10 @@ export async function generateOpenAPI(source: OpenAPISource | Router, options: O
 
     for (const [code, extra] of Object.entries(doc.responses ?? {}))
       operation.responses[code] = await extraResponse(extra, prepare)
+    for (const [key, value] of Object.entries(doc.extensions ?? {})) {
+      if (key.startsWith('x-'))
+        operation[key] = value
+    }
 
     paths[path] ??= {}
     paths[path][record.method.toLowerCase()] = operation

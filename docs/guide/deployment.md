@@ -23,7 +23,7 @@ export default defineHazeConfig({
 
 In full-stack projects `haze build` runs `vite build` with your `vite.config.ts`, building `dist/client` and the server in one go. If you call `vite build` directly, the preset comes from `haze.config.ts` or the `HAZE_PRESET` environment variable.
 
-Other build flags: `--minify` (default off) and `--outDir` (API-only projects; full-stack projects use `outDir` in `haze.config.ts`).
+Other build flags: `--minify` (default off) and `--outDir` (API-only projects; full-stack projects use `outDir` in `haze.config.ts`). In API-only projects the output directory is emptied before each build (only when it lies inside the project), so files from an earlier build or another preset never end up in a Docker build context.
 
 ## Presets
 
@@ -119,6 +119,8 @@ node dist/worker.mjs command inspire --all     # run one; exits with the command
 
 Workers stop gracefully on `SIGTERM` / `SIGINT`, letting running jobs finish. In full-stack projects (and always with `deno`) the path is `dist/server/worker.mjs`; in Docker, `docker run <image> node server/worker.mjs queue`.
 
+The web server shuts down on `SIGTERM` / `SIGINT` too: it stops accepting connections, waits for in-flight requests, then disposes the application (queue connections, database pools, in-process workers). Long-lived connections — WebSockets, SSE streams, keep-alive sockets — never finish on their own, so after `app.shutdownTimeout` (default `10` seconds; seconds or `'30s'`) they are closed forcibly. Keep the orchestrator's grace period above it (Docker's `stop_grace_period` defaults to 10 seconds; Kubernetes' `terminationGracePeriodSeconds` to 30).
+
 `--connection` is the queue connection from `config/queue.ts`. The worker reads the same `REDIS_URL` (or `config/redis.ts`) as the web process, so the [Redis](./redis) settings only need to be set once per environment.
 
 `worker.mjs command` runs the [console commands](./console) in `app/command` without the CLI or the source, which makes it the place for one-off and cron-driven maintenance in production. Serverless and edge presets have no command entry.
@@ -211,7 +213,21 @@ docker build -t my-app dist
 docker run -p 3000:3000 -e APP_KEY=<key> my-app
 ```
 
-The generated `dist/Dockerfile` is based on `node:22-slim`. Your code and pure-JS dependencies are already bundled; the runtime `package.json` lists only the external drivers, which are installed inside the image with `npm install --omit=dev` so native binaries are built for Linux. A `.dockerignore` is generated too.
+The generated `dist/Dockerfile` is based on `node:22-slim`. Your code and pure-JS dependencies are already bundled; the runtime `package.json` lists only the external drivers, which are installed inside the image with `npm install --omit=dev` so native binaries are built for Linux. A `.dockerignore` is generated too, and the image has a `HEALTHCHECK` on `/health/live` (adjust it if you change the health path in `config/health.ts`).
+
+A backend-only project can still serve a frontend built elsewhere: copy its build into the image and point `config/static.ts` at it (relative paths resolve against the project root; nothing is served while `dir` is unset):
+
+```ts
+// config/static.ts
+import { defineConfig, env } from '@hazejs/core'
+
+export default defineConfig(() => ({
+  dir: env('WEB_DIST_DIR'),
+  spaFallback: true,
+  precompressed: true,
+  exclude: ['/api', '/socket.io'],
+}))
+```
 
 ## AWS Lambda
 

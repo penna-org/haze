@@ -132,11 +132,38 @@ Clients send it back as `Authorization: Bearer <token>`. `attempt()` returns `un
 | `algorithm` | `'HS256'` | `HS256/384/512`, `RS256/384/512`, `PS256`, `ES256/384/512` or `EdDSA` |
 | `secret` | `APP_KEY` | Secret for `HS*` algorithms |
 | `privateKey` / `publicKey` | | PEM keys (PKCS#8 / SPKI) for the asymmetric algorithms |
-| `expiresIn` | `'2h'` | Token lifetime, as a duration string or seconds |
+| `expiresIn` | `'2h'` | Token lifetime, as a duration string or seconds; a function `(ctx) => …` is evaluated on every login (for lifetimes stored in runtime settings). `login(user, claims, { expiresIn })` overrides it for one token |
 | `issuer` / `audience` | | Set on issued tokens and checked on incoming ones |
 | `cookie` | | Also read the token from this cookie (browser use) |
+| `resolveUser` | | `(payload, ctx) => user`: resolves the user from the verified claims instead of `provider.retrieveById(sub)` — see below |
+| `rejectClaims` | | Tokens carrying any of these claims cannot authenticate, e.g. `['purpose']` for password-reset tickets signed with the same secret |
 
 Tokens carry `sub` (the user id), `iat`, `exp` and a random `jti`, plus any custom claims. Read them with `await ctx.auth.jwt().payload()`. Expired, tampered or malformed tokens are treated as "not logged in".
+
+### Resolving the user yourself
+
+JWTs are stateless. When logout, kicking a device or disabling an account must take effect immediately, put a session id in the token and check it on every request with `resolveUser`. It receives the verified claims and the request context, so it can also read headers such as the current organisation. Return the user, or `undefined` for "not logged in"; an `HttpException` it throws becomes the response as-is, so clients can tell a revoked session or a forbidden organisation apart from a missing login:
+
+```ts
+// config/auth.ts
+api: {
+  driver: 'jwt',
+  provider: 'users',
+  expiresIn: () => Settings.get('auth.accessTokenTtl'),
+  rejectClaims: ['purpose'],
+  resolveUser: async (payload, ctx) => {
+    const session = await Session.find(payload.sid as string)
+    if (!session || session.revokedAt)
+      throw new UnauthorizedException('Session expired', { code: 'session_invalid' })
+    return User.findOrFail(payload.sub)
+  },
+},
+```
+
+```ts
+// issue a token for a session
+const token = await ctx.auth.jwt().login(user, { sid: session.id })
+```
 
 ::: warning JWT logout is stateless
 `ctx.auth.jwt().logout()` only forgets the user for the current request; the token stays valid until it expires. Keep lifetimes short, or maintain a deny list (for example by `jti`) if you need immediate revocation.
@@ -180,6 +207,7 @@ export class SessionController {
 | `auth` | Requires a user on the default guard, otherwise `401` |
 | `auth:api` | Uses a specific guard |
 | `auth:web,api` | Passes if **any** listed guard authenticates; that guard becomes the default for the rest of the request |
+| `auth:optional` / `auth:api,optional` | Never rejects: recognises the user when the credentials are valid, otherwise continues as a guest (public routes that still care who is calling) |
 | `guest` / `guest:web` | Rejects already-authenticated users with `403` (useful for login and register routes) |
 | `verified` | Requires a verified email: `401` when not logged in, `403` when unverified (see [Email verification](#email-verification)) |
 | `abilities:a,b` / `ability:a,b` | The [API token](./api-tokens#abilities) must have all / any of the abilities |
@@ -191,6 +219,8 @@ r.group({ prefix: '/account', middleware: ['auth:web,api'] }, (r) => {
   r.get('/', [AccountController, 'show'])
 })
 ```
+
+A rejected request gets `401` with `code: 'unauthenticated'` when no credentials were sent and `code: 'token_invalid'` when they were expired, tampered with or rejected — clients use it to decide between logging in again and refreshing the token.
 
 ## The `ctx.auth` API
 

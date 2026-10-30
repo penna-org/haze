@@ -6,11 +6,12 @@ import type { SnowflakeOptions } from './snowflake'
  * - `turso`：libsql 的纯 HTTP 客户端（Turso / sqld，`libsql://`、`https://`），不含原生二进制，可运行于 Edge 与 Serverless
  * - `d1`：Cloudflare D1（通过 Workers 绑定访问，`binding` 为绑定名）
  * - `postgres`：postgres-js
+ * - `node-postgres`：node-postgres（`pg`，drizzle 默认的 PostgreSQL 驱动，连接池为 pg.Pool）
  * - `pglite`：嵌入式 PostgreSQL（WASM），适合本地开发与测试，url 为数据目录，省略为内存库
  * - `mysql`：mysql2
  * - `mongodb`：官方 mongodb 驱动（使用 `@hazejs/orm/mongo` 的 Mongo / MongoModel）
  */
-export type Driver = 'sqlite' | 'turso' | 'd1' | 'postgres' | 'pglite' | 'mysql' | 'mongodb'
+export type Driver = 'sqlite' | 'turso' | 'd1' | 'postgres' | 'node-postgres' | 'pglite' | 'mysql' | 'mongodb'
 
 export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mongodb'
 
@@ -61,6 +62,21 @@ export interface ConnectionConfig {
   read?: ConnectionEndpoint | ConnectionEndpoint[]
   /** 读写分离：当前请求（或 Db.withinScope() 作用域）写入过之后，后续读取也走写库，避免读到复制延迟前的旧数据 */
   sticky?: boolean
+  /**
+   * 列名的大小写转换（drizzle 的 `casing`）：`snake_case` 时表定义中没有写列名的字段按 `createdAt → created_at` 映射。
+   * 需与 drizzle-kit 生成迁移时的 casing 一致（`haze db:generate` 会传入）
+   */
+  casing?: 'snake_case' | 'camelCase'
+  /**
+   * 会话时区（PostgreSQL：postgres、node-postgres、pglite），如 `Asia/Shanghai`。
+   * 影响 `::date`、`date_trunc` 等按日期的计算与不带时区的时间戳的输出；带时区的时间戳读写不受影响
+   */
+  timezone?: string
+  /**
+   * 使用已创建的客户端（pglite 为 PGlite 实例，node-postgres 为 pg.Pool / pg.Client，postgres 为 postgres-js 实例）：
+   * 由调用方负责关闭，应用关闭时不会关闭它（测试中多个应用共用一个内存数据库、接管已有的连接池）
+   */
+  client?: object
 }
 
 /** 模型工厂（database/factories）的设置 */
@@ -87,6 +103,7 @@ export function defineDatabaseConfig(config: ConfigInput<DatabaseConfig>): Confi
 export function dialectOf(driver: Driver): Dialect {
   switch (driver) {
     case 'pglite':
+    case 'node-postgres':
       return 'postgres'
     case 'turso':
     case 'd1':

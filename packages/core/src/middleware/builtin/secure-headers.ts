@@ -11,7 +11,7 @@ export interface SecureHeadersOptions {
   frameOptions?: 'DENY' | 'SAMEORIGIN' | false
   /** 默认 `no-referrer` */
   referrerPolicy?: string | false
-  /** 默认 `same-origin` */
+  /** 默认 `same-origin`，只在 https 请求上发送（与 Origin-Agent-Cluster 一样，http 下浏览器忽略并报错） */
   crossOriginOpenerPolicy?: string | false
   /** 默认 `same-origin`（只影响 img / script 等无 CORS 的跨源加载） */
   crossOriginResourcePolicy?: string | false
@@ -34,10 +34,8 @@ export const secureHeaders: MiddlewareHandler = (ctx, next) => {
     'x-download-options': 'noopen',
     'x-permitted-cross-domain-policies': 'none',
     'x-xss-protection': '0',
-    'origin-agent-cluster': '?1',
     'x-frame-options': options.frameOptions ?? 'SAMEORIGIN',
     'referrer-policy': options.referrerPolicy ?? 'no-referrer',
-    'cross-origin-opener-policy': options.crossOriginOpenerPolicy ?? 'same-origin',
     'cross-origin-resource-policy': options.crossOriginResourcePolicy ?? 'same-origin',
     'content-security-policy': options.contentSecurityPolicy ?? false,
     'permissions-policy': options.permissionsPolicy ?? false,
@@ -45,6 +43,11 @@ export const secureHeaders: MiddlewareHandler = (ctx, next) => {
   const https = getRequestProtocol(ctx.event, {
     xForwardedProto: ctx.config.get<boolean>('app.trustProxy', false),
   }) === 'https'
+  // COOP 与 Origin-Agent-Cluster 只在 https（安全上下文）中生效：http 访问时浏览器忽略，COOP 还会在控制台报错
+  if (https) {
+    headers['cross-origin-opener-policy'] = options.crossOriginOpenerPolicy ?? 'same-origin'
+    headers['origin-agent-cluster'] = '?1'
+  }
   // 开发（debug）时不发送 HSTS，避免浏览器把本地域名长期锁定为 https
   if (https && !ctx.config.get<boolean>('app.debug', false))
     headers['strict-transport-security'] = options.strictTransportSecurity ?? 'max-age=15552000; includeSubDomains'

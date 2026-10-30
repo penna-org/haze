@@ -90,6 +90,44 @@ await Db.connection('analytics').startTrans()
 await Db.connection('analytics').commit()
 ```
 
+## 加入外部开启的事务
+
+有的库会自己开启 drizzle 事务（`db.transaction(tx => …)`）并回调你的代码。用 `Db.joinTransaction(tx, fn)` 包住回调，其中的 `Db`、`Model` 与 `Db.drizzleSync()` 都使用这个事务，其中再开启的事务为保存点；提交与回滚仍由那个库负责：
+
+```ts
+await engine.run({
+  // 由库在它自己的 db.transaction() 中调用
+  onCommit: (tx, changes) => Db.joinTransaction(tx, async () => {
+    await Order.where('id', changes.orderId).update({ status: 'approved' })
+  }),
+})
+```
+
+## 事务提交后执行 {#after-commit}
+
+外部能观察到的副作用（队列任务、事件、邮件、清除缓存）应当在数据提交之后才发生。`Db.afterCommit(fn)` 把 `fn` 推迟到最外层事务提交之后执行，回滚时丢弃；不在事务中时立即执行：
+
+```ts
+await Db.transaction(async () => {
+  const order = await Order.create({ userId, total })
+  await Db.afterCommit(() => Cache.delete(`orders:${userId}`))
+
+  await Db.transaction(async () => {
+    await Db.afterCommit(() => audit('savepoint'))
+    throw new Error('undo') // 保存点回滚：'savepoint' 被丢弃
+  }).catch(() => {})
+}) // 已提交：在 Db.transaction() 返回前删除缓存
+```
+
+- **嵌套**：在保存点中登记的回调，保存点提交后移交外层事务，保存点回滚时丢弃。回调在最外层 `COMMIT` 之后按登记顺序执行，且不在事务中（其中的查询看得到已提交的数据，也不属于这个事务）。
+- **手动事务**：`Db.startTrans()` / `Db.commit()` / `Db.rollback()` 同样适用，回调在 `Db.commit()` 中执行。
+- **多连接**：`Db.afterCommit()` 等待当前代码所处的所有连接的事务；`Db.connection('analytics').afterCommit()` 只看该连接。
+- **错误**：回调抛错时记录日志，后续回调照常执行；事务已经提交，`Db.transaction()` / `Db.commit()` 不会因此失败。不在事务中时错误照常抛给调用方。
+- **加入的外部事务**：`Db.joinTransaction(tx, fn)` 由外部库提交，hazejs 在 `fn` 成功返回时视为已提交，失败时视为回滚。
+- 不适用于 MongoDB 事务（`Mongo.transaction()`）与 D1。
+
+任务与事件可以声明式地使用：`defineJob({ afterCommit: true })`、`Job.with(payload).afterCommit().dispatch()` 与 `defineEvent({ afterCommit: true })`（见[队列](./queues#after-commit)与[事件](./events#after-commit)）。`@hazejs/core` 的 `afterCommit(fn)` 与 `Db.afterCommit(fn)` 相同，供不想依赖 ORM 的代码使用；`@hazejs/orm` 把自己注册为它背后的事务实现。
+
 ## 行锁
 
 在事务中用 `lock()` 加上 `FOR UPDATE`，并发的事务会等待当前事务结束：
@@ -103,7 +141,30 @@ await Db.transaction(async () => {
 })
 ```
 
-`lock('share')` 为共享锁。SQLite 没有行锁，会忽略 `lock()`（写事务本身已经锁住整个数据库）。
+其他锁模式与选项：
+
+| 写法 | SQL | 数据库 |
+|------|-----|--------|
+| `lock()` / `lock('update')` | `FOR UPDATE` | PostgreSQL、MySQL |
+| `lock('share')` | `FOR SHARE` | PostgreSQL、MySQL 8 |
+| `lock('no key update')` | `FOR NO KEY UPDATE` | PostgreSQL |
+| `lock('key share')` | `FOR KEY SHARE` | PostgreSQL |
+| `lock('update', { skipLocked: true })` | `… SKIP LOCKED` | PostgreSQL、MySQL 8 |
+| `lock('update', { noWait: true })` | `… NOWAIT` | PostgreSQL、MySQL 8 |
+
+`skipLocked` 适合任务队列式的“领取下一条空闲记录”：
+
+```ts
+await Db.transaction(async () => {
+  const job = await Db.table(jobs).where('status', 'pending').order('id').lock('update', { skipLocked: true }).find()
+  if (job)
+    await Db.table(jobs).where('id', job.id).update({ status: 'running' })
+})
+```
+
+仅 PostgreSQL 支持的模式在 MySQL 上抛出 `DatabaseError`，同时使用 `skipLocked` 与 `noWait` 也会抛出。SQLite 没有行锁，会忽略 `lock()` 及其选项（写事务本身已经锁住整个数据库）。
+
+在事务中，`paginate()` 的统计与取数据依次执行而不是并行，两者看到同一份快照，并共用事务的连接。
 
 不持有锁、跨请求检测冲突的方式见[乐观锁](./models#乐观锁)。
 

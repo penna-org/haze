@@ -27,6 +27,24 @@ catalogs:
     '@changesets/cli':
       specifier: ^3.0.3
       version: 3.0.3
+    '@devframes/hub':
+      specifier: 1.2.6
+      version: 1.2.6
+    '@devframes/hub-ui':
+      specifier: 1.2.6
+      version: 1.2.6
+    '@devframes/json-render':
+      specifier: 1.2.6
+      version: 1.2.6
+    '@devframes/json-render-ui':
+      specifier: 1.2.6
+      version: 1.2.6
+    '@devframes/plugin-terminals':
+      specifier: 1.2.6
+      version: 1.2.6
+    '@devframes/plugin-terminals--assets':
+      specifier: 1.2.6
+      version: 1.2.6
     '@electric-sql/pglite':
       specifier: ^0.5.12
       version: 0.5.12
@@ -66,6 +84,9 @@ catalogs:
     '@types/node':
       specifier: ^24.0.0
       version: 24.19.2
+    '@types/pg':
+      specifier: ^8.23.1
+      version: 8.23.1
     '@types/react':
       specifier: ^19.3.0
       version: 19.3.0
@@ -102,6 +123,9 @@ catalogs:
     deno:
       specifier: ^2.9.6
       version: 2.9.6
+    devframe:
+      specifier: 1.2.6
+      version: 1.2.6
     drizzle-kit:
       specifier: ^0.31.11
       version: 0.31.11
@@ -141,6 +165,9 @@ catalogs:
     nodemailer:
       specifier: ^10.2.1
       version: 10.2.1
+    pg:
+      specifier: ^8.23.1
+      version: 8.23.1
     postgres:
       specifier: ^3.4.9
       version: 3.4.9
@@ -328,7 +355,7 @@ importers:
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       bullmq:
         specifier: 'catalog:'
-        version: 6.5.0(ioredis@6.0.0(supports-color@10.2.2))
+        version: 6.5.0(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
       ioredis:
         specifier: 'catalog:'
         version: 6.0.0(supports-color@10.2.2)
@@ -398,7 +425,7 @@ importers:
         version: 6.0.10(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
       bullmq:
         specifier: 'catalog:'
-        version: 6.5.0(ioredis@6.0.0(supports-color@10.2.2))
+        version: 6.5.0(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
       deno:
         specifier: 'catalog:'
         version: 2.9.6
@@ -407,7 +434,7 @@ importers:
         version: 0.31.11
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(postgres@3.4.9)
+        version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(pg@8.23.1)(postgres@3.4.9)
       ioredis:
         specifier: 'catalog:'
         version: 6.0.0(supports-color@10.2.2)
@@ -444,6 +471,37 @@ importers:
       vue-tsc:
         specifier: 'catalog:'
         version: 3.3.13(typescript@6.0.3)
+
+  packages/devtools:
+    dependencies:
+      '@devframes/hub':
+        specifier: 'catalog:'
+        version: 1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      '@devframes/hub-ui':
+        specifier: 'catalog:'
+        version: 1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      '@devframes/json-render':
+        specifier: 'catalog:'
+        version: 1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      '@devframes/json-render-ui':
+        specifier: 'catalog:'
+        version: 1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      '@devframes/plugin-terminals':
+        specifier: 'catalog:'
+        version: 1.2.6(@devframes/hub-ui@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/plugin-terminals--assets@1.2.6)(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
+      '@devframes/plugin-terminals--assets':
+        specifier: 'catalog:'
+        version: 1.2.6
+      devframe:
+        specifier: 'catalog:'
+        version: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+    devDependencies:
+      '@hazejs/core':
+        specifier: workspace:*
+        version: link:../core
+      '@hazejs/vite':
+        specifier: workspace:*
+        version: link:../vite
 
   packages/graphql:
     devDependencies:
@@ -506,9 +564,12 @@ importers:
       '@libsql/client':
         specifier: 'catalog:'
         version: 0.18.0
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(postgres@3.4.9)
+        version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(pg@8.23.1)(postgres@3.4.9)
       miniflare:
         specifier: 'catalog:'
         version: 4.20260730.0
@@ -521,6 +582,9 @@ importers:
       mysql2:
         specifier: 'catalog:'
         version: 3.24.6(@types/node@24.19.2)
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
       postgres:
         specifier: 'catalog:'
         version: 3.4.9
@@ -541,7 +605,7 @@ importers:
         version: 0.18.0
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(postgres@3.4.9)
+        version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(pg@8.23.1)(postgres@3.4.9)
       mysql2:
         specifier: 'catalog:'
         version: 3.24.6(@types/node@24.19.2)
@@ -622,6 +686,9 @@ importers:
       '@hazejs/cli':
         specifier: workspace:*
         version: link:../packages/cli
+      '@hazejs/devtools':
+        specifier: workspace:*
+        version: link:../packages/devtools
       '@hazejs/testing':
         specifier: workspace:*
         version: link:../packages/testing
@@ -958,6 +1025,76 @@ packages:
     resolution: {integrity: sha512-qRGnmVz/Ea6UWPht/S3xFRK17UZ/ls38DSVfgGB17fpASLxPkksqzWUI/BzL9YYoOknYzfc94mySGyInZu/JXw==}
     cpu: [x64]
     os: [win32]
+
+  '@devframes/hub-ui@1.2.6':
+    resolution: {integrity: sha512-s7pVHdMQCV4n8BMGcK2RCRSkK8H7hfQJ19BvdV31VaVj2fLarljBhMsE2656k9Smg3wACFoX96GrURNc+ZGhmw==}
+    peerDependencies:
+      '@devframes/hub': 1.2.6
+      '@devframes/json-render': 1.2.6
+      devframe: 1.2.6
+    peerDependenciesMeta:
+      '@devframes/json-render':
+        optional: true
+
+  '@devframes/hub@1.2.6':
+    resolution: {integrity: sha512-nZv+A+lAAwFsbMGgpVbGWlLGDWXK5Egd0LkjGITr9Ji01HHmi3A1AWjpznNDCdSX3Cmlm9EBRz7Q8VzGx/I+dQ==}
+    peerDependencies:
+      '@devframes/agentic': 1.2.6
+      devframe: 1.2.6
+    peerDependenciesMeta:
+      '@devframes/agentic':
+        optional: true
+
+  '@devframes/json-render-ui@1.2.6':
+    resolution: {integrity: sha512-JGWGZiVRdJUaT45Wvdh4eICh3ZSWspHlCvUAxCiq/HqRRwpqBgmBr000g+6OTYu7scKUr+Y/3SEtlD0PX6LdFg==}
+    peerDependencies:
+      '@devframes/hub': 1.2.6
+      devframe: 1.2.6
+    peerDependenciesMeta:
+      '@devframes/hub':
+        optional: true
+      devframe:
+        optional: true
+
+  '@devframes/json-render@1.2.6':
+    resolution: {integrity: sha512-ZCDrPxU+KEKMTyqp1ggYQP1OnDlbmXJ8AUtOm9NEntobe9OVYqi8yMabwkAWtc8mhqrOiBE1NpSmczg96IO1Xw==}
+    peerDependencies:
+      '@devframes/hub': 1.2.6
+      devframe: 1.2.6
+    peerDependenciesMeta:
+      '@devframes/hub':
+        optional: true
+
+  '@devframes/plugin-terminals--assets@1.2.6':
+    resolution: {integrity: sha512-Ijgg/Drt46/WzAy6fFfOWIs8fiCskelTx56XqYE+Vqk5+78VgkfpMjInPE2UXC5UEKd0lO6NdAw8mzLfLflkYg==}
+
+  '@devframes/plugin-terminals@1.2.6':
+    resolution: {integrity: sha512-AZ+k+uCcnqV2X1c6HPmMmribTnvyttXSt7cjV7z1zvIIO+kpvCkowTnAmTHkywg6cguHopbtW6hRIHyekqv0VQ==}
+    hasBin: true
+    peerDependencies:
+      '@devframes/plugin-terminals--assets': 1.2.6
+      devframe: 1.2.6
+      vite: ^8.0.0
+    peerDependenciesMeta:
+      '@devframes/plugin-terminals--assets':
+        optional: true
+      vite:
+        optional: true
+
+  '@devframes/vite@1.2.6':
+    resolution: {integrity: sha512-k08K5VwYATnMwRqOhQ91TdeiC1mm/6aR3StCGkdxj82VnvHOlvjQNXHIzx3WAH0wGTwoMWnH65XvdHIzeD3vbA==}
+    peerDependencies:
+      '@devframes/hub': 1.2.6
+      '@devframes/hub-ui': 1.2.6
+      devframe: 1.2.6
+      vite: ^7.0.0 || ^8.0.0
+    peerDependenciesMeta:
+      '@devframes/hub':
+        optional: true
+      '@devframes/hub-ui':
+        optional: true
+      vite:
+        optional: true
 
   '@docsearch/css@4.7.1':
     resolution: {integrity: sha512-AsMPnbNmVLDNjhtgfq4ZRskNvWR8vuK6riEegHp3kjBFtxbmTWPzZ5s1FJ04SGr2D0ZXglueUNISsV2sDgV6Jw==}
@@ -1745,6 +1882,11 @@ packages:
   '@js-sdsl/ordered-map@4.4.2':
     resolution: {integrity: sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==}
 
+  '@json-render/core@0.21.3':
+    resolution: {integrity: sha512-sgzPtRhRB5wkhrbLtPm9bAhna5Q0x/U0vUpb3S/VEutouWEvvZRebHhpM5XiEjRM5Shv4W70VMZ8pGcGcz7j+A==}
+    peerDependencies:
+      zod: ^4.0.0
+
   '@keyv/bigmap@1.3.1':
     resolution: {integrity: sha512-WbzE9sdmQtKy8vrNPa9BRnwZh5UF4s1KTmSK0KUVLo3eff5BlQNNWDnFOouNpKfPKDnms9xynJjsMYjMaT/aFQ==}
     engines: {node: '>= 18'}
@@ -2256,6 +2398,9 @@ packages:
 
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
+
+  '@types/pg@8.23.1':
+    resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
   '@types/react-dom@19.3.0':
     resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
@@ -2918,6 +3063,9 @@ packages:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
     engines: {node: '>=6'}
 
+  destr@2.0.5:
+    resolution: {integrity: sha512-ugFTXCtDZunbzasqBxrK93Ik/DRYsO6S/fedkWEMKqt04xZ4csmnmwGDBAb07QWNaGMAmnTIemsYZCksjATwsA==}
+
   detect-indent@7.0.2:
     resolution: {integrity: sha512-y+8xyqdGLL+6sh0tVeHcfP/QDd8gUgbasolJJpY7NgeQGSZ739bDtSiaiDgtoicy+mtYB81dKLxO9xRhCyIB3A==}
     engines: {node: '>=12.20'}
@@ -2929,6 +3077,18 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
+
+  devframe@1.2.6:
+    resolution: {integrity: sha512-mHzcm6ADzXgRMWdoSX+5PjwhmwAuC3SpDPi3+URznlpzxJF6tXwy5h1xr82zPKju38EVtdnYRnnP4hZwLK01vA==}
+    hasBin: true
+    peerDependencies:
+      '@devframes/agentic': 1.2.6
+      cac: ^7.0.0
+    peerDependenciesMeta:
+      '@devframes/agentic':
+        optional: true
+      cac:
+        optional: true
 
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
@@ -4050,6 +4210,9 @@ packages:
     resolution: {integrity: sha512-ZrDNsPFoDMwefNs7sJwrYiEJ/CG4ClJWDZv05iNJsEBWa8GRDry1QJHTJxsuTAY9eDDKjX4k+q3SxslXJOao7w==}
     engines: {node: '>=20.0.0'}
 
+  nostics@1.3.0:
+    resolution: {integrity: sha512-wzRsrJwNlFbqIRQt8aCeL2WE8USip/uuvGSOZV1D02CxX8ABTMbw8IywKjH7yWHETMXbWJI4OBpihg9rmz2Vyg==}
+
   notepack.io@3.0.1:
     resolution: {integrity: sha512-TKC/8zH5pXIAMVQio2TvVDTtPRX+DJPHDqjRbxogtFiByHyzKmy96RA0JtCQJ+WouyyL4A10xomQzgbUT+1jCg==}
 
@@ -4133,6 +4296,40 @@ packages:
   perfect-debounce@2.1.0:
     resolution: {integrity: sha512-LjgdTytVFXeUgtHZr9WYViYSM/g8MkcTPYDlPa3cDqMirHjKiSZPYd6DoL7pK8AJQr+uWkQvCjHNdiMqsrJs+g==}
 
+  pg-cloudflare@1.4.1:
+    resolution: {integrity: sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ==}
+
+  pg-connection-string@2.14.1:
+    resolution: {integrity: sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA==}
+
+  pg-int8@1.0.1:
+    resolution: {integrity: sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==}
+    engines: {node: '>=4.0.0'}
+
+  pg-pool@3.14.0:
+    resolution: {integrity: sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw==}
+    peerDependencies:
+      pg: '>=8.0'
+
+  pg-protocol@1.16.1:
+    resolution: {integrity: sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg==}
+
+  pg-types@2.2.0:
+    resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
+    engines: {node: '>=4'}
+
+  pg@8.23.1:
+    resolution: {integrity: sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ==}
+    engines: {node: '>= 16.0.0'}
+    peerDependencies:
+      pg-native: '>=3.0.1'
+    peerDependenciesMeta:
+      pg-native:
+        optional: true
+
+  pgpass@1.0.5:
+    resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -4164,6 +4361,22 @@ packages:
   postcss@8.5.31:
     resolution: {integrity: sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg==}
     engines: {node: ^10 || ^12 || >=14}
+
+  postgres-array@2.0.0:
+    resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
+    engines: {node: '>=4'}
+
+  postgres-bytea@1.0.1:
+    resolution: {integrity: sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==}
+    engines: {node: '>=0.10.0'}
+
+  postgres-date@1.0.7:
+    resolution: {integrity: sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==}
+    engines: {node: '>=0.10.0'}
+
+  postgres-interval@1.2.0:
+    resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
+    engines: {node: '>=0.10.0'}
 
   postgres@3.4.9:
     resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
@@ -4373,6 +4586,10 @@ packages:
 
   spdx-license-ids@3.0.24:
     resolution: {integrity: sha512-cLS9TtWkIQFyLkJ3/5aFQAOHOSKTlOs/7WDut/XPSdjom1fJhUdkepeJAKXa9Y05+FabHd0sti+Et559vDtkpQ==}
+
+  split2@4.2.0:
+    resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
+    engines: {node: '>= 10.x'}
 
   sql-escaper@1.5.2:
     resolution: {integrity: sha512-6CKD38c31SENivxOADeMNLdukOnUxUcflKtzVWzace7Riv1v7cAEym5Cx9Q7gYZ3ezIJI7ZpqecQq8cqNeSSFg==}
@@ -4797,6 +5014,10 @@ packages:
     resolution: {integrity: sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ==}
     engines: {node: '>=0.4.0'}
 
+  xtend@4.0.2:
+    resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
+    engines: {node: '>=0.4'}
+
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -4847,6 +5068,9 @@ packages:
   yuku-parser@0.19.0:
     resolution: {integrity: sha512-XrBh9ZiQK5mJVRxZBAvD6LwRyAYrK3MFtH3+onyuxFL5hFD44EC3QOmIC1FjTj6H2MMwq46/NAI+NZxLZPZgxg==}
     engines: {node: '>=14.18.0'}
+
+  zigpty@0.2.1:
+    resolution: {integrity: sha512-MR9JqJx2wf5f4wz8zpx050AlqrmWeIW+1h0SO5iEyhG3HFRjY5luC3szS2ux2EGuPjE5OU9ZAuiCBeMWBTrqZw==}
 
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
@@ -5293,6 +5517,62 @@ snapshots:
 
   '@deno/win32-x64@2.9.6':
     optional: true
+
+  '@devframes/hub-ui@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))':
+    dependencies:
+      '@devframes/hub': 1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      devframe: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+    optionalDependencies:
+      '@devframes/json-render': 1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+
+  '@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))':
+    dependencies:
+      destr: 2.0.5
+      devframe: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+      h3: 2.0.8(crossws@0.4.16(srvx@1.0.7))
+      pathe: 2.0.3
+      tinyexec: 1.3.1
+      zigpty: 0.2.1
+    transitivePeerDependencies:
+      - crossws
+      - ocache
+
+  '@devframes/json-render-ui@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))':
+    optionalDependencies:
+      '@devframes/hub': 1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      devframe: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+
+  '@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))':
+    dependencies:
+      '@json-render/core': 0.21.3(zod@4.6.7)
+      devframe: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+      zod: 4.6.7
+    optionalDependencies:
+      '@devframes/hub': 1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+
+  '@devframes/plugin-terminals--assets@1.2.6': {}
+
+  '@devframes/plugin-terminals@1.2.6(@devframes/hub-ui@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/plugin-terminals--assets@1.2.6)(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))':
+    dependencies:
+      '@devframes/vite': 1.2.6(@devframes/hub-ui@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
+      cac: 7.1.0
+      devframe: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+      zigpty: 0.2.1
+    optionalDependencies:
+      '@devframes/plugin-terminals--assets': 1.2.6
+      vite: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
+    transitivePeerDependencies:
+      - '@devframes/hub'
+      - '@devframes/hub-ui'
+
+  '@devframes/vite@1.2.6(@devframes/hub-ui@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))':
+    dependencies:
+      devframe: 1.2.6(cac@7.1.0)(srvx@1.0.7)
+      pathe: 2.0.3
+    optionalDependencies:
+      '@devframes/hub': 1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      '@devframes/hub-ui': 1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(@devframes/json-render@1.2.6(@devframes/hub@1.2.6(crossws@0.4.16(srvx@1.0.7))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7)))(devframe@1.2.6(cac@7.1.0)(srvx@1.0.7))
+      vite: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
 
   '@docsearch/css@4.7.1': {}
 
@@ -5815,6 +6095,10 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.6.0
 
   '@js-sdsl/ordered-map@4.4.2': {}
+
+  '@json-render/core@0.21.3(zod@4.6.7)':
+    dependencies:
+      zod: 4.6.7
 
   '@keyv/bigmap@1.3.1(keyv@5.6.0)':
     dependencies:
@@ -6339,6 +6623,12 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/pg@8.23.1':
+    dependencies:
+      '@types/node': 24.19.2
+      pg-protocol: 1.16.1
+      pg-types: 2.2.0
+
   '@types/react-dom@19.3.0(@types/react@19.3.0)':
     dependencies:
       '@types/react': 19.3.0
@@ -6761,7 +7051,7 @@ snapshots:
 
   builtin-modules@5.4.0: {}
 
-  bullmq@6.5.0(ioredis@6.0.0(supports-color@10.2.2)):
+  bullmq@6.5.0(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1):
     dependencies:
       cron-parser: 5.10.2
       msgpackr: 2.1.2
@@ -6770,6 +7060,7 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       ioredis: 6.0.0(supports-color@10.2.2)
+      pg: 8.23.1
 
   cac@7.1.0: {}
 
@@ -6901,11 +7192,25 @@ snapshots:
 
   dequal@2.0.3: {}
 
+  destr@2.0.5: {}
+
   detect-indent@7.0.2: {}
 
   detect-libc@2.0.2: {}
 
   detect-libc@2.1.2: {}
+
+  devframe@1.2.6(cac@7.1.0)(srvx@1.0.7):
+    dependencies:
+      crossws: 0.4.16(srvx@1.0.7)
+      h3: 2.0.8(crossws@0.4.16(srvx@1.0.7))
+      nostics: 1.3.0
+      pathe: 2.0.3
+    optionalDependencies:
+      cac: 7.1.0
+    transitivePeerDependencies:
+      - ocache
+      - srvx
 
   devlop@1.1.0:
     dependencies:
@@ -6920,13 +7225,15 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(postgres@3.4.9):
+  drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(pg@8.23.1)(postgres@3.4.9):
     optionalDependencies:
       '@electric-sql/pglite': 0.5.12
       '@libsql/client': 0.18.0
       '@opentelemetry/api': 1.10.0
+      '@types/pg': 8.23.1
       '@upstash/redis': 1.40.0
       mysql2: 3.24.6(@types/node@24.19.2)
+      pg: 8.23.1
       postgres: 3.4.9
 
   dts-resolver@3.0.0: {}
@@ -8231,6 +8538,8 @@ snapshots:
 
   nodemailer@10.2.1: {}
 
+  nostics@1.3.0: {}
+
   notepack.io@3.0.1: {}
 
   nth-check@2.1.1:
@@ -8304,6 +8613,41 @@ snapshots:
 
   perfect-debounce@2.1.0: {}
 
+  pg-cloudflare@1.4.1:
+    optional: true
+
+  pg-connection-string@2.14.1: {}
+
+  pg-int8@1.0.1: {}
+
+  pg-pool@3.14.0(pg@8.23.1):
+    dependencies:
+      pg: 8.23.1
+
+  pg-protocol@1.16.1: {}
+
+  pg-types@2.2.0:
+    dependencies:
+      pg-int8: 1.0.1
+      postgres-array: 2.0.0
+      postgres-bytea: 1.0.1
+      postgres-date: 1.0.7
+      postgres-interval: 1.2.0
+
+  pg@8.23.1:
+    dependencies:
+      pg-connection-string: 2.14.1
+      pg-pool: 3.14.0(pg@8.23.1)
+      pg-protocol: 1.16.1
+      pg-types: 2.2.0
+      pgpass: 1.0.5
+    optionalDependencies:
+      pg-cloudflare: 1.4.1
+
+  pgpass@1.0.5:
+    dependencies:
+      split2: 4.2.0
+
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
@@ -8340,6 +8684,16 @@ snapshots:
       nanoid: 3.3.20
       picocolors: 1.1.1
       source-map-js: 1.2.2
+
+  postgres-array@2.0.0: {}
+
+  postgres-bytea@1.0.1: {}
+
+  postgres-date@1.0.7: {}
+
+  postgres-interval@1.2.0:
+    dependencies:
+      xtend: 4.0.2
 
   postgres@3.4.9: {}
 
@@ -8600,6 +8954,8 @@ snapshots:
       spdx-license-ids: 3.0.24
 
   spdx-license-ids@3.0.24: {}
+
+  split2@4.2.0: {}
 
   sql-escaper@1.5.2: {}
 
@@ -8982,6 +9338,8 @@ snapshots:
 
   xmlhttprequest-ssl@2.1.2: {}
 
+  xtend@4.0.2: {}
+
   y18n@5.0.8: {}
 
   yaml-eslint-parser@2.1.0:
@@ -9051,6 +9409,8 @@ snapshots:
     dependencies:
       '@yuku-toolchain/types': 0.19.0
       yuku-core: 0.19.0
+
+  zigpty@0.2.1: {}
 
   zod@4.6.7: {}
 

@@ -4,13 +4,14 @@ import type { ModelAbility, PlainAbility } from '../auth/gate'
 import type { Container } from '../container/container'
 import type { InjectionKey } from '../container/token'
 import type { TranslationKey, TranslationParams } from '../i18n/manager'
+import type { RouteMeta } from '../routing/route'
 import type { SignatureOptions } from '../routing/signed'
 import type { Session } from '../session/session'
 import type { Tenant } from '../tenancy/config'
 import type { Component, ViewNode } from '../view/jsx'
 import type { ViewResponseInit } from '../view/view'
 import type { CookieOptions } from './cookie'
-import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, HTTPError, readBody, redirect, setCookie } from 'h3'
+import { assertBodySize, deleteCookie, getCookie, getQuery, getRequestIP, getRequestURL, HTTPError, readBody, redirect, setCookie } from 'h3'
 import { Auth } from '../auth/auth'
 import { Gate } from '../auth/gate'
 import { Config } from '../config/config'
@@ -54,6 +55,16 @@ export type Validated<V extends ValidationTargets> = {
 export interface ContextState {}
 
 const kContext = Symbol.for('hazejs.context')
+
+/** 当前请求匹配到的路由（`ctx.route`） */
+export interface MatchedRoute {
+  method: string
+  /** 路径模式，如 `/api/users/:id`（含分组与模块的前缀） */
+  path: string
+  name: string | undefined
+  /** `.meta()` 写入的元数据 */
+  meta: RouteMeta
+}
 
 /** 对 H3Event 的薄封装；`ctx.event` 可直接用于 h3 的全部工具函数 */
 export class HttpContext<V extends ValidationTargets = ValidationTargets> {
@@ -111,12 +122,38 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
     return this.event.url.pathname
   }
 
+  /**
+   * 匹配到的路由：方法、路径模式（`/users/:id`）、名称与 `.meta()` 写入的元数据。
+   * 路由中间件、处理器与出站阶段可用；没有匹配到路由（404、静态文件）时为 undefined
+   */
+  get route(): MatchedRoute | undefined {
+    const matched = this.event.context.matchedRoute as { method?: string, route?: string, meta?: RouteMeta } | undefined
+    if (!matched)
+      return undefined
+    const { name, ...meta } = matched.meta ?? {}
+    return {
+      method: matched.method || this.method,
+      path: matched.route ?? this.path,
+      name: typeof name === 'string'
+        ? name
+        : undefined,
+      meta,
+    }
+  }
+
+  /** 路由参数（已 URL 解码：`/files/%E6%96%87` → `文`） */
   param(name: string): string | undefined {
-    return this.event.context.params?.[name]
+    const value = this.event.context.params?.[name]
+    return value === undefined
+      ? undefined
+      : decodeParam(value)
   }
 
   params(): Record<string, string> {
-    return { ...this.event.context.params }
+    return Object.fromEntries(Object.entries(this.event.context.params ?? {}).map(([name, value]) => [
+      name,
+      decodeParam(value),
+    ]))
   }
 
   query(): Record<string, string | string[]>
@@ -177,6 +214,20 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
     return getRequestIP(this.event, {
       xForwardedFor: this.config.get<boolean>('app.trustProxy', false),
     })
+  }
+
+  /**
+   * 客户端访问的地址（协议 + 主机，如 `https://admin.example.com`）：config/app.ts 的 trustProxy 为 true 时
+   * 取反向代理传来的 X-Forwarded-Proto / X-Forwarded-Host，用于生成给浏览器的绝对地址
+   */
+  get origin(): string {
+    const trust = this.config.get<boolean>('app.trustProxy', false)
+    return getRequestURL(this.event, { xForwardedHost: trust, xForwardedProto: trust }).origin
+  }
+
+  /** 是否为 https 请求（同样遵循 trustProxy），如决定 Cookie 是否加 Secure */
+  get secure(): boolean {
+    return this.origin.startsWith('https:')
   }
 
   cookie(name: string): string | undefined {
@@ -264,6 +315,11 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
   authorize(ability: PlainAbility, ...args: unknown[]): Promise<void>
   async authorize(ability: string, ...args: unknown[]): Promise<void> {
     return this.make(Gate).authorize(await this.#gateUser(), ability, ...args)
+  }
+
+  /** 拥有其中任一能力即通过（与模型无关的能力，如权限码）；都没有时抛出 401 / 403 */
+  async authorizeAny(abilities: readonly PlainAbility[], ...args: unknown[]): Promise<void> {
+    return this.make(Gate).authorizeAny(await this.#gateUser(), abilities, ...args)
   }
 
   /** 当前会话的 CSRF token（服务端渲染表单时放入隐藏字段 `_token`） */
@@ -386,4 +442,16 @@ export function setHttpContext(event: H3Event, ctx: HttpContext): void {
 
 export function getHttpContext(event: H3Event): HttpContext | undefined {
   return (event.context as Record<symbol, unknown>)[kContext] as HttpContext | undefined
+}
+
+/** 路由参数按 URL 解码；不是合法的编码（如单独的 `%`）时原样返回 */
+function decodeParam(value: string): string {
+  if (!value.includes('%'))
+    return value
+  try {
+    return decodeURIComponent(value)
+  }
+  catch {
+    return value
+  }
 }

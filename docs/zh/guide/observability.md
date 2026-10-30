@@ -203,7 +203,7 @@ bus.subscribe('orders', message => withTraceContext(message.headers, () => handl
 
 埋点只依赖 `@opentelemetry/api`，因此在 Bun、Deno 和 Workers 上都能运行，但 `NodeSDK` 只支持 Node。Workers 上需要兼容 Workers 的 TracerProvider（例如基于 OTLP 导出器的社区包），开启 `nodejs_compat` 以使用 AsyncLocalStorage，并用 `ctx.waitUntil()` 写出 span。Bun 与 Deno 能否使用常规的 SDK 包，取决于你选用的导出器是否支持该运行时。
 
-## 开发面板
+## 开发面板 {#dev-dashboard}
 
 开发时打开 `http://localhost:3000/__haze`（全栈项目为 Vite 开发服务器的端口）。面板在内存中记录：
 

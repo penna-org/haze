@@ -82,6 +82,7 @@ export class HealthController {
 | `ctx.cookie(name)` / `await ctx.signedCookie(name)` | Cookies |
 | `ctx.validated` | Output of route-level `.validate()` |
 | `ctx.method`, `ctx.path`, `ctx.url`, `ctx.ip`, `ctx.req` | Request info |
+| `ctx.route` | The matched route: `method`, `path` pattern (`/api/users/:id`), `name` and the `meta` set with `.meta()`; `undefined` when no route matched. Lets route middleware (audit logs, per-route limits) read what the route declared |
 | `ctx.status(code)`, `ctx.setHeader(name, value)` | Response status and headers |
 | `ctx.created(data)`, `ctx.noContent()`, `ctx.redirect(url, status?)` | Response helpers |
 | `ctx.setCookie()`, `ctx.setSignedCookie()`, `ctx.deleteCookie()` | Write cookies |

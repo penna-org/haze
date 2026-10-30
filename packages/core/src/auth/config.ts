@@ -1,3 +1,6 @@
+import type { JWTPayload } from 'jose'
+import type { HttpContext } from '../http/context'
+import type { MaybePromise } from '../utils'
 import type { PasskeyConfig } from './passkeys'
 import type { PasswordResetConfig } from './passwords'
 import type { UserProvider } from './provider'
@@ -18,12 +21,20 @@ export interface JwtGuardConfig {
   /** RS / PS / ES / EdDSA：PKCS#8 私钥（签发）与 SPKI 公钥（校验），PEM 格式 */
   privateKey?: string
   publicKey?: string
-  /** 有效期，默认 `2h` */
-  expiresIn?: string | number
+  /** 有效期，默认 `2h`；函数形式在每次签发时求值（如读取运行时可修改的设置） */
+  expiresIn?: string | number | ((ctx: HttpContext) => MaybePromise<string | number>)
   issuer?: string
   audience?: string | string[]
   /** 同时从该 Cookie 读取令牌（浏览器场景），默认只读 Authorization: Bearer */
   cookie?: string
+  /**
+   * 由令牌的声明取得当前用户，代替 provider 的 `retrieveById(sub)`：可以读取自定义声明（如会话 ID）与请求头，
+   * 在这里检查会话是否已被吊销、用户是否被禁用等。返回 undefined / null 视为未登录；
+   * 抛出的 HttpException（如带业务码的 401、403）原样作为响应，不会被当成“未登录”
+   */
+  resolveUser?: (payload: JWTPayload, ctx: HttpContext) => MaybePromise<unknown>
+  /** 带有这些声明的令牌不能用于认证（如用同一密钥签发的找回密码凭证上的 `purpose`） */
+  rejectClaims?: string[]
 }
 
 export interface SessionGuardConfig {

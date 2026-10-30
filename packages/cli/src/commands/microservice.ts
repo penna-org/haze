@@ -2,6 +2,7 @@ import process from 'node:process'
 import { createDevServer } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { importFromApp } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 
 type Microservices = typeof import('@hazejs/microservices')
@@ -21,8 +22,9 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    const root = resolveRoot(args.root)
     const server = await createDevServer({
-      root: resolveRoot(args.root),
+      root,
       listen: false,
     })
     if (!server.app) {
@@ -32,7 +34,7 @@ export default defineCommand({
     // 从应用的模块图中加载，与应用使用同一个 @hazejs/core 实例
     let microservices: Microservices
     try {
-      microservices = await server.import<Microservices>('@hazejs/microservices')
+      microservices = await importFromApp<Microservices>(server, root, '@hazejs/microservices')
     }
     catch {
       await server.close()

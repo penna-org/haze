@@ -16,7 +16,7 @@ import { i18nEnabled, useI18n } from '../i18n/manager'
 import { matchesPath } from '../observability/config'
 import { healthPaths, resolveHealthConfig } from '../observability/health'
 import { resolveDashboardConfig } from '../observability/observability'
-import { getRequestStore } from '../request'
+import { getContextApp } from '../request'
 import { safeEqual, toBase64Url } from '../security/key'
 import { jsx } from '../view/jsx'
 import { renderViewResponse, resolveView } from '../view/view'
@@ -431,7 +431,7 @@ export function setMaintenanceManager(manager: MaintenanceManager | undefined): 
 }
 
 export function useMaintenance(): MaintenanceManager {
-  const manager = getRequestStore()?.app.make(MaintenanceManager) ?? fallback
+  const manager = getContextApp()?.make(MaintenanceManager) ?? fallback
   if (!manager)
     throw new Error('Maintenance mode is not available: the application has not booted')
   return manager

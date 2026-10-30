@@ -3,7 +3,7 @@ import type { Config } from '../config/config'
 import type { DiskConfig, FilesystemConfig } from './config'
 import type { DiskDriver } from './types'
 import { ForbiddenException, NotFoundException } from '../exception/exceptions'
-import { getRequestStore } from '../request'
+import { getContextContainer } from '../request'
 import { appKey, sign, verify } from '../security/key'
 import { tenantStoragePrefix } from '../tenancy/context'
 import { defaultFilesystemConfig } from './config'
@@ -261,7 +261,7 @@ export function setStorageManager(manager: StorageManager | undefined): void {
 }
 
 export function useStorageManager(): StorageManager {
-  const manager = getRequestStore()?.container.make(StorageManager) ?? fallback
+  const manager = getContextContainer()?.make(StorageManager) ?? fallback
   if (!manager)
     throw new Error('Storage is not available: the application has not booted')
   return manager

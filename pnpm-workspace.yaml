@@ -35,6 +35,12 @@ catalog:
   '@aws-sdk/s3-request-presigner': ^3.1158.0
   '@changesets/changelog-github': ^1.0.1
   '@changesets/cli': ^3.0.3
+  '@devframes/hub': 1.2.6
+  '@devframes/hub-ui': 1.2.6
+  '@devframes/json-render': 1.2.6
+  '@devframes/json-render-ui': 1.2.6
+  '@devframes/plugin-terminals': 1.2.6
+  '@devframes/plugin-terminals--assets': 1.2.6
   '@electric-sql/pglite': ^0.5.12
   '@faker-js/faker': ^10.6.0
   '@grpc/grpc-js': ^1.14.6
@@ -48,6 +54,7 @@ catalog:
   '@socket.io/redis-adapter': ^8.3.0
   '@standard-schema/spec': ^1.0.0
   '@types/node': ^24.0.0
+  '@types/pg': ^8.23.1
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
   '@upstash/redis': ^1.40.0
@@ -60,6 +67,7 @@ catalog:
   croner: ^11.0.0
   crossws: ^0.4.16
   deno: ^2.9.6
+  devframe: 1.2.6
   drizzle-kit: ^0.31.11
   drizzle-orm: ^0.45.4
   eslint: ^10.13.0
@@ -73,6 +81,7 @@ catalog:
   mysql2: ^3.24.6
   nf3: ^0.4.2
   nodemailer: ^10.2.1
+  pg: ^8.23.1
   postgres: ^3.4.9
   react: ^19.3.1
   react-dom: ^19.3.1

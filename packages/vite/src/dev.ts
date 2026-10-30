@@ -1,14 +1,17 @@
 import type { Application } from '@hazejs/core'
+import type { Server as NodeServer } from 'node:http'
 import type { InlineConfig, ViteDevServer } from 'vite'
+import type { DevtoolsConfig } from './devtools'
 import type { ReloadResult } from './host'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { webSocketConfig, webSocketPlugin } from '@hazejs/core'
+import { registerServerExtension, unregisterServerExtension, webSocketConfig, webSocketPlugin } from '@hazejs/core'
 import { consola } from 'consola'
 import { serve } from 'srvx'
 import { createServer, mergeConfig, normalizePath } from 'vite'
 import { loadHazeConfig } from './config'
 import { PLUGIN_NAME } from './constants'
+import { loadDevtools, pathnameOf } from './devtools'
 import { createAppHost } from './host'
 import { haze } from './plugin'
 
@@ -21,10 +24,14 @@ export interface DevServerOptions {
   listen?: boolean
   /** 文件变化后的防抖时间，默认 30ms */
   debounce?: number
+  /** DevTools（需安装 `@hazejs/devtools`），默认读取 haze.config.ts；false 关闭 */
+  devtools?: boolean | DevtoolsConfig
 }
 
 export interface DevServer {
   readonly url: string | undefined
+  /** DevTools 的地址（未安装 `@hazejs/devtools` 或已关闭时为 undefined） */
+  readonly devtools: string | undefined
   readonly vite: ViteDevServer
   /** 当前正在服务的应用 */
   readonly app: Application | undefined
@@ -75,6 +82,29 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
   } satisfies InlineConfig))
 
   const host = createAppHost({ vite, api: plugin.api!, debounce: options.debounce })
+  // 在首次加载之前创建，DevTools 能收到首次加载的结果
+  const devtools = options.listen === false
+    ? undefined
+    : await loadDevtools(root, options.devtools ?? config.devtools, { source: host })
+  const extension = devtools && {
+    name: 'hazejs:devtools',
+    matches: devtools.matches,
+    // devtools 路径下的 WebSocket 升级交给 DevTools，应用的 crossws 不再处理
+    node: (node: NodeServer) => {
+      node.on('upgrade', (req, socket, head) => {
+        if (devtools.matches(pathnameOf(req.url)))
+          devtools.handleUpgrade(req, socket, head)
+      })
+    },
+  }
+  if (extension)
+    registerServerExtension(extension)
+  const fetch = devtools
+    ? (request: Request) => devtools.matches(new URL(request.url).pathname)
+        ? devtools.handler(request)
+        : host.fetch(request)
+    : host.fetch
+
   const initial = await host.start()
   if (!initial.ok && options.listen === false)
     consola.warn(`[${PLUGIN_NAME}] the app failed to start; requests will return the error until it is fixed`)
@@ -82,7 +112,7 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
   const server = options.listen === false
     ? undefined
     : serve({
-        fetch: host.fetch,
+        fetch,
         port: options.port ?? (Number(process.env.PORT) || config.port),
         hostname: options.host ?? config.host,
         silent: true,
@@ -100,6 +130,9 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
     get url() {
       return server?.url
     },
+    get devtools() {
+      return devtools && server?.url && new URL(devtools.base, server.url).href
+    },
     vite,
     get app() {
       return host.app
@@ -109,6 +142,9 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
     onReload: host.onReload,
     import: host.import,
     async close() {
+      if (extension)
+        unregisterServerExtension(extension.name, extension)
+      await devtools?.close()
       await server?.close(true)
       await host.close()
       await vite.close()

@@ -23,7 +23,13 @@ const UserRegistered = defineEvent<{ userId: number, email: string }>()
 export default UserRegistered
 ```
 
-Pass `{ name }` to override the name: `defineEvent<P>({ name: 'user.registered' })`.
+Pass `{ name }` to override the name: `defineEvent<P>({ name: 'user.registered' })`. An event without a payload (`defineEvent()`, payload type `void`) is emitted with `.emit()` and no argument.
+
+| Option | Description |
+| --- | --- |
+| `name` | Event name; defaults to the file name |
+| `afterCommit` | Emitted inside a database transaction, run the listeners (and the broadcast) only after the outermost transaction commits; dropped on rollback. See [Emitting after commit](#after-commit) |
+| `broadcastOn` / `broadcastAs` / `broadcastWith` / `broadcastWhen` | Also broadcast the event. See [Broadcasting](./broadcasting) |
 
 ## Emitting events
 
@@ -43,7 +49,28 @@ import { Events } from '@hazejs/core'
 await Events.emit(UserRegistered, { userId: user.id, email: user.email })
 ```
 
-`emit()` resolves once all synchronous listeners have run and queued listeners have been dispatched. An error thrown by a synchronous listener propagates to the caller.
+`emit()` resolves once all synchronous listeners have run and queued listeners have been dispatched.
+
+Listeners are isolated from each other: when a synchronous listener throws (or a queued listener cannot be dispatched), the error is logged at `error` level with the event and listener names (`Listener "SendWelcomeEmail" failed`), the remaining listeners still run, and `emit()` does not reject. A listener that must stop the caller should do its check before emitting, or the caller should call the code directly instead of going through an event.
+
+Listeners run in the context of the application that emitted the event: the facades, `useApp()`, `config()` and `inject()` inside a listener resolve to that application, also outside a request.
+
+### Emitting after commit {#after-commit}
+
+An event emitted inside a database transaction would normally run its listeners before the commit, and even if the transaction later rolls back. Mark the event with `afterCommit` to defer the whole emit (listeners, queued listeners and the broadcast) until the outermost transaction commits; it is dropped on rollback, and outside a transaction it is emitted immediately:
+
+```ts
+// app/event/OrderPlaced.ts
+export default defineEvent<{ orderId: number }>({ afterCommit: true })
+
+// in a service
+await Db.transaction(async () => {
+  const order = await Order.create({ ... })
+  await OrderPlaced.emit({ orderId: order.id }) // listeners run after COMMIT
+})
+```
+
+For a one-off, wrap the emit: `await afterCommit(() => OrderPlaced.emit({ orderId }))` (`afterCommit` from `@hazejs/core`, or `Db.afterCommit` from `@hazejs/orm`). Errors from deferred listeners are logged; the transaction has already committed. This needs `@hazejs/orm` (see [Transactions](./transactions#after-commit)); without a database package the event is emitted immediately.
 
 ## Defining listeners
 
@@ -100,7 +127,15 @@ export default defineListener([OrderPaid, OrderRefunded], async (payload, ctx) =
 
 ### Order and stopping propagation
 
-Synchronous listeners run one after another in file-name order. Returning `false` stops the remaining synchronous listeners for that emit:
+Synchronous listeners run one after another, in registration order:
+
+1. listeners of [modules](./modules), in the order the modules are enabled;
+2. the project's `app/listener` files, sorted by their path (so `app/listener/a/X.ts` runs before `app/listener/b/Y.ts`, and a file name prefix such as `01-` makes the order explicit);
+3. listeners added at runtime with `Events.on()`, in the order they were added.
+
+Queued listeners are dispatched at their place in the same order. Two listener files with the same name (for example `app/listener/Audit.ts` and `app/listener/admin/Audit.ts`) fail at boot with an error naming both, because a queued listener is registered as the job `listener:<name>`; rename one or pass `{ name }`.
+
+Returning `false` stops the remaining synchronous listeners for that emit:
 
 ```ts
 // app/listener/BlockSpam.ts — sorts before the other listeners
@@ -112,6 +147,10 @@ export default defineListener(UserRegistered, ({ email }) => {
     return false
 })
 ```
+
+::: warning
+A listener written as `event => service.handle(event)` returns whatever `handle()` returns. If that can be `false` (a boolean result), it stops the remaining listeners by accident; use a block body (`event => { service.handle(event) }`) or `await` without returning.
+:::
 
 ## Queued listeners
 

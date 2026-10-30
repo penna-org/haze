@@ -168,6 +168,15 @@ export default defineProvider({
 
 A provider can also be a class with these methods. Generate one with `npx haze make:provider Redis`.
 
+Providers boot in order: [module](./modules) providers first, then the app's. Work that needs something an app provider prepares in its `boot` (an open database connection, say) can wait for all providers with `app.onBooted(callback)`; it runs right away once the application has booted:
+
+```ts
+// modules/shop/app/provider/ShopProvider.ts
+export default defineProvider({
+  boot: app => app.onBooted(() => app.make(OrderBinding).register()),
+})
+```
+
 ### Resolving from the application
 
 `app.make(key)` resolves from the root container, and `ctx.make(key)` from the current request's container. The framework binds its core objects, so you can inject them anywhere: `Application`, `Container`, `Config`, `Logger`, `Router`, `ExceptionHandler`, `ResponseFormatter`, plus the managers for cache, storage, queue, mail and events.

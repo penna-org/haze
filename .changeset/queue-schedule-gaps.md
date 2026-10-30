@@ -1,0 +1,20 @@
+---
+'@hazejs/core': minor
+'@hazejs/orm': minor
+'@hazejs/cli': patch
+'@hazejs/vite': patch
+---
+
+Queue, scheduler and event fixes found while porting a production backend onto hazejs.
+
+Application context: queued jobs (every driver, including `Queue.fake().drain()`), scheduled tasks (`s.call()` functions, `when()` / `skip()` filters, hooks and the `defineSchedule` callback) and event listeners now run in the context of the application that owns them, so the facades (`Queue`, `Events`, `Cache`, `Mail`, `Storage`, `Notification`, `Broadcast`, `Redis`, `Http`, `Db` from `@hazejs/orm`), `useApp()`, `config()` and `inject()` resolve to that application instead of the most recently booted one. New `runInApp(app, fn)`, `getContextApp()` and `getContextContainer()` exports pin and read that context in scripts and tests; a request entered inside `runInApp()` still takes precedence.
+
+After commit: new `afterCommit(fn)` and `registerAfterCommitHandler(handler)` / `deferUntilCommit(fn)` in `@hazejs/core`, implemented by `@hazejs/orm`, plus `Db.afterCommit(fn)` / `Db.connection(name).afterCommit(fn)`: inside a transaction the callback runs after the outermost commit (before `Db.transaction()` / `Db.commit()` returns; a savepoint hands its callbacks to the enclosing transaction, a rollback drops them; errors are logged), outside a transaction it runs immediately. Jobs accept `defineJob({ afterCommit: true })`, `dispatch(payload, { afterCommit })` and `Job.with(payload).afterCommit()`; a deferred `Job.with().dispatch()` resolves to `{ id, skipped: false, deferred: true }`. Events accept `defineEvent({ afterCommit: true })`, which defers the whole emit including the broadcast.
+
+Scheduling: `defineSchedule((s, app) => …)` passes the application; `s.job()` dispatches to the owning application's queue and accepts `afterCommit`. Jobs whose payload type is `void` / `undefined` (or undeclared) can be dispatched without a payload: `Job.dispatch()`, `Job.with()`, `Queue.dispatch(Job)`, `s.job(Job)` (new `DispatchArgs` / `WithArgs` / `EmitArgs` types); such a payload now stays `undefined` instead of becoming `null`.
+
+Behaviour changes: an event listener that throws (or a queued listener that cannot be dispatched) is now logged with the event and listener names and the remaining listeners still run; `emit()` no longer rejects. Registering two different jobs or two different listeners under the same name (for example `app/job/Cleanup.ts` and `app/job/admin/Cleanup.ts`, or a module's file and a project file) now fails at boot with an error naming both sources instead of silently replacing one. A successful job logs a debug line with its name, duration and attempt, and an `s.job()` task logs "Scheduled job dispatched to the queue". `queue.runInServer` no longer starts a worker for a `sync` connection (it logs a warning) or for a `memory` connection that already consumes the `default` queue, and a worker that fails to start is logged instead of causing an unhandled rejection; `QueueManager.work()` / `haze queue:work` refuse the `sync` connection with a clear error. A unique job that takes its lock in a `memory` cache store while its connection is consumed by another process logs a one-time warning.
+
+CLI: `haze schedule:*`, `queue:*`, `down` / `up` / `maintenance:status`, console commands, `repl`, `openapi`, `db:migrate`, `microservice` and `search:*` now load `@hazejs/core` (and other `@hazejs/*` packages) from the same module instance as the application when its dependencies are externalized (installed in `node_modules`), fixing `Cannot read properties of undefined (reading 'make')` from `schedule:list`.
+
+Types: Redis connection names are generated into a separate `GeneratedRedisConnections` interface, and generated config and policy imports keep their file extension so they resolve under `moduleResolution: "nodenext"` in ESM projects; `connection: 'default'` in `config/cache.ts` no longer fails with "Type 'string' is not assignable to type 'undefined'". `defineCacheConfig` accepts stores added with a conditional spread (new `CacheConfigInput` type).

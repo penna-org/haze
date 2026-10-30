@@ -42,7 +42,21 @@ export default defineCacheConfig(() => ({
 | `responseStore` | `cacheResponse` 使用的存储，默认为 `default` |
 | `serializer` | `'typed'`（默认）、`'json'` 或自定义序列化器，每个存储可以单独覆盖。见 [序列化](#序列化) |
 
-存储名与驱动会进入生成的配置类型：`Cache.store('redis')` 的类型就是 Redis 存储，存储名拼错时类型检查报错（见 [类型](#类型)）。
+存储名与驱动会进入生成的配置类型：`Cache.store('redis')` 的类型就是 Redis 存储，存储名拼错时类型检查报错（见 [类型](#类型)）。`connection` 按 `config/redis.ts` 的连接名检查。
+
+存储可以按条件展开；条件不成立时该存储不存在，使用时抛出 `Cache store "locks" is not defined`：
+
+```ts
+const redis = Boolean(env('REDIS_URL'))
+
+export default defineCacheConfig({
+  default: 'memory',
+  stores: {
+    memory: { driver: 'memory' },
+    ...(redis ? { locks: { driver: 'redis', connection: 'default' } } : {}),
+  },
+})
+```
 
 ## 驱动
 

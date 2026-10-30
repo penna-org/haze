@@ -158,3 +158,59 @@ export default defineRoutes((r) => {
     expect(jsonSchemaToType({})).toBe('unknown')
   })
 })
+
+describe('config typegen', () => {
+  it('lets config/cache.ts name a Redis connection without a circular type (also in conditional spreads)', async () => {
+    const ts = (await import('typescript')).default
+    fixture = copyFixture('basic')
+    fixture.write('config/redis.ts', `
+import { defineRedisConfig } from '@hazejs/core'
+
+export default defineRedisConfig(() => ({
+  default: 'default',
+  connections: { default: { url: 'redis://127.0.0.1:6379' }, queue: { url: 'redis://127.0.0.1:6380' } },
+}))
+`)
+    const shared = !!globalThis.process
+    fixture.write('config/cache.ts', `
+import { defineCacheConfig } from '@hazejs/core'
+
+const shared = ${shared}
+export default defineCacheConfig({
+  default: 'memory',
+  stores: {
+    memory: { driver: 'memory' },
+    redis: { driver: 'redis', connection: 'default' },
+    ...(shared ? { locks: { driver: 'redis', connection: 'queue' } } : {}),
+  },
+})
+`)
+    fixture.write('app/check.ts', `
+import type { RedisConnectionName } from '@hazejs/core'
+
+export const ok: RedisConnectionName = 'queue'
+// @ts-expect-error unknown connection
+export const wrong: RedisConnectionName = 'missing'
+`)
+    const { file, content } = generateTypes({ root: fixture.root, srcDir: fixture.root, routes: [] })
+    expect(content).toContain('interface GeneratedRedisConnections {')
+    fixture.write(join('.haze', 'types', 'haze.d.ts'), content)
+    expect(file).toBe(join(fixture.root, '.haze', 'types', 'haze.d.ts'))
+    const program = ts.createProgram([
+      join(fixture.root, 'config/cache.ts'),
+      join(fixture.root, 'config/redis.ts'),
+      join(fixture.root, 'app/check.ts'),
+      file,
+    ], {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    })
+    const diagnostics = ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
+    expect(diagnostics).toEqual([])
+  })
+})

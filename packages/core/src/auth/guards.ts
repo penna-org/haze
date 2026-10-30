@@ -1,6 +1,7 @@
 import type { JWTPayload } from 'jose'
 import type { HttpContext } from '../http/context'
 import type { WebCryptoKey } from '../security/key'
+import type { MaybePromise } from '../utils'
 import type { JwtGuardConfig, TokenGuardConfig } from './config'
 import type { Credentials, UserProvider } from './provider'
 import type { CreateTokenOptions, NewAccessToken, PersonalAccessToken } from './tokens'
@@ -24,8 +25,13 @@ export interface Guard<U = unknown> {
   setUser: (user: U | undefined) => void
 }
 
+/** 认证失败的原因：没有凭据，或凭据无效（过期、签名不符、已被吊销等） */
+export type GuardFailure = 'missing' | 'invalid'
+
 abstract class BaseGuard<U> implements Guard<U> {
   #user: Promise<U | undefined> | undefined
+  /** 最近一次解析的失败原因（`auth` 中间件据此给出不同的错误码） */
+  failure: GuardFailure | undefined
 
   constructor(readonly name: string, protected ctx: HttpContext, protected provider: UserProvider<U>) {}
 
@@ -60,6 +66,11 @@ abstract class BaseGuard<U> implements Guard<U> {
   protected abstract resolve(): Promise<U | undefined>
 }
 
+export interface JwtLoginOptions {
+  /** 本次签发的有效期，覆盖配置的 expiresIn */
+  expiresIn?: string | number
+}
+
 export interface IssuedToken {
   token: string
   type: 'Bearer'
@@ -76,10 +87,10 @@ export class JwtGuard<U = unknown> extends BaseGuard<U> {
     super(name, ctx, provider)
   }
 
-  /** 为用户签发令牌，可附加自定义声明 */
-  async login(user: U, claims: Record<string, unknown> = {}): Promise<IssuedToken> {
+  /** 为用户签发令牌，可附加自定义声明（如会话 ID） */
+  async login(user: U, claims: Record<string, unknown> = {}, options: JwtLoginOptions = {}): Promise<IssuedToken> {
     const algorithm = this.config.algorithm ?? 'HS256'
-    const expiresIn = parseDuration(this.config.expiresIn ?? '2h')
+    const expiresIn = parseDuration(options.expiresIn ?? await this.#expiresIn())
     const now = Math.floor(Date.now() / 1000)
     let jwt = new SignJWT(claims)
       .setProtectedHeader({ alg: algorithm, typ: 'JWT' })
@@ -121,24 +132,54 @@ export class JwtGuard<U = unknown> extends BaseGuard<U> {
   }
 
   protected async resolve(): Promise<U | undefined> {
+    this.failure = undefined
     const token = this.#token()
-    if (!token)
+    if (!token) {
+      this.failure = 'missing'
       return undefined
+    }
+    let payload: JWTPayload
     try {
-      const { payload } = await jwtVerify(token, await this.#key('verify'), {
+      payload = (await jwtVerify(token, await this.#key('verify'), {
         algorithms: [this.config.algorithm ?? 'HS256'],
         issuer: this.config.issuer,
         audience: this.config.audience,
-      })
-      if (payload.sub === undefined)
-        return undefined
-      this.#payload = payload
-      return await this.provider.retrieveById(payload.sub) ?? undefined
+      })).payload
     }
     catch {
       // 过期、签名不符、格式错误均视为未登录
+      this.failure = 'invalid'
       return undefined
     }
+    if (payload.sub === undefined || this.config.rejectClaims?.some(claim => claim in payload)) {
+      this.failure = 'invalid'
+      return undefined
+    }
+    this.#payload = payload
+    // 自定义解析：其中抛出的异常（如会话已失效的 401、组织无权访问的 403）原样传出
+    if (this.config.resolveUser) {
+      const user = await (this.config.resolveUser as (payload: JWTPayload, ctx: HttpContext) => MaybePromise<U | undefined | null>)(payload, this.ctx) ?? undefined
+      if (user === undefined)
+        this.failure = 'invalid'
+      return user
+    }
+    try {
+      const user = await this.provider.retrieveById(payload.sub) ?? undefined
+      if (user === undefined)
+        this.failure = 'invalid'
+      return user
+    }
+    catch {
+      this.failure = 'invalid'
+      return undefined
+    }
+  }
+
+  async #expiresIn(): Promise<string | number> {
+    const value = this.config.expiresIn
+    return typeof value === 'function'
+      ? await value(this.ctx)
+      : value ?? '2h'
   }
 
   #token(): string | undefined {
@@ -264,10 +305,13 @@ export class TokenGuard<U = unknown> extends BaseGuard<U> {
 
   protected async resolve(): Promise<U | undefined> {
     const plain = bearerToken(this.ctx)
+    this.failure = plain ? undefined : 'missing'
     if (!plain)
       return undefined
     const result = await this.tokens().authenticate(plain)
     this.#token = result?.token
+    if (!result)
+      this.failure = 'invalid'
     return result?.user
   }
 }

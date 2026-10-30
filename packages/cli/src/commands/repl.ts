@@ -8,10 +8,9 @@ import { inspect } from 'node:util'
 import { createDevServer, loadHazeConfig } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { consola } from 'consola'
+import { appCore, importFromApp } from '../app-import'
 import { resolveRoot, rootArg } from '../args'
 import { findPackage } from '../resolve'
-
-type Core = typeof import('@hazejs/core')
 
 const SOURCE_RE = /\.[cm]?[jt]s$/
 /** 注入 REPL 的门面（core 中存在才注入） */
@@ -54,7 +53,7 @@ export default defineCommand({
 
 /** REPL 上下文：app、config、inject、门面、Db（安装了 @hazejs/orm 时）与模型类 */
 async function replContext(server: DevServer, root: string, srcDir: string): Promise<Record<string, unknown>> {
-  const core = await server.import<Core>('@hazejs/core')
+  const core = await appCore(server, root)
   const context: Record<string, unknown> = {
     app: server.app,
     config: core.config,
@@ -67,7 +66,7 @@ async function replContext(server: DevServer, root: string, srcDir: string): Pro
   }
   if (findPackage(root, '@hazejs/orm')) {
     try {
-      context.Db = (await server.import<{ Db: unknown }>('@hazejs/orm')).Db
+      context.Db = (await importFromApp<{ Db: unknown }>(server, root, '@hazejs/orm')).Db
     }
     catch (error) {
       consola.warn('Failed to load @hazejs/orm', error)

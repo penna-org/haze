@@ -114,6 +114,15 @@ const t = useTestApp({
 })
 ```
 
+To change configuration for a test — for example to hand the ORM a database client you created — pass `configOverrides`. It is deep-merged over `config/*.ts` before providers register; values that are not plain objects (clients, instances) are used by reference:
+
+```ts
+const pglite = new PGlite()
+const t = useTestApp({
+  configOverrides: { database: { connections: { main: { driver: 'pglite', client: pglite } } } },
+})
+```
+
 `createTestApp(options)` is the non-hook version: it returns the same object for a single app, and you call its `close()` yourself when done.
 
 ## Authentication

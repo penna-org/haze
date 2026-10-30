@@ -130,6 +130,33 @@ describe('socket.io', () => {
     expect(await me).toEqual({ id: 7, name: 'user7' })
   })
 
+  it('passes handshake auth fields as headers and reports error codes like the HTTP API', async () => {
+    const { app, url } = await start()
+    const { authorization } = await issueTestCredentials(app, { id: 7 })
+    const token = authorization.replace('Bearer ', '')
+    const failure = (socket: Socket) => new Promise<{ message: string, data: unknown }>(resolve =>
+      socket.once('connect_error', error => resolve({ message: error.message, data: (error as { data?: unknown }).data })))
+
+    const member = client(`${url}/org`, {
+      auth: { token, org: 'branch' },
+    })
+    const me = nextEvent(member, 'me')
+    await connected(member)
+    expect(await me).toEqual({ id: 7, org: 'branch' })
+
+    expect(await failure(client(`${url}/org`, {
+      auth: { token, org: 'other' },
+    })))
+      .toEqual({
+        message: '无权访问该组织',
+        data: { status: 403, code: 'org_forbidden' },
+      })
+    expect((await failure(client(`${url}/org`))).data).toEqual({ status: 401, code: 'unauthenticated' })
+    expect((await failure(client(`${url}/org`, {
+      auth: { token: 'abc.def.ghi' },
+    }))).data).toEqual({ status: 401, code: 'token_invalid' })
+  })
+
   it('shares the server with HTTP routes and r.ws()', async () => {
     const { url } = await start()
     expect(await (await fetch(`${url}/hello`)).text()).toBe('hello')

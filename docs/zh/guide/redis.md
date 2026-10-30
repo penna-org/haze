@@ -83,6 +83,8 @@ connections: {
 
 开发服务器（以及 `haze typegen`）会与其它配置文件一起推导 `config/redis.ts` 的类型。生成之后，`config/cache.ts` 中的 `connection: 'cahce'` 或 `Redis.connection('cahce')` 无法通过类型检查。没有 `config/redis.ts` 时，连接名为普通字符串。
 
+连接名生成在单独的接口（`GeneratedRedisConnections`）中，而不是从整个生成的配置中读取，因此其它配置文件可以引用连接名（`config/cache.ts` 中的 `connection: 'default'`）而不会形成循环类型。生成的导入带文件扩展名（`import("../../config/redis.ts")`），ESM 项目使用 `moduleResolution: "nodenext"` 时同样能解析。
+
 ## 直接使用 Redis
 
 `Redis` 门面在默认连接上执行命令，`Redis.connection(name)` 切换连接：

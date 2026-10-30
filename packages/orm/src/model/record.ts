@@ -132,9 +132,9 @@ export abstract class ActiveRecord<TRow extends object = any> {
     return this.$attributes[key]
   }
 
-  /** 全部原始属性 */
-  getData(): Record<string, unknown> {
-    return { ...this.$attributes }
+  /** 全部原始属性（SQL 模型为表的行类型；查询附带的字段，如关联统计，也在其中） */
+  getData(): TRow {
+    return { ...this.$attributes } as TRow
   }
 
   /** 写入属性但不视为修改（关联统计等查询附带的数据） */

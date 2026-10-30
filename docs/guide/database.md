@@ -47,12 +47,15 @@ export default defineDatabaseConfig(() => ({
 | `url` | Connection URL. For `sqlite`, relative `file:` paths resolve against the project root and the directory is created for you |
 | `authToken` | libSQL / Turso auth token |
 | `binding` | D1 only: the Workers binding name (default `DB`), or a `D1Database` object |
-| `pool` | Pool size for `postgres` / `mysql` / `mongodb` (default `10`), or `{ max, idleTimeout, connectTimeout }` |
+| `pool` | Pool size for `postgres` / `node-postgres` / `mysql` / `mongodb` (default `10`), or `{ max, idleTimeout, connectTimeout }` |
 | `database` | MongoDB only: database name (defaults to the path in `url`) |
 | `logging` | Log every SQL statement at debug level |
 | `schema` | Drizzle schema directory, relative to the source dir (default `database/schema`) |
 | `migrations` | Migrations directory (default `database/migrations`, or `database/migrations/<name>` for non-default connections) |
 | `read` / `write` / `sticky` | Send reads to replicas; see [Read/write splitting](#read-write-splitting) |
+| `casing` | `'snake_case'` or `'camelCase'`: derive column names for columns declared without one (`createdAt` → `created_at`). Must match the casing your migrations were generated with; `haze db:generate` passes it to drizzle-kit |
+| `timezone` | PostgreSQL session time zone (`postgres`, `node-postgres`, `pglite`), e.g. `'Asia/Shanghai'`. Affects `::date`, `date_trunc` and `timestamp without time zone` output |
+| `client` | Use a client you created: a `PGlite` instance (`pglite`), a `pg.Pool` / `pg.Client` (`node-postgres`) or a postgres-js instance (`postgres`). You own it — closing the app does not close it |
 
 ### Drivers
 
@@ -62,6 +65,7 @@ export default defineDatabaseConfig(() => ({
 | `turso` | Turso / sqld over pure HTTP (`libsql://`, `https://`). No native binary, so it runs on the edge and serverless | `@libsql/client` |
 | `d1` | Cloudflare D1 through a Workers binding | none |
 | `postgres` | PostgreSQL via postgres-js | `postgres` |
+| `node-postgres` | PostgreSQL via node-postgres (`pg`), drizzle's default PostgreSQL driver | `pg` |
 | `pglite` | Embedded PostgreSQL (WASM) for local development and tests. `url` is a data directory; omit it for an in-memory database | `@electric-sql/pglite` |
 | `mysql` | MySQL via mysql2 | `mysql2` |
 | `mongodb` | MongoDB, used through `@hazejs/orm/mongo` (see [Models](./models#mongodb)) | `mongodb` |
@@ -75,7 +79,7 @@ pnpm add @libsql/client
 ```
 
 ```bash [PostgreSQL]
-pnpm add postgres
+pnpm add postgres   # or: pnpm add pg (driver: 'node-postgres')
 ```
 
 ```bash [PGlite]
@@ -296,11 +300,28 @@ const rows = await Db.execute(sql`select count(*) as n from users`)
 const db = await Db.drizzle()
 ```
 
+Code that cannot `await` — for example a repository class exposing a `db` getter over hand-written drizzle queries — can read the current instance synchronously once the connection is open. Inside a transaction it returns the transaction object:
+
+```ts
+await Db.connect()      // e.g. in a provider's boot()
+
+export class OrderRepository {
+  protected get db() {
+    return Db.drizzleSync()   // throws if the connection is not open yet
+  }
+
+  findByNo(orderNo: string) {
+    return this.db.select().from(orders).where(eq(orders.orderNo, orderNo))
+  }
+}
+```
+
 `Db.table()` returns the same query builder that models use, with `where`, `order`, `paginate`, `count`, `insert`, `update`, `delete` and more. Joins, subqueries, grouping, JSON fields, upserts and the full list of methods are in [Query Builder](./query-builder).
 
 ::: tip Safety nets
 - `update()` and `delete()` without any condition throw. Pass `{ all: true }` to really touch every row.
-- Unique constraint violations on every driver become a `UniqueConstraintException`, rendered as `409`.
+- Unique constraint violations on every driver become a `UniqueConstraintException`, rendered as `409` with `code: 'unique_violation'`; it carries the `constraint`, `table`, `columns` and `detail` the driver reported ([Models → Errors](./models#errors)).
+- Query builders are mutable: build a fresh one per query instead of branching from a shared base ([Query Builder](./query-builder)).
 :::
 
 ## Transactions
@@ -312,7 +333,7 @@ await Db.transaction(async () => {
 })
 ```
 
-Every `Db` and `Model` query inside the callback joins the transaction automatically. Manual `Db.startTrans()` / `Db.commit()` / `Db.rollback()`, nesting with savepoints, isolation levels and row locks are covered in [Transactions](./transactions).
+Every `Db` and `Model` query inside the callback joins the transaction automatically. Manual `Db.startTrans()` / `Db.commit()` / `Db.rollback()`, nesting with savepoints, isolation levels, row locks and `Db.afterCommit()` (run code, dispatch jobs or emit events only after the commit) are covered in [Transactions](./transactions).
 
 ## Multiple connections
 
@@ -343,6 +364,16 @@ export class Event extends Model.define(events) {
 
 Non-default connections keep their migrations in `database/migrations/<name>` unless you set `migrations`. Use `haze db:generate --connection analytics` and `haze db:migrate --connection analytics` (or `--all`).
 
+### Several applications in one process
+
+Each application gets its own `DatabaseManager` from `databaseProvider()`. Inside a request, `Db` and models use the manager of the application handling it. Queued jobs, scheduled tasks and event listeners run in the context of their application too, so `Db` inside them uses that application's manager without any setup. Elsewhere outside requests (timers, scripts) they use the most recently booted application, and closing an application restores the previous one. When several applications run side by side — typically in tests — pin such code to one of them with `runInApp(app, fn)` from `@hazejs/core` (which also pins the other facades, `useApp()` and `config()`) or with `Db.withManager()`. Everything inside the callback, including timers and promises it creates, uses that manager, and transactions are tracked per manager, so two apps' `main` connections never share a transaction:
+
+```ts
+import { DatabaseManager, Db } from '@hazejs/orm'
+
+await Db.withManager(app.make(DatabaseManager), () => startBackgroundWork())
+```
+
 ## Read/write splitting
 
 Send reads to replicas and everything else to the primary by adding `write` and `read` to a connection. Fields you leave out are inherited from the connection itself, so a replica entry often only needs a `url`:
@@ -353,7 +384,7 @@ export default defineDatabaseConfig(() => ({
   default: 'main',
   connections: {
     main: {
-      driver: 'postgres', // also mysql, sqlite, turso and pglite
+      driver: 'postgres', // also node-postgres, mysql, sqlite, turso and pglite
       url: env('DATABASE_URL'),
       write: { url: env('DB_WRITE_URL') },
       read: [

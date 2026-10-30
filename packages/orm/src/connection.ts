@@ -67,6 +67,8 @@ export interface DatabaseManagerOptions {
 export class DatabaseManager {
   readonly config: DatabaseConfig
   readonly #options: DatabaseManagerOptions
+  /** 已建立的连接（同步取用：Db.drizzleSync()），按实际连接名 */
+  readonly #opened = new Map<string, { hash: string, connection: Connection }>()
   /** 按租户计算出的连接配置：`<连接名>@<租户>` → 配置 */
   readonly #tenantConfigs = new Map<string, ConnectionConfig>()
 
@@ -117,18 +119,35 @@ export class DatabaseManager {
   connection(name = this.config.default): Promise<Connection> {
     name = this.resolveName(name)
     const config = this.connectionConfig(name)
-    const hash = JSON.stringify(config)
+    const hash = configHash(config)
     const pool = connections()
     const existing = pool.get(name)
-    if (existing?.hash === hash)
+    if (existing?.hash === hash) {
+      // 其它应用实例（测试）或热更新前建立的连接：同样记下，供同步取用
+      if (this.#opened.get(name)?.hash !== hash)
+        existing.connection.then(opened => this.#opened.set(name, { hash, connection: opened }), () => undefined)
       return existing.connection
+    }
 
     // 配置变化（例如热更新修改了 url）时替换旧连接
     void existing?.connection.then(connection => connection.close(), () => undefined)
     const connection = openConnection(name, config, this.#options)
     pool.set(name, { hash, connection })
+    connection.then(opened => this.#opened.set(name, { hash, connection: opened }), () => undefined)
     connection.catch(() => pool.get(name)?.connection === connection && pool.delete(name))
     return connection
+  }
+
+  /**
+   * 已建立的连接（同步取用，供不能 await 的代码使用，如 Repository 的 `db` 属性）：
+   * 需先 `await Db.connect()`（或任意一次查询）建立连接，否则抛错
+   */
+  connectionSync(name = this.config.default): Connection {
+    name = this.resolveName(name)
+    const opened = this.#opened.get(name)
+    if (opened && opened.hash === configHash(this.connectionConfig(name)))
+      return opened.connection
+    throw new DatabaseError(`Database connection "${name}" is not open yet; await Db.connect() (or run any query) before using it synchronously`)
   }
 
   /** 关闭连接（默认全部）；测试中可用于重建内存数据库 */
@@ -142,6 +161,7 @@ export class DatabaseManager {
     for (const key of names) {
       const entry = pool.get(key)
       pool.delete(key)
+      this.#opened.delete(key)
       await (await entry?.connection.catch(() => undefined))?.close()
     }
   }
@@ -207,6 +227,17 @@ async function createConnection(name: string, config: ConnectionConfig, options:
     sticky: false,
   }
   const pool = poolOptions(config.pool)
+  // 列名映射：传给每个 drizzle 实例（与生成迁移时一致）
+  const casing = config.casing
+  // 调用方传入的客户端由调用方关闭
+  const external = config.client
+  const owned = (close: () => Promise<unknown>): (() => Promise<void>) => external
+    ? async () => {}
+    : async () => void (await close())
+  if (config.timezone && !['postgres', 'node-postgres', 'pglite'].includes(config.driver))
+    throw new DatabaseError(`Connection "${name}": timezone is only supported for PostgreSQL drivers (postgres, node-postgres, pglite)`)
+  if (external && !['postgres', 'node-postgres', 'pglite'].includes(config.driver))
+    throw new DatabaseError(`Connection "${name}": client is only supported for postgres, node-postgres and pglite`)
 
   switch (config.driver) {
     case 'sqlite': {
@@ -216,7 +247,7 @@ async function createConnection(name: string, config: ConnectionConfig, options:
       const client = createClient({ url, authToken: config.authToken, intMode: 'bigint' })
       return {
         ...base,
-        db: drizzle(losslessIntegers(client), { logger }),
+        db: drizzle(losslessIntegers(client), { logger, casing }),
         close: async () => client.close(),
       }
     }
@@ -229,7 +260,7 @@ async function createConnection(name: string, config: ConnectionConfig, options:
       const client = createClient({ url: config.url, authToken: config.authToken, intMode: 'bigint' })
       return {
         ...base,
-        db: drizzle(losslessIntegers(client), { logger }),
+        db: drizzle(losslessIntegers(client), { logger, casing }),
         close: async () => client.close(),
       }
     }
@@ -242,36 +273,74 @@ async function createConnection(name: string, config: ConnectionConfig, options:
         throw new DatabaseError(`Connection "${name}": D1 binding "${config.binding ?? 'DB'}" not found. D1 is only available on Cloudflare Workers (preset cloudflare); use the sqlite driver locally`)
       return {
         ...base,
-        db: drizzle(binding as Parameters<typeof drizzle>[0], { logger }),
+        db: drizzle(binding as Parameters<typeof drizzle>[0], { logger, casing }),
         close: async () => {},
       }
     }
     case 'postgres': {
-      const { default: postgres } = await importDriver('postgres', () => import('postgres'))
       const { drizzle } = await import('drizzle-orm/postgres-js')
-      if (!config.url)
-        throw new DatabaseError(`Connection "${name}": url is required for postgres`)
-      const client = postgres(config.url, {
-        max: pool.max ?? 10,
-        // postgres.js 的超时单位为秒
-        ...(pool.idleTimeout !== undefined && { idle_timeout: pool.idleTimeout / 1000 }),
-        ...(pool.connectTimeout !== undefined && { connect_timeout: pool.connectTimeout / 1000 }),
-        onnotice: () => {},
-      })
+      let client = external as import('postgres').Sql | undefined
+      if (!client) {
+        const { default: postgres } = await importDriver('postgres', () => import('postgres'))
+        if (!config.url)
+          throw new DatabaseError(`Connection "${name}": url is required for postgres`)
+        client = postgres(config.url, {
+          max: pool.max ?? 10,
+          // postgres.js 的超时单位为秒
+          ...(pool.idleTimeout !== undefined && { idle_timeout: pool.idleTimeout / 1000 }),
+          ...(pool.connectTimeout !== undefined && { connect_timeout: pool.connectTimeout / 1000 }),
+          // 会话参数：每个新连接建立时设置
+          ...(config.timezone && {
+            connection: { TimeZone: config.timezone },
+          }),
+          onnotice: () => {},
+        })
+      }
+      const sql = client
       return {
         ...base,
-        db: drizzle(client, { logger }),
-        close: () => client.end(),
+        db: drizzle(sql, { logger, casing }),
+        close: owned(() => sql.end()),
+      }
+    }
+    case 'node-postgres': {
+      const { drizzle } = await import('drizzle-orm/node-postgres')
+      let client = external as InstanceType<typeof import('pg').Pool> | undefined
+      if (!client) {
+        const pg = await importDriver('pg', () => import('pg'))
+        if (!config.url)
+          throw new DatabaseError(`Connection "${name}": url is required for node-postgres`)
+        client = new (pg.default ?? pg).Pool({
+          connectionString: config.url,
+          max: pool.max ?? 10,
+          ...(pool.idleTimeout !== undefined && { idleTimeoutMillis: pool.idleTimeout }),
+          ...(pool.connectTimeout !== undefined && { connectionTimeoutMillis: pool.connectTimeout }),
+          // 会话参数：每个新连接建立时设置
+          ...(config.timezone && { options: `-c TimeZone=${config.timezone}` }),
+        })
+      }
+      const nodePool = client
+      return {
+        ...base,
+        db: drizzle({ client: nodePool, logger, casing }),
+        close: owned(() => nodePool.end()),
       }
     }
     case 'pglite': {
-      const { PGlite } = await importDriver('@electric-sql/pglite', () => import('@electric-sql/pglite'))
       const { drizzle } = await import('drizzle-orm/pglite')
-      const client = new PGlite(config.url)
+      let client = external as InstanceType<typeof import('@electric-sql/pglite').PGlite> | undefined
+      if (!client) {
+        const { PGlite } = await importDriver('@electric-sql/pglite', () => import('@electric-sql/pglite'))
+        client = new PGlite(config.url)
+      }
+      // PGlite 只有一个会话：直接设置会话参数
+      if (config.timezone)
+        await client.query(`select set_config('TimeZone', $1, false)`, [config.timezone])
+      const lite = client
       return {
         ...base,
-        db: drizzle(client, { logger }),
-        close: () => client.close(),
+        db: drizzle(lite, { logger, casing }),
+        close: owned(() => lite.close()),
       }
     }
     case 'mysql': {
@@ -289,7 +358,7 @@ async function createConnection(name: string, config: ConnectionConfig, options:
       })
       return {
         ...base,
-        db: drizzle(client, { logger, mode: 'default' }),
+        db: drizzle(client, { logger, mode: 'default', casing }),
         close: () => client.end(),
       }
     }
@@ -431,4 +500,19 @@ async function sqliteUrl(url: string, rootDir = process.cwd()): Promise<string> 
     : resolve(rootDir, path)
   await mkdir(dirname(absolute), { recursive: true })
   return `file:${absolute}`
+}
+
+const clientIds = new WeakMap<object, number>()
+let nextClientId = 0
+
+/** 连接配置的指纹（配置变化时重建连接）：传入的客户端按对象身份区分 */
+function configHash(config: ConnectionConfig): string {
+  return JSON.stringify(config, (key, value: unknown) => {
+    if (key !== 'client' || typeof value !== 'object' || value === null)
+      return value
+    let id = clientIds.get(value)
+    if (id === undefined)
+      clientIds.set(value, id = ++nextClientId)
+    return `client#${id}`
+  })
 }

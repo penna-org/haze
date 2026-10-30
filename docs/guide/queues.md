@@ -42,7 +42,7 @@ export default SendInvoice
 
 | Option | Description |
 | --- | --- |
-| `name` | Job name; defaults to the file name |
+| `name` | Job name; defaults to the file name. Two different jobs with the same name (for example `app/job/Cleanup.ts` and `app/job/admin/Cleanup.ts`, or a module's job and a project job) fail at boot with an error naming both files; rename one or set `name` |
 | `tries` | Maximum number of runs. Default `1` (no retry) |
 | `backoff` | Wait before a retry: seconds, `'5m'`, an array indexed by attempt (the last entry repeats), or `'exponential'` (2^n seconds). Default `0` |
 | `timeout` | Seconds or `'30s'`; a timed-out run counts as a failure and aborts `job.signal` |
@@ -50,6 +50,7 @@ export default SendInvoice
 | `connection` | Connection from `config/queue.ts`. Default: its `default` |
 | `unique` | `true` or `{ key, for, until }`: skip a dispatch while the same job is already queued. See [Unique jobs](#unique-jobs) |
 | `middleware` | Job middleware such as `rateLimited(...)`. See [Job middleware](#job-middleware) |
+| `afterCommit` | Dispatched inside a database transaction, wait until the outermost transaction commits (dropped on rollback). See [Dispatching after commit](#after-commit) |
 | `handle(payload, job)` | The work |
 | `failed(payload, error, job)` | Called after the final failure |
 
@@ -69,6 +70,10 @@ The second argument to `handle` and the third to `failed` is a `JobContext`:
 | `release(delay?)` | Put the job back on the queue to run again after `delay` (seconds or `'30s'`, default 0). It is not a failure and does not use up an attempt |
 | `batch()` | The [batch](#batches) the job belongs to (a snapshot read before the run), or `undefined` |
 
+Jobs run in the context of the application that owns them: inside `handle`, middleware and `failed`, the facades (`Queue`, `Events`, `Cache`, `Db`, `Mail`…), `useApp()`, `config()` and `inject()` resolve to that application, the same way they resolve to the current application during a request. This matters when several applications share a process (tests, multi-app setups); a global job middleware such as `Db.withManager(job.app.make(DatabaseManager), next)` is no longer needed. Scripts can pin an application the same way with `runInApp(app, fn)`.
+
+A successful run logs a debug line with the job name, duration and attempt (`Job "SendInvoice" done in 12ms (attempt 1/3)`), next to the existing warnings for retries and errors for failures.
+
 ## Dispatching
 
 ```ts
@@ -80,6 +85,18 @@ await SendInvoice.dispatch({ invoiceId: 42 }, { queue: 'high', connection: 'redi
 ```
 
 `dispatch()` resolves to the job ID. The payload is serialized as JSON, so pass IDs rather than model instances.
+
+A job whose payload type is `void` or `undefined` (or that declares no payload at all) is dispatched without one:
+
+```ts
+const PruneTokens = defineJob({
+  async handle() { /* ... */ },
+})
+
+await PruneTokens.dispatch()
+await PruneTokens.dispatch(undefined, { delay: '1h' })
+await PruneTokens.with().onQueue('low').dispatch()
+```
 
 `Job.with(payload)` creates a pending job. It is what chains, batches and callbacks take, and it can also be dispatched on its own. Its `dispatch()` resolves to `{ id, skipped }`, where `skipped` tells you that a [unique job](#unique-jobs) was already queued:
 
@@ -99,6 +116,28 @@ await Queue.failed() // failed jobs on the default connection
 await Queue.retry() // re-dispatch all failed jobs (or pass an id)
 await Queue.idle() // wait until the memory queue is empty
 ```
+
+### Dispatching after commit {#after-commit}
+
+A job dispatched inside a database transaction may run before the transaction commits (and see none of its writes), or run even though the transaction rolls back. `afterCommit` holds the dispatch until the outermost transaction commits and drops it on rollback; outside a transaction it dispatches immediately:
+
+```ts
+const SendReceipt = defineJob({
+  afterCommit: true, // every dispatch of this job
+  async handle(payload: { orderId: number }) { /* ... */ },
+})
+
+await Db.transaction(async () => {
+  const order = await Order.create({ ... })
+  await SendReceipt.dispatch({ orderId: order.id }) // queued after COMMIT
+  await Notify.with({ id: order.id }).afterCommit().dispatch() // per dispatch
+  await Audit.dispatch({ id: order.id }, { afterCommit: true })
+})
+```
+
+`{ afterCommit: false }` / `.afterCommit(false)` opts a single dispatch out. A deferred `Job.with(...).dispatch()` resolves at once to `{ id, skipped: false, deferred: true }`, where `id` is the ID the job will get; unique locks are checked only when it is actually dispatched. Deferred dispatches run after the commit and before `Db.transaction()` (or `Db.commit()`) returns; an error there, such as a failing job on the `sync` connection, is logged instead of thrown because the transaction has already committed. `Queue.fake()` records a deferred dispatch only after the commit.
+
+This needs a database package that registers a transaction hook: `@hazejs/orm` does (SQL drivers; see [Transactions](./transactions#after-commit)). Without one, `afterCommit` jobs dispatch immediately. Events have the same option, and `afterCommit(fn)` from `@hazejs/core` defers any callback.
 
 ## Connections
 
@@ -131,7 +170,7 @@ export default defineQueueConfig(() => ({
 
 | Driver | Behavior |
 | --- | --- |
-| `sync` | Runs the job during `dispatch()`; errors are thrown to the caller, no retries |
+| `sync` | Runs the job during `dispatch()`; errors are thrown to the caller, no retries, delays ignored. See [The sync connection](#sync-connection) |
 | `memory` | In-process queue consumed by the same process (`concurrency`, default 1). Handles delay and backoff with timers. Jobs are lost when the process exits. The default when `config/queue.ts` is missing |
 | `redis` | BullMQ (`pnpm add bullmq ioredis`). Options: `connection` (a [Redis connection](./redis), default: the `default` one; BullMQ gets its settings without `keyPrefix` and opens its own connections), `url` (inline, takes precedence), `prefix` (default `haze`; the key prefix BullMQ uses), `queues` (managed by `queue:failed` / `queue:retry`, default `['default']`), `keepCompleted` (default 1000). Needs a separate worker process |
 | `database` | A table in your SQL database, from `@hazejs/orm`. See [Database driver](#database-driver). Needs a separate worker process |
@@ -147,6 +186,27 @@ The top-level options:
 | `middleware` | Global job middleware, run before each job's own `middleware` |
 
 Chains, batches, unique jobs and middleware are implemented in the queue manager, so they work the same on every driver.
+
+### The sync connection {#sync-connection}
+
+`sync` runs the job inside `dispatch()`, in the caller's process and async context. It is meant for development and simple tests, and it differs from a real queue:
+
+- `delay` is ignored: the job runs immediately;
+- `job.release()` cannot run the job later, so the released job is dropped (with a warning);
+- there are no retries: `tries` and `backoff` don't apply, and a failure calls `failed()` and is thrown to the caller of `dispatch()`;
+- nothing is kept: `queue:failed` is always empty, and there is nothing to consume (`queue:work` and `queue.runInServer` refuse or skip it).
+
+To test delays, releases and retries, use `Queue.fake()` and `drain()` (see [Testing](#testing)), or the `memory` connection with `Queue.idle()`.
+
+### Long-running jobs and crashed workers {#retry-after}
+
+The `database` driver treats a job reserved for longer than its connection's `retryAfter` as abandoned by a crashed worker and hands it to another worker. `retryAfter` is a connection setting, not a job setting, so:
+
+- keep it above the longest `timeout` of the jobs on that connection, or a job that is still running can start a second time;
+- put long jobs on their own connection (for example a second `database` connection with `retryAfter: '30m'` on queue `long`), so that a crash of a short job is still picked up quickly;
+- a job that already used all its tries when it is picked up again goes to the failed jobs instead of running again.
+
+The `redis` driver relies on BullMQ's stalled-job detection: the worker renews its lock while the job runs, and a job whose worker stopped renewing it is moved back to the queue. In both cases a job can run more than once after a crash, so make jobs idempotent.
 
 ### Database driver {#database-driver}
 
@@ -305,6 +365,10 @@ On dispatch, hazejs takes a cache lock (`store` in `config/queue.ts`) named afte
 
 Keys are scoped to the current tenant.
 
+::: warning Use a shared store with remote workers
+The lock is taken by the process that dispatches and released by the process that runs the job. With the `memory` cache store and a connection consumed by another process (`database`, `redis`), the worker cannot release the web process's lock, so later dispatches are skipped until the lock expires (`for`). hazejs logs a warning the first time this happens; set `store` in `config/queue.ts` to a shared store such as `redis`.
+:::
+
 ## Job middleware {#job-middleware}
 
 Middleware wraps a job's `handle`. Built-in middleware keeps its state in the queue's cache `store`:
@@ -359,6 +423,21 @@ node dist/server/worker.mjs queue --queue high,default --concurrency 5   # after
 ```
 
 `--queue` lists queues in priority order (default `default`). The template exposes `pnpm queue` as a shortcut for `haze queue:work`. The built `worker.mjs` (node, bun, deno and docker presets) waits for running jobs to finish when it receives `SIGTERM`.
+
+A single-instance deployment (or development) can consume the queue inside the web process instead:
+
+```ts
+// config/queue.ts
+export default defineQueueConfig({
+  default: 'database',
+  connections: { database: { driver: 'database' } },
+  runInServer: true, // or { connection, queues: ['high', 'default'], concurrency: 2 }
+})
+```
+
+The worker starts when the HTTP server starts listening (`haze dev`, `haze start`, the node and docker builds) and stops, after running jobs finish, when the application is disposed. Tests and console commands never start it. With several instances, keep `runInServer` off and run `queue:work` processes.
+
+`runInServer` only matters for connections consumed by a worker. On a `memory` connection the web process already consumes the `default` queue, so no extra worker is started unless you list other `queues` or a `concurrency`; on `sync` there is nothing to consume, so it is skipped with a warning. `haze queue:work` refuses the `sync` connection with an error.
 
 ### Failed jobs
 
@@ -441,6 +520,6 @@ fake.assertPushedUnique(SyncFeed, payload => payload.feedId === 1) // pushed exa
 fake.assertSkipped(SyncFeed) // a duplicate dispatch was skipped
 ```
 
-The fake simulates unique locks in memory and releases them when `drain()` runs the job. `drain()` also records what the drained jobs dispatch, such as the next job of a chain, so call it again to keep going. Batched jobs are recorded in `fake.batches` and are not run.
+`drain()` runs the recorded jobs through the real pipeline (middleware, `release()`, retries), which is the way to test delayed and released jobs; the `sync` connection ignores delays and drops releases. The fake simulates unique locks in memory and releases them when `drain()` runs the job. `drain()` also records what the drained jobs dispatch, such as the next job of a chain, so call it again to keep going. Batched jobs are recorded in `fake.batches` and are not run.
 
 `Queue.restore()` switches back to the real connections. More in [Testing](./testing).

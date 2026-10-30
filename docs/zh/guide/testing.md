@@ -114,6 +114,15 @@ const t = useTestApp({
 })
 ```
 
+测试中需要修改配置时（例如把自己创建的数据库客户端交给 ORM），传入 `configOverrides`：它在提供者注册之前深合并到 `config/*.ts` 之上，不是普通对象的值（客户端、实例）按引用使用：
+
+```ts
+const pglite = new PGlite()
+const t = useTestApp({
+  configOverrides: { database: { connections: { main: { driver: 'pglite', client: pglite } } } },
+})
+```
+
 `createTestApp(options)` 是不依赖钩子的版本：返回同样的对象，但只对应一个应用，用完后需要自己调用它的 `close()` 释放。
 
 ## 认证

@@ -1,7 +1,7 @@
 /* eslint-disable antfu/no-import-dist, antfu/no-top-level-await, no-console -- 以子进程运行的测试应用，使用构建产物 */
 // 测试用应用：同进程测试直接导入，多实例 / Bun 测试作为子进程运行（node / bun fixtures/app.mjs）
 import process from 'node:process'
-import { createApplication, defineRoutes, defineUserProvider } from '@hazejs/core'
+import { createApplication, defineRoutes, defineUserProvider, ForbiddenException } from '@hazejs/core'
 import { authenticate, defineNamespace, SocketIO, socketIoProvider } from '../../dist/index.mjs'
 
 export const root = defineNamespace({
@@ -24,6 +24,23 @@ export const secure = defineNamespace({
   },
 })
 
+// 握手 auth 中的 org 作为请求头交给 Guard，Guard 的 resolveUser 按它解析（与 HTTP 接口相同）
+export const org = defineNamespace({
+  middleware: [
+    authenticate({
+      guard: 'org',
+      headers: auth => ({
+        'x-org-id': typeof auth.org === 'string'
+          ? auth.org
+          : undefined,
+      }),
+    }),
+  ],
+  connection(socket) {
+    socket.emit('me', socket.data.user)
+  },
+})
+
 export function createApp(config = {}) {
   return createApplication({
     mode: 'test',
@@ -35,6 +52,7 @@ export function createApp(config = {}) {
       sockets: {
         '/app/socket/index.ts': { default: root },
         '/app/socket/secure.ts': { default: secure },
+        '/app/socket/org.ts': { default: org },
       },
     },
     config: {
@@ -46,6 +64,19 @@ export function createApp(config = {}) {
         default: 'api',
         guards: {
           api: { driver: 'jwt', provider: 'users' },
+          org: {
+            driver: 'jwt',
+            provider: 'users',
+            resolveUser: (payload, ctx) => {
+              const org = ctx.header('x-org-id')
+              if (org === 'other')
+                throw new ForbiddenException('无权访问该组织', { code: 'org_forbidden' })
+              return {
+                id: Number(payload.sub),
+                org: org ?? 'home',
+              }
+            },
+          },
         },
         providers: {
           users: defineUserProvider({

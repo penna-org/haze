@@ -31,7 +31,13 @@ export class PendingJob<P = unknown> {
     return this
   }
 
-  /** 投递，返回 `{ id, skipped }`（skipped：唯一任务的锁被占用，没有投递） */
+  /** 处于数据库事务中时推迟到提交后投递（回滚时丢弃）；`afterCommit(false)` 覆盖任务的 afterCommit */
+  afterCommit(enabled = true): this {
+    this.options.afterCommit = enabled
+    return this
+  }
+
+  /** 投递，返回 `{ id, skipped, deferred? }`（skipped：唯一任务的锁被占用，没有投递） */
   dispatch(): Promise<DispatchResult> {
     return useQueueManager().dispatchPending(this)
   }

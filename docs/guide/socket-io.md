@@ -70,7 +70,8 @@ export default defineNamespace({
 ```
 
 - The token is read from the client's `auth.token` (sent as a Bearer token) or from the handshake's `Authorization` header. Session guards read the handshake cookies.
-- Unauthenticated clients are rejected; the client receives `connect_error` with the message `unauthorized`.
+- Unauthenticated clients are rejected with `connect_error`; `error.data` is `{ status, code }` with the same codes as the HTTP API (`unauthenticated`, `token_invalid`, or the `code` of an exception thrown by the guard's `resolveUser`), so the client knows whether to log in again or refresh its token and reconnect.
+- `authenticate({ headers: auth => ({ 'x-org-id': auth.org }) })` passes extra handshake `auth` fields to the guard as request headers, so `resolveUser` sees the same headers as for HTTP requests.
 - `authenticate({ optional: true })` lets guests connect, with `socket.data.user` left `undefined`.
 
 ## Emitting from anywhere
