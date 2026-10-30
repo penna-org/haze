@@ -386,3 +386,8 @@ Drivers: `console` (default), `json`, `file` (Node/Bun/Deno only), `http` (batch
 - `database/schema/*.ts` is read by drizzle-kit directly — do not use the `~` alias there.
 - Provider `shutdown()` runs on every dev hot reload, not only on process exit.
 - `APP_KEY` must be ≥ 32 characters and set as a real env var / secret in production; `haze key:generate --force` invalidates existing cookies, sessions and tokens.
+
+## Serving a separately built frontend (backend-only projects)
+
+`config/static.ts` → `defineConfig(() => ({ dir: env('WEB_DIST_DIR'), spaFallback: true, precompressed: true, exclude: ['/api', '/socket.io'] }))`. Relative `dir` resolves against the project root; nothing is served while it is unset. The docker preset's Dockerfile includes `HEALTHCHECK` on `/health/live`.
+

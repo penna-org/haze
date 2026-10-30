@@ -114,7 +114,8 @@ r.patch('/posts/:id', [PostController, 'update']).middleware('can:update,Post,id
 
 | Form | Checks |
 |------|--------|
-| `can:<ability>` | An ability from `defineAbilities` |
+| `can:<ability>` | An ability from `defineAbilities` (or decided by `gate.fallback()`) |
+| `can:a\|b` | Passes when the user has **any** of the abilities |
 | `can:<ability>,<Model>` | A class-level ability on the policy for `<Model>` |
 | `can:<ability>,<Model>,<param>` | Loads the model with `Model.findOrFail(ctx.param(param))` (missing → `404`), then checks the instance |
 
@@ -171,6 +172,16 @@ export default defineProvider({
   },
 })
 ```
+
+### Data-driven abilities
+
+When abilities are permission codes stored with roles in the database — and new ones appear at runtime — register a fallback instead of defining each one. It decides every ability that has no definition; `before` hooks still run first, and returning `undefined` denies:
+
+```ts
+gate.fallback((user: AuthUser | undefined, ability) => user?.permissions.includes(ability))
+```
+
+`await ctx.authorizeAny(['report:export', 'report:manage'])` (and `gate.authorizeAny(user, abilities)`) passes when any of the abilities is granted; the `can:a|b` middleware does the same.
 
 ## How a decision is made
 

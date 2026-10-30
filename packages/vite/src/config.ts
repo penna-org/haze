@@ -1,7 +1,7 @@
 import type { UserConfig } from 'vite'
 import type { ExternalsOptions } from './presets/deps'
 import type { CloudflareOptions, PresetName, VercelOptions } from './presets/types'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { loadConfigFromFile } from 'vite'
 import { CONFIG_BASENAME } from './constants'
@@ -49,12 +49,17 @@ export function defineHazeConfig(config: HazeConfig): HazeConfig {
 }
 
 const EXTENSIONS = ['ts', 'mts', 'js', 'mjs']
+/** 以字符串引用 `@hazejs/vite`（import / require），注释中提到它不算 */
+const HAZE_IMPORT_RE = /['"`]@hazejs\/vite['"`]/
 
-/** 存在 vite.config.* 视为全栈项目：由用户的 Vite 配置（含 haze() 插件）驱动 */
+/**
+ * 使用 haze() 插件的 vite.config.* 视为全栈项目：由用户的 Vite 配置驱动。
+ * 没有引入 `@hazejs/vite` 的 vite.config（如 monorepo 中只放 vite-plus 的 run / lint / test 配置）不算，仍按纯后端项目处理
+ */
 export function findViteConfig(root: string): string | undefined {
   return EXTENSIONS
     .map(ext => resolve(root, `vite.config.${ext}`))
-    .find(file => existsSync(file))
+    .find(file => existsSync(file) && HAZE_IMPORT_RE.test(readFileSync(file, 'utf8')))
 }
 
 /** 读取项目根目录下的 `haze.config.ts`（可选） */

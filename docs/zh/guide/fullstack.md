@@ -58,6 +58,8 @@ export default defineHazeConfig({
 pnpm dev   # 执行 haze dev，用项目的 vite.config.ts 启动 Vite
 ```
 
+`haze dev`、`haze build`、`haze preview` 在 `vite.config.*` 引入了 `@hazejs/vite` 时按全栈项目处理。只放工具配置的 `vite.config.ts`（monorepo 中 vite-plus 的 `run` 任务、lint、测试选项）会被忽略，项目仍是纯后端项目。
+
 也可以直接运行 `vite`。两种方式都只有一个服务器，使用 Vite 的端口（默认 `5173`）：
 
 - 路径匹配前缀的请求（`/api`、`/api/…`、`/api?…`）交给后端处理。插件的中间件注册在 Vite 内置中间件之前，接口请求不会落入静态资源处理或 SPA 回退。

@@ -132,11 +132,38 @@ r.group({ prefix: '/auth', as: 'auth.' }, (r) => {
 | `algorithm` | `'HS256'` | `HS256/384/512`、`RS256/384/512`、`PS256`、`ES256/384/512` 或 `EdDSA` |
 | `secret` | `APP_KEY` | `HS*` 算法的密钥 |
 | `privateKey` / `publicKey` | | 非对称算法的 PEM 密钥（PKCS#8 / SPKI） |
-| `expiresIn` | `'2h'` | 有效期，时长字符串或秒数 |
+| `expiresIn` | `'2h'` | 有效期，时长字符串或秒数；函数 `(ctx) => …` 在每次签发时求值（有效期保存在运行时设置中时），`login(user, claims, { expiresIn })` 可覆盖单个令牌 |
 | `issuer` / `audience` | | 签发时写入，校验时检查 |
 | `cookie` | | 同时从该 Cookie 读取令牌（浏览器场景） |
+| `resolveUser` | | `(payload, ctx) => user`：由校验过的声明取得用户，代替 `provider.retrieveById(sub)`，见下文 |
+| `rejectClaims` | | 带有这些声明的令牌不能用于认证，如用同一密钥签发的找回密码凭证 `['purpose']` |
 
 令牌中包含 `sub`（用户 ID）、`iat`、`exp`、随机的 `jti` 以及自定义声明，可以用 `await ctx.auth.jwt().payload()` 读取。过期、被篡改或格式错误的令牌一律视为未登录。
+
+### 自己解析用户
+
+JWT 是无状态的。需要退出、踢下线、禁用账号立即生效时，在令牌中放入会话 ID，用 `resolveUser` 在每个请求中检查。它收到校验过的声明与请求上下文，也可以读取请求头（如当前组织）。返回用户，返回 `undefined` 表示未登录；它抛出的 `HttpException` 原样作为响应，客户端可以区分会话已失效、组织无权访问与未登录：
+
+```ts
+// config/auth.ts
+api: {
+  driver: 'jwt',
+  provider: 'users',
+  expiresIn: () => Settings.get('auth.accessTokenTtl'),
+  rejectClaims: ['purpose'],
+  resolveUser: async (payload, ctx) => {
+    const session = await Session.find(payload.sid as string)
+    if (!session || session.revokedAt)
+      throw new UnauthorizedException('登录已失效', { code: 'session_invalid' })
+    return User.findOrFail(payload.sub)
+  },
+},
+```
+
+```ts
+// 为会话签发令牌
+const token = await ctx.auth.jwt().login(user, { sid: session.id })
+```
 
 ::: warning JWT 的退出是无状态的
 `ctx.auth.jwt().logout()` 只清除本次请求中的用户，令牌在过期前依然有效。请把有效期设短一些；需要立即失效时，在业务中自行维护黑名单（例如按 `jti`）。
@@ -180,6 +207,7 @@ export class SessionController {
 | `auth` | 默认 Guard 上必须有已登录用户，否则返回 `401` |
 | `auth:api` | 使用指定的 Guard |
 | `auth:web,api` | 列出的 Guard **任一**通过即放行，并作为本次请求后续使用的默认 Guard |
+| `auth:optional` / `auth:api,optional` | 不拒绝：凭据有效时识别用户，否则按访客继续（公开接口也想知道调用者是谁） |
 | `guest` / `guest:web` | 已登录用户返回 `403`（适合登录、注册接口） |
 | `verified` | 要求邮箱已验证：未登录 `401`，未验证 `403`（见[邮箱验证](#邮箱验证)） |
 | `abilities:a,b` / `ability:a,b` | [API 令牌](./api-tokens#能力)须具备全部 / 任一能力 |
@@ -191,6 +219,8 @@ r.group({ prefix: '/account', middleware: ['auth:web,api'] }, (r) => {
   r.get('/', [AccountController, 'show'])
 })
 ```
+
+被拒绝的请求返回 `401`：没有凭据时 `code: 'unauthenticated'`，凭据过期、被篡改或被拒绝时 `code: 'token_invalid'`，客户端据此决定重新登录还是刷新令牌。
 
 ## `ctx.auth` API
 

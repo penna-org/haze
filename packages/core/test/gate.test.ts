@@ -186,6 +186,50 @@ describe('ctx.can / authorize and the can middleware', () => {
     expect((await app.request('/posts/404', { method: 'DELETE', headers: await as(app, 1) })).status).toBe(404)
   })
 
+  it('decides undefined abilities with gate.fallback() (data-driven permission codes) and checks any of several', async () => {
+    // 权限码来自数据库中的角色、运行时新增：没有逐个定义能力，由 fallback 判断
+    const codes = new Map<number, string[]>([
+      [
+        1,
+        ['system:user:list'],
+      ],
+      [
+        2,
+        ['system:user:create', 'system:user:list'],
+      ],
+    ])
+    const app = await boot((r) => {
+      r.get('/users', () => 'list').middleware('can:system:user:list')
+      r.post('/users', () => 'created').middleware('can:system:user:create')
+      r.get('/forms', () => 'forms').middleware('can:form:design:view|form:design:manage')
+      r.get('/any', async (ctx) => {
+        await ctx.authorizeAny(['report.export', 'system:user:create'], 'csv')
+        return 'ok'
+      })
+    })
+    const gate = app.make(Gate)
+    gate.before((user: User | undefined) => user?.role === 'admin' || undefined)
+    gate.fallback((user: User | undefined, ability) => user !== undefined && (codes.get(user.id) ?? []).includes(ability))
+    codes.set(1, [
+      ...codes.get(1)!,
+      'form:design:manage',
+    ])
+
+    expect((await app.request('/users', { headers: await as(app, 1) })).status).toBe(200)
+    expect((await app.request('/users', { method: 'POST', headers: await as(app, 1) })).status).toBe(403)
+    expect((await app.request('/users', { method: 'POST', headers: await as(app, 2) })).status).toBe(200)
+    // 未登录交给 fallback 判断后仍按访客 401；before（超级管理员）先于 fallback
+    expect((await app.request('/users')).status).toBe(401)
+    expect((await app.request('/users', { method: 'POST', headers: await as(app, 9) })).status).toBe(200)
+    // can:a|b 任一即可
+    expect((await app.request('/forms', { headers: await as(app, 1) })).status).toBe(200)
+    expect((await app.request('/forms', { headers: await as(app, 2) })).status).toBe(403)
+    // 定义过的能力仍由自己判断（report.export 只接受 csv），任一通过即可
+    expect((await app.request('/any', { headers: await as(app, 1) })).status).toBe(200)
+    expect(await gate.allows(users[0], 'unknown:code')).toBe(false)
+    await expect(gate.authorizeAny(users[0], [])).rejects.toThrow('at least one')
+  })
+
   it('treats everyone as a guest without config/auth.ts', async () => {
     const app = await createApplication({
       mode: 'test',

@@ -287,6 +287,11 @@ export class HttpContext<V extends ValidationTargets = ValidationTargets> {
     return this.make(Gate).authorize(await this.#gateUser(), ability, ...args)
   }
 
+  /** 拥有其中任一能力即通过（与模型无关的能力，如权限码）；都没有时抛出 401 / 403 */
+  async authorizeAny(abilities: readonly PlainAbility[], ...args: unknown[]): Promise<void> {
+    return this.make(Gate).authorizeAny(await this.#gateUser(), abilities, ...args)
+  }
+
   /** 当前会话的 CSRF token（服务端渲染表单时放入隐藏字段 `_token`） */
   csrfToken(): Promise<string> {
     return csrfToken(this)

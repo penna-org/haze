@@ -2,7 +2,7 @@ import type { Application, ApplicationOptions, RouteRegistrar, SessionStore, Use
 import { generateKeyPairSync } from 'node:crypto'
 import { decodeJwt } from 'jose'
 import { describe, expect, it } from 'vitest'
-import { createApplication, defineRoutes, defineUserProvider, generateKey, Hash, issueTestCredentials, memorySessionStore, UnauthorizedException } from '../src'
+import { createApplication, defineRoutes, defineUserProvider, ForbiddenException, generateKey, Hash, issueTestCredentials, memorySessionStore, UnauthorizedException } from '../src'
 
 const APP_KEY = generateKey()
 
@@ -380,6 +380,123 @@ describe('jwt guard', () => {
     expect((await app.request('/me', {
       headers: { authorization: `Bearer ${data.token}` },
     })).status).toBe(200)
+  })
+})
+
+describe('jwt guard hooks', () => {
+  /** 会话表：sid → 是否有效（模拟数据库中的会话，退出 / 踢下线后立即失效） */
+  const sessions = new Map<string, boolean>([
+    ['s1', true],
+    ['s2', false],
+  ])
+
+  async function hooked(extra: Record<string, unknown> = {}) {
+    return boot((r) => {
+      r.post('/issue', async (ctx) => {
+        const body = await ctx.body<{ sid: string, purpose?: string, ttl?: string }>()
+        const claims = {
+          sid: body.sid,
+          ...(body.purpose && { purpose: body.purpose }),
+        }
+        return ctx.auth.jwt().login({ id: 1, email: 'ada@example.com', password: '' }, claims, body.ttl
+          ? { expiresIn: body.ttl }
+          : {})
+      })
+      r.get('/me', async ctx => ({ user: await ctx.auth.user() })).middleware('auth')
+      r.get('/maybe', async ctx => ({ user: (await ctx.auth.user()) ?? null })).middleware('auth:api,optional')
+      r.get('/org', async ctx => ({ org: ((await ctx.auth.user()) as { org: string }).org })).middleware('auth')
+    }, {
+      auth: {
+        default: 'api',
+        guards: {
+          api: {
+            driver: 'jwt',
+            provider: 'users',
+            expiresIn: () => '10m',
+            rejectClaims: ['purpose'],
+            // 每个请求检查会话，并按请求头解析当前组织；抛出的异常原样作为响应
+            resolveUser: (payload: Record<string, unknown>, ctx: { header: (name: string) => string | undefined }) => {
+              if (!sessions.get(String(payload.sid)))
+                throw new UnauthorizedException('会话已失效', { code: 'session_invalid' })
+              const org = ctx.header('x-org-id')
+              if (org === 'other')
+                throw new ForbiddenException('无权访问该组织', { code: 'org_forbidden' })
+              return {
+                id: Number(payload.sub),
+                sid: payload.sid,
+                org: org ?? 'home',
+              }
+            },
+            ...extra,
+          },
+        },
+        providers: { users: await users() },
+      },
+    })
+  }
+
+  async function issue(app: Application, body: Record<string, unknown>): Promise<string> {
+    const res = await app.request('/issue', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(body),
+    })
+    return ((await res.json()) as any).data.token
+  }
+
+  it('resolves users from claims and request headers, passing HttpExceptions through', async () => {
+    const app = await hooked()
+    const valid = await issue(app, { sid: 's1' })
+    const bearer = (token: string, headers: Record<string, string> = {}) => ({
+      headers: { authorization: `Bearer ${token}`, ...headers },
+    })
+    expect(((await (await app.request('/me', bearer(valid))).json()) as any).data.user).toEqual({ id: 1, sid: 's1', org: 'home' })
+    expect(((await (await app.request('/org', bearer(valid, { 'x-org-id': 'branch' }))).json()) as any).data.org).toBe('branch')
+
+    const revoked = await app.request('/me', bearer(await issue(app, { sid: 's2' })))
+    expect([revoked.status, ((await revoked.json()) as any).code]).toEqual([401, 'session_invalid'])
+    const forbidden = await app.request('/org', bearer(valid, { 'x-org-id': 'other' }))
+    expect([forbidden.status, ((await forbidden.json()) as any).code]).toEqual([403, 'org_forbidden'])
+  })
+
+  it('distinguishes missing and invalid credentials, and rejects tokens carrying rejectClaims', async () => {
+    const app = await hooked()
+    const missing = await app.request('/me')
+    expect([missing.status, ((await missing.json()) as any).code]).toEqual([401, 'unauthenticated'])
+    const invalid = await app.request('/me', {
+      headers: { authorization: 'Bearer abc.def.ghi' },
+    })
+    expect([invalid.status, ((await invalid.json()) as any).code]).toEqual([401, 'token_invalid'])
+    // 同一密钥签发的找回密码凭证不能当作登录令牌
+    const ticket = await issue(app, { sid: 's1', purpose: 'reset' })
+    const reset = await app.request('/me', {
+      headers: { authorization: `Bearer ${ticket}` },
+    })
+    expect([reset.status, ((await reset.json()) as any).code]).toEqual([401, 'token_invalid'])
+  })
+
+  it('evaluates expiresIn functions per login and lets login() override it', async () => {
+    const app = await hooked()
+    const token = await issue(app, { sid: 's1' })
+    const claims = decodeJwt(token)
+    expect(claims.exp! - claims.iat!).toBe(600)
+    const short = decodeJwt(await issue(app, { sid: 's1', ttl: '30s' }))
+    expect(short.exp! - short.iat!).toBe(30)
+  })
+
+  it('treats failures as guests with auth:optional', async () => {
+    const app = await hooked()
+    const read = async (init?: RequestInit) => ((await (await app.request('/maybe', init)).json()) as any).data.user
+    expect(await read()).toBeNull()
+    expect(await read({
+      headers: { authorization: 'Bearer abc.def.ghi' },
+    })).toBeNull()
+    expect(await read({
+      headers: { authorization: `Bearer ${await issue(app, { sid: 's2' })}` },
+    })).toBeNull()
+    expect(await read({
+      headers: { authorization: `Bearer ${await issue(app, { sid: 's1' })}` },
+    })).toMatchObject({ sid: 's1' })
   })
 })
 

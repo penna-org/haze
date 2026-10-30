@@ -464,3 +464,27 @@ const headers = await issueTestCredentials(t.app, user, 'token', { abilities: ['
 - **Don't reveal `'invalid-user'`** from `PasswordReset.sendLink()`; it enables email enumeration. Throttle reset/verification endpoints.
 - **2FA challenge flow requires a session guard.** For JWT/token APIs call `guard.validate()` + `TwoFactor.verify()` before issuing a token, and don't use `attempt()` (it would issue a token before the code check).
 - **OAuth providers with an empty `clientId` are disabled** (routes 404). Several providers (WeChat, QQ, WeCom, Apple relay) return no or untrusted email: link by `(provider, profile.id)`. Apple's POST callback must be added to the `csrf` `except` list when `csrf` is global.
+
+## Stateful JWT sessions and data-driven permissions
+
+```ts
+// config/auth.ts — check a session on every request, keep error codes, block reset tickets
+api: {
+  driver: 'jwt',
+  provider: 'users',
+  expiresIn: ctx => Settings.get('auth.accessTokenTtl'),   // function: evaluated per login
+  rejectClaims: ['purpose'],
+  resolveUser: async (payload, ctx) => {                      // replaces provider.retrieveById(sub)
+    const session = await Session.find(payload.sid as string)
+    if (!session || session.revokedAt)
+      throw new UnauthorizedException('Session expired', { code: 'session_invalid' }) // passes through as-is
+    return loadUser(payload.sub, ctx.header('x-org-id'))
+  },
+},
+```
+
+- `ctx.auth.jwt().login(user, { sid }, { expiresIn: '15m' })` — custom claims plus a per-token lifetime.
+- `auth` rejects with `401` and `code: 'unauthenticated'` (no credentials) or `'token_invalid'` (expired / tampered / `rejectClaims`); `auth:optional` (`auth:api,optional`) never rejects. `guard.failure` is `'missing' | 'invalid'`.
+- Permission codes kept with roles: `app.make(Gate).fallback((user, ability) => user?.permissions.includes(ability))` decides every undefined ability (after `before` hooks); `can:a|b` / `ctx.authorizeAny([...])` pass on any.
+- Socket.IO: `authenticate({ headers: auth => ({ 'x-org-id': auth.org }) })`; rejected handshakes carry `error.data = { status, code }`.
+

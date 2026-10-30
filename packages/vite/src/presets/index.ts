@@ -260,6 +260,9 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY . .
 EXPOSE ${context.port}
+# 存活检查：/health/live（config/health.ts 修改了 path 或关闭健康检查时请同步调整）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \\
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||${context.port})+'/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 CMD ["node", "server/index.mjs"]
 `)
       await writeFile(join(context.outDir, '.dockerignore'), 'node_modules\nDockerfile\n.dockerignore\n')

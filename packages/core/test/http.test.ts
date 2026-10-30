@@ -587,6 +587,36 @@ describe('static files', () => {
     expect((await app.request('/users/42', html)).status).toBe(404)
   })
 
+  it('reads config/static.ts in backend-only projects, relative to the project root', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = mkdtempSync(join(tmpdir(), 'haze-static-root-'))
+    mkdirSync(join(root, 'web'))
+    writeFileSync(join(root, 'web', 'index.html'), '<div id="web"></div>')
+    const app = await boot(r => r.get('/api/ping', () => 'pong'), {
+      rootDir: root,
+      config: {
+        static: {
+          dir: 'web',
+          spaFallback: true,
+          exclude: ['/api'],
+        },
+      },
+    })
+    expect(await (await app.request('/', html)).text()).toBe('<div id="web"></div>')
+    expect(await (await app.request('/settings', html)).text()).toBe('<div id="web"></div>')
+    expect(await (await app.request('/api/ping')).text()).toBe('pong')
+    // 没有配置 dir（如环境变量未设置）时不托管
+    const off = await boot(r => r.get('/api/ping', () => 'pong'), {
+      rootDir: root,
+      config: {
+        static: { dir: undefined },
+      },
+    })
+    expect((await off.request('/', html)).status).toBe(404)
+  })
+
   it('serves pages without caching and applies global middleware such as secureHeaders', async () => {
     const { mkdtempSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')

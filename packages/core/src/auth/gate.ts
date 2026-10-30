@@ -53,6 +53,12 @@ export type BeforeHook<U = AuthUser> = BeforeMethod<U>['fn']
 /** 后置观察（审计日志等），不改变结果 */
 export type AfterHook<U = AuthUser> = (user: U | undefined, ability: string, allowed: boolean, args: unknown[]) => MaybePromise<void>
 
+/**
+ * 未定义的能力由它决定（数据驱动的权限：权限码存在数据库的角色里、运行时新增）。
+ * 返回 undefined 时拒绝；未登录的用户为 undefined
+ */
+export type FallbackHook<U = AuthUser> = (user: U | undefined, ability: string, args: unknown[]) => MaybePromise<AbilityResult>
+
 export interface PolicyAbilities<U, M> {
   [ability: string]: AbilityFn<U, [M, ...any[]]> | GuestAbilityFn<U, [M, ...any[]]> | BeforeHook<U> | undefined
 }
@@ -127,6 +133,7 @@ export class Gate {
   readonly #policies = new Map<Constructor, Policy<any, any>>()
   readonly #before: BeforeHook<any>[] = []
   readonly #after: AfterHook<any>[] = []
+  #fallback: FallbackHook<any> | undefined
 
   /** 注册能力 */
   define(ability: string, fn: AbilityFn<any> | GuestAbilityFn<any>): this {
@@ -159,6 +166,18 @@ export class Gate {
 
   after(hook: AfterHook<any>): this {
     this.#after.push(hook)
+    return this
+  }
+
+  /**
+   * 未定义的能力交给它判断，而不是报错 `Unknown ability`：
+   *
+   * ```ts
+   * gate.fallback((user, ability) => user?.permissions.includes(ability))
+   * ```
+   */
+  fallback(hook: FallbackHook<any>): this {
+    this.#fallback = hook
     return this
   }
 
@@ -206,8 +225,13 @@ export class Gate {
     }
     else {
       fn = this.#abilities.get(ability)
+      if (!fn && this.#fallback) {
+        // 未定义的能力：before 钩子仍然先执行，之后交给 fallback（访客同样交给它判断）
+        const fallback = this.#fallback
+        fn = Object.assign((user: unknown, ...rest: unknown[]) => fallback(user, ability, rest), { [kGuest]: true as const }) as GuestAbilityFn<any>
+      }
       if (!fn)
-        throw new Error(`Unknown ability "${ability}": define it with defineAbilities() / definePolicy() in app/policy`)
+        throw new Error(`Unknown ability "${ability}": define it with defineAbilities() / definePolicy() in app/policy, or register gate.fallback()`)
     }
 
     const decide = async (): Promise<GateInspection> => {
@@ -249,6 +273,21 @@ export class Gate {
     if (result.guest)
       throw new UnauthorizedException(result.message ?? '未登录或登录已过期')
     throw new ForbiddenException(result.message ?? '无权执行此操作')
+  }
+
+  /** 拥有其中任一能力即通过；全部被拒绝时抛出（未登录 401，已登录 403，消息取自最后一个） */
+  async authorizeAny(user: unknown, abilities: readonly string[], ...args: unknown[]): Promise<void> {
+    if (!abilities.length)
+      throw new Error('authorizeAny() needs at least one ability')
+    let last: GateInspection | undefined
+    for (const ability of abilities) {
+      last = await this.inspect(user, ability, ...args)
+      if (last.allowed)
+        return
+    }
+    if (last!.guest)
+      throw new UnauthorizedException(last!.message ?? '未登录或登录已过期')
+    throw new ForbiddenException(last!.message ?? '无权执行此操作')
   }
 
   /** 绑定用户（请求之外：任务、脚本） */

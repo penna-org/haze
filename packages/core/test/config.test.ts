@@ -117,6 +117,25 @@ describe('config', () => {
     expect(empty.config.get('app.url')).toBeUndefined()
   })
 
+  it('deep-merges configOverrides over config files, keeping class instances by reference', async () => {
+    class Client {
+      query(): string {
+        return 'ok'
+      }
+    }
+    const client = new Client()
+    const app = await createApplication({
+      mode: 'test',
+      env: false,
+      config: {
+        database: defineConfig(() => ({ default: 'main', connections: { main: { driver: 'pglite', casing: 'snake_case' } } })),
+      },
+      configOverrides: { database: { connections: { main: { client } } } },
+    })
+    expect(app.config.get('database.connections.main.casing')).toBe('snake_case')
+    expect(app.config.get('database.connections.main.client')).toBe(client)
+  })
+
   it('accepts import.meta.glob style module records', async () => {
     const app = await createApplication({
       mode: 'test',

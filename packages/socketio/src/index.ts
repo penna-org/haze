@@ -314,8 +314,8 @@ function wireBroadcasting(namespace: Namespace, current: State): void {
   })
 }
 
-/** 由握手信息构造 Request：请求头（含 Cookie），`auth.token` 作为 Bearer 令牌 */
-function handshakeRequest(socket: Socket): Request {
+/** 由握手信息构造 Request：请求头（含 Cookie），`auth.token` 作为 Bearer 令牌，`extra` 为额外的请求头 */
+function handshakeRequest(socket: Socket, extra: Record<string, string | undefined> = {}): Request {
   const { headers, url, auth } = socket.handshake
   const requestHeaders = new Headers()
   for (const [key, value] of Object.entries(headers)) {
@@ -327,6 +327,10 @@ function handshakeRequest(socket: Socket): Request {
   }
   if (typeof auth?.token === 'string')
     requestHeaders.set('authorization', `Bearer ${auth.token}`)
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined)
+      requestHeaders.set(key, value)
+  }
   // Node 的握手 url 为路径，Bun 引擎为完整 URL
   const target = /^https?:\/\//.test(url)
     ? url
@@ -334,21 +338,52 @@ function handshakeRequest(socket: Socket): Request {
   return new Request(target, { headers: requestHeaders })
 }
 
+export interface SocketAuthenticateOptions {
+  guard?: string
+  /** 未登录也允许连接（`socket.data.user` 为 undefined） */
+  optional?: boolean
+  /**
+   * 把握手 `auth` 中的其它字段作为请求头交给 Guard（与 HTTP 接口用同一套请求头时）：
+   * `headers: auth => ({ 'x-org-id': auth.org })`
+   */
+  headers?: (auth: Record<string, unknown>) => Record<string, string | undefined>
+}
+
 /**
  * 握手鉴权：按 config/auth.ts 的 Guard 识别用户，存入 `socket.data.user`。
  * 令牌取 `io({ auth: { token } })` 或 Authorization 头；Session Guard 读握手请求的 Cookie。
- * 未登录时拒绝连接，客户端收到 connect_error（message 为 unauthorized）。
+ * 未登录时拒绝连接，客户端收到 connect_error：`data.status` 为状态码，`data.code` 与 HTTP 接口一致
+ * （`unauthenticated` 没有凭据、`token_invalid` 凭据无效，Guard 的 resolveUser 抛出的异常保留它自己的 code），
+ * 客户端可据此决定是重新登录还是刷新令牌后重连。
  */
-export function authenticate(options: { guard?: string, optional?: boolean } = {}): SocketMiddleware {
+export function authenticate(options: SocketAuthenticateOptions = {}): SocketMiddleware {
   return async (socket, next) => {
     const app = state().app
     if (!app)
       return next(new Error('socket.io is not configured'))
-    const ctx = app.contextFor(handshakeRequest(socket))
-    const user = await ctx.auth.guard(options.guard).user().catch(() => undefined)
+    const extra = options.headers?.((socket.handshake.auth ?? {}) as Record<string, unknown>) ?? {}
+    const ctx = app.contextFor(handshakeRequest(socket, extra))
+    const guard = ctx.auth.guard(options.guard)
+    let user: unknown
+    try {
+      user = await guard.user()
+    }
+    catch (error) {
+      if (!options.optional) {
+        const { status, code, message } = error as { status?: number, code?: unknown, message?: string }
+        return next(Object.assign(new Error(message || 'unauthorized'), {
+          data: { status: status ?? 401, code: code ?? 'unauthenticated' },
+        }))
+      }
+    }
     if (user === undefined && !options.optional) {
       return next(Object.assign(new Error('unauthorized'), {
-        data: { code: 401 },
+        data: {
+          status: 401,
+          code: guard.failure === 'invalid'
+            ? 'token_invalid'
+            : 'unauthenticated',
+        },
       }))
     }
     socket.data.user = user

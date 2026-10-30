@@ -12,6 +12,7 @@ import type { ProviderInput, ServiceProvider } from './provider'
 import type { RouteModule, RouteRegistrar } from './routing/builder'
 import type { RouteMeta } from './routing/route'
 import type { Constructor, MaybePromise, ModuleRecord } from './utils'
+import { resolve } from 'node:path'
 import process from 'node:process'
 import { H3, mockEvent, serve, toResponse } from 'h3'
 import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
@@ -106,6 +107,11 @@ export interface ApplicationOptions {
   views?: ModuleRecord
   /** 托管静态资源（全栈项目的前端构建产物） */
   static?: StaticOptions
+  /**
+   * 在 config/*.ts 之上深合并的配置（提供者 register 之前生效），常用于测试：
+   * `{ database: { connections: { main: { client: pglite } } } }`。非普通对象的值（如客户端实例）按引用使用
+   */
+  configOverrides?: Record<string, Record<string, unknown>>
   /** 在提供者 register 之后、boot 之前执行，常用于测试中替换绑定 */
   setup?: (app: Application) => MaybePromise<void>
 }
@@ -412,6 +418,22 @@ export class Application {
     return response
   }
 
+  /**
+   * 托管的静态文件：全栈预设传入的 `static` 选项，否则为 config/static.ts（纯后端项目托管另外构建的前端，
+   * `dir` 可来自环境变量，未设置时不托管；相对路径按项目根目录解析）
+   */
+  #staticOptions(): StaticOptions | undefined {
+    if (this.#options.static)
+      return this.#options.static
+    const configured = this.config.get<Partial<StaticOptions> | undefined>('static', undefined)
+    if (!configured?.dir)
+      return undefined
+    return {
+      ...configured,
+      dir: resolve(this.rootDir, configured.dir),
+    }
+  }
+
   #loadConfig(): void {
     const input = this.#options.config ?? {}
     const entries = (isModuleRecord(input)
@@ -444,6 +466,8 @@ export class Application {
       this.#moduleGlobal = this.#modules.flatMap(module => module.definition.middleware?.global ?? [])
     }
     for (const [name, value] of entries)
+      this.config.merge(name, value)
+    for (const [name, value] of Object.entries(this.#options.configOverrides ?? {}))
       this.config.merge(name, value)
   }
 
@@ -565,8 +589,9 @@ export class Application {
       h3.use(registry.toH3(item))
     // 静态资源：在全局中间件之后（安全头、CORS 等同样作用于前端页面与资源），路由之前；
     // 鉴权等只用于接口的中间件应挂在路由组上，而不是全局
-    if (this.#options.static)
-      h3.use(createStaticMiddleware(this.#options.static))
+    const staticOptions = this.#staticOptions()
+    if (staticOptions)
+      h3.use(createStaticMiddleware(staticOptions))
 
     // 多应用分发：按域名 / 前缀进入应用自己的路由表（在全局中间件之后、全局路由之前）
     this.#apps.push(...this.#createApps(this.#appModules, registry))

@@ -144,10 +144,15 @@ describe('deployment presets', () => {
   })
 
   it('docker: self-contained build context with Dockerfile', async () => {
-    const result = await build('docker')
+    // 上次构建留下的文件不会进入新的构建上下文
+    const existing = copyFixture('basic')
+    existing.write('dist/stale.mjs', 'export {}')
+    const result = await build('docker', undefined, existing)
     const dist = join(result.root, 'dist')
+    expect(existsSync(join(dist, 'stale.mjs'))).toBe(false)
     expect(existsSync(join(dist, 'server/index.mjs'))).toBe(true)
     expect(readFileSync(join(dist, 'Dockerfile'), 'utf8')).toContain('CMD ["node", "server/index.mjs"]')
+    expect(readFileSync(join(dist, 'Dockerfile'), 'utf8')).toMatch(/HEALTHCHECK .*\n.*\/health\/live/)
     expect(JSON.parse(readFileSync(join(dist, 'package.json'), 'utf8'))).toMatchObject({ type: 'module', dependencies: {} })
     // 构建上下文本身即可运行（框架已打包）
     await expectServes(process.execPath, ['server/index.mjs'], dist, { APP_NAME: 'basic' })
