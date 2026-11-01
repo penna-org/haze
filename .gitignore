@@ -9,3 +9,6 @@ coverage
 .netlify
 .vercel
 docs/.vitepress/cache
+
+# 宣传素材（海报、视频、幻灯片），只在本地保留
+promo/
