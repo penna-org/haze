@@ -225,9 +225,10 @@ export default defineHazeConfig({
 | `host` | `localhost` in dev, `0.0.0.0` in production | Listen address. `HOST` takes precedence in production |
 | `outDir` | `'dist'` | Build output directory |
 | `typegen` | `true` | Generate `.haze/types` automatically while `haze dev` runs |
-| `preset` | `'node'` | Deployment preset: `node`, `bun`, `deno`, `docker`, `cloudflare`, `vercel`, `netlify`, `aws-lambda`. `haze build --preset` overrides it |
+| `preset` | `'node'` | Deployment preset: `node`, `bun`, `deno`, `docker`, `cloudflare`, `vercel`, `netlify`, `aws-lambda`, `binary`. `haze build --preset` overrides it |
 | `cloudflare` | — | `wrangler` (merged into the generated `wrangler.json`: bindings, vars, routes…) and `websocket` (generate the WebSocket Durable Object; on by default when a route uses `r.ws()`) |
 | `vercel` | — | `cron`: the Vercel Cron expression that triggers scheduled tasks (every minute by default) |
+| `binary` | — | [Standalone executables](./deployment#standalone-executables): `targets` (default: the current platform; `haze build --target` overrides it) and `name` (default: the `package.json` name) |
 | `externals` | — | Dependency handling: `trace` (copy external dependencies into the output, default `true`), `traceDeps` (extra packages to keep external and trace; `pkg*` copies the whole package), `inline` (force-bundle packages) |
 | `devtools` | On when `@hazejs/devtools` is installed | [DevTools](./devtools) options (`base`, `auth`, `terminals`, `embedded`, `mcp`); `false` turns DevTools off |
 | `autoImport` | `false` | [Auto imports](./auto-import) (requires `@hazejs/auto-import`): `true`, or options (`dirs`, `imports`, `presets`, `ignore`, `exclude`) |

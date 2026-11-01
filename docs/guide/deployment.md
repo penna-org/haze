@@ -8,6 +8,7 @@
 haze build                     # node preset (default)
 haze build --preset docker     # or -p docker
 haze build --preset cloudflare --minify
+haze build --compile           # standalone executable (binary preset)
 ```
 
 The preset can also be set in `haze.config.ts`; `--preset` takes precedence:
@@ -37,10 +38,11 @@ Other build flags: `--minify` (default off) and `--outDir` (API-only projects; f
 | `vercel` | `.vercel/output/` (Build Output API) | `vercel deploy --prebuilt` |
 | `netlify` | `dist/server/`, `.netlify/v1/functions/haze-server.mjs`, `netlify.toml` | `netlify deploy --build` |
 | `cloudflare` | `dist/index.mjs` (single-file Worker) + `dist/wrangler.json` | `npx wrangler deploy -c dist/wrangler.json` |
+| `binary` | `dist/<name>-<target>` executables (full-stack: plus `dist/client`) | `./dist/<name>-linux-x64`, see [Standalone executables](#standalone-executables) |
 
 After each build the CLI prints the exact commands for your project, including migration and worker commands.
 
-For full-stack projects, `node`, `bun`, `deno`, `docker` and `aws-lambda` serve `dist/client` from the same process (with SPA fallback for non-API paths); on `vercel`, `netlify` and `cloudflare` static files are served by the platform's CDN and only the backend prefixes reach your function.
+For full-stack projects, `node`, `bun`, `deno`, `docker`, `binary` and `aws-lambda` serve `dist/client` from the same process (with SPA fallback for non-API paths); on `vercel`, `netlify` and `cloudflare` static files are served by the platform's CDN and only the backend prefixes reach your function.
 
 ## Environment variables and APP_KEY
 
@@ -228,6 +230,68 @@ export default defineConfig(() => ({
   exclude: ['/api', '/socket.io'],
 }))
 ```
+
+## Standalone executables {#standalone-executables}
+
+`haze build --compile` (the `binary` preset) compiles the backend into one executable per platform with [Bun](https://bun.sh)'s `bun build --compile`. Each executable contains the Bun runtime, your code, every installed dependency and the migrations, so the server needs no Node.js, Bun or `node_modules`. The build machine needs Bun on its `PATH`. Every target can be built from any OS.
+
+```bash
+haze build --compile                                         # the current platform
+haze build --compile --target linux-x64,darwin-arm64,windows-x64
+```
+
+| Target | Runs on |
+| --- | --- |
+| `linux-x64`, `linux-arm64` | glibc Linux (Debian, Ubuntu, RHEL…) |
+| `linux-x64-musl`, `linux-arm64-musl` | Alpine and other musl distributions; install `libstdc++` and `libgcc` (`apk add libstdc++ libgcc`) |
+| `darwin-x64`, `darwin-arm64` | macOS on Intel / Apple silicon |
+| `windows-x64`, `windows-arm64` | Windows (`.exe`) |
+
+The executables are written to `dist/<name>-<target>` (plus `.exe` on Windows), named after `name` in `package.json`. Intermediate JavaScript goes to `.haze/binary`, so `dist` only contains what you deploy. Targets and the name can also be set in `haze.config.ts`. `--target` takes precedence over `binary.targets`, and `preset: 'binary'` works the same as `--compile`:
+
+```ts
+// haze.config.ts
+import { defineHazeConfig } from '@hazejs/vite'
+
+export default defineHazeConfig({
+  binary: {
+    targets: ['linux-x64', 'windows-x64'],
+    name: 'my-api', // default: the package.json name
+  },
+})
+```
+
+The web server, migrations and workers are subcommands of the same executable:
+
+```bash
+./my-api-linux-x64                    # web server (PORT / HOST; .env is read from the working directory)
+./my-api-linux-x64 migrate            # production migrations (with @hazejs/orm; --connection, --all)
+./my-api-linux-x64 worker queue       # queue worker; also schedule, schedule:run, command <name>, down, up
+./my-api-linux-x64 --help
+```
+
+`haze start` and `haze preview` run the executable for the current platform. In full-stack projects, deploy `dist/client` next to the executable: static files are served from `<executable dir>/client`.
+
+### Drivers in executables
+
+Bundlers cannot follow every dependency, so the compile step handles the ones that would otherwise break:
+
+| Driver | In the executable |
+| --- | --- |
+| `postgres`, `node-postgres`, `mysql`, `mongodb`, `turso` | Bundled (pure JavaScript) |
+| `sqlite` (libsql) | The libsql native module for each target is embedded. Modules for other platforms are downloaded from the npm registry (`npm_config_registry` is honored) and cached in `node_modules/.cache/hazejs/native`. libsql has no `windows-arm64` build |
+| `pglite` | Its WASM and data files are embedded (so is any asset a package loads with `new URL('./file', import.meta.url)`) |
+| Redis (`ioredis`), queues (`bullmq`) | Bundled. `msgpackr-extract` is optional and falls back to JavaScript |
+| `d1` | Cloudflare only |
+
+Drivers you have not installed stay external and only fail when used, just like the other presets. Other native packages (`better-sqlite3`, `sharp`, `bcrypt`…) load platform binaries at runtime in ways that cannot be embedded; the build warns when your code imports one. Prefer a JavaScript or WASM alternative (`Hash` already uses `node:crypto`).
+
+Keep in mind:
+
+- The executable runs on Bun, not Node.js. The `bun` preset uses the same runtime, so `haze build --preset bun && bun dist/index.mjs` is a quick compatibility check.
+- Bun's own `.env` loading is turned off. The app loads `.env` / `.env.production` from the working directory, as the other presets do.
+- Executables are about 60–120 MB, because they include the runtime.
+- Executables built on macOS are ad-hoc signed. To distribute them, sign (and notarize) macOS builds with your Developer ID, and sign Windows builds to avoid SmartScreen warnings.
 
 ## AWS Lambda
 

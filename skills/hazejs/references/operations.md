@@ -13,7 +13,7 @@ Commands that need the app (`route:list`, `module:list`, `typegen`, `openapi`, `
 | Command | What it does | Options |
 | --- | --- | --- |
 | `haze dev` | Dev server; changes apply on the next request, no restart. Uses `vite.config.*` if present (full-stack) | `--port/-p` (PORT → `haze.config.ts` `port` → 3000), `--host` |
-| `haze build` | Production build, `NODE_ENV=production` | `--preset/-p` (`node` `bun` `deno` `docker` `cloudflare` `vercel` `netlify` `aws-lambda`), `--outDir`, `--minify` (backend-only projects) |
+| `haze build` | Production build, `NODE_ENV=production` | `--preset/-p` (`node` `bun` `deno` `docker` `cloudflare` `vercel` `netlify` `aws-lambda` `binary`), `--compile` (= `binary`), `--target linux-x64,windows-x64,…`, `--outDir`, `--minify` (backend-only projects) |
 | `haze start` | Runs `dist/index.mjs` (or `dist/server/index.mjs` full-stack), `NODE_ENV=production`, loads `.env` from project root | `--port/-p`, `--host` |
 | `haze preview` | Runs the built output the way its preset runs (process / in-process function / Miniflare) | `--port/-p` (4173), `--host`, `--open` |
 | `haze test` | Vitest with `NODE_ENV=test`; no args → `vitest run`; args replace `run` | e.g. `haze test --watch`, `haze test run tests/user` |
@@ -240,6 +240,7 @@ Full guide: [deployment.md](../../../docs/guide/deployment.md)
 haze build                          # node (default)
 haze build --preset docker          # or preset in haze.config.ts; HAZE_PRESET for raw `vite build`
 haze build --preset cloudflare --minify
+haze build --compile --target linux-x64,darwin-arm64,windows-x64   # standalone executables (Bun on the build machine)
 ```
 
 | Preset | Output | Run / deploy |
@@ -252,6 +253,7 @@ haze build --preset cloudflare --minify
 | `vercel` | `.vercel/output/` (Build Output API) | `vercel deploy --prebuilt` |
 | `netlify` | `dist/server/`, `.netlify/v1/functions/haze-server.mjs`, `netlify.toml` | `netlify deploy --build` |
 | `cloudflare` | single-file `dist/index.mjs` + `dist/wrangler.json` (`nodejs_compat`) | `npx wrangler deploy -c dist/wrangler.json` |
+| `binary` | `dist/<name>-<target>[.exe]` (Bun `--compile`; intermediate JS in `.haze/binary`; full-stack: `dist/client` beside it) | `./dist/app-linux-x64` (`migrate`, `worker queue`… subcommands) or `haze start` |
 
 Long-running presets listen on `PORT` (default `haze.config.ts` `port`, else 3000) and `HOST` (default `0.0.0.0`). Dependencies are bundled; DB drivers/native modules are traced into `node_modules` next to the entry, so `dist/` is self-contained (docker installs externals inside the image; cloudflare stubs unsupported ones). Build `aws-lambda`/`vercel` on Linux (CI/Docker) for correct native binaries. Client IP: the cloudflare entry passes `cf-connecting-ip` and aws-lambda the event's `sourceIp` (no `trustProxy` needed); vercel/netlify sit behind a proxy → `trustProxy: true`; custom entries call `setClientAddress(request, ip)` (`@hazejs/core`).
 
@@ -262,8 +264,9 @@ Long-running presets listen on `PORT` (default `haze.config.ts` `port`, else 300
 | docker | Externals listed in the runtime `package.json`, installed in the image (`npm install --omit=dev`) so native binaries match Linux |
 | netlify | Externals bundled by Netlify at deploy time |
 | cloudflare | Everything bundled; unsupported drivers replaced by throwing stubs |
+| binary | Everything installed is bundled into the executable by Bun from the project `node_modules`; libsql's native module is embedded per target (other platforms downloaded from the npm registry, cached in `node_modules/.cache/hazejs/native`; none for `windows-arm64`), pglite's WASM/data embedded. Other native packages (better-sqlite3, sharp, bcrypt…) won't work: the build warns |
 
-Backend-only builds empty `outDir` first (only when it is inside the project). After a build the CLI prints the entry, the externals and the exact run/migrate/worker commands. Full-stack: `node`/`bun`/`deno`/`docker`/`aws-lambda` serve `dist/client` from the same process; `vercel`/`netlify`/`cloudflare` serve it from the CDN.
+Backend-only builds empty `outDir` first (only when it is inside the project). After a build the CLI prints the entry, the externals and the exact run/migrate/worker commands. Full-stack: `node`/`bun`/`deno`/`docker`/`binary`/`aws-lambda` serve `dist/client` from the same process (binary: from `<executable dir>/client`); `vercel`/`netlify`/`cloudflare` serve it from the CDN.
 
 **Secrets / env**: node/bun/deno load `.env` + `.env.production` from cwd; docker `-e APP_KEY=…` (`.env` is not copied); Lambda env vars; `vercel env add APP_KEY`; `netlify env:set APP_KEY …`; `npx wrangler secret put APP_KEY -c dist/wrangler.json`.
 
@@ -272,6 +275,7 @@ Backend-only builds empty `outDir` first (only when it is inside the project). A
 | Preset | Migrations |
 | --- | --- |
 | node / bun | `node dist/migrate.mjs [--connection <name>] [--all]` (full-stack: `dist/server/migrate.mjs`) |
+| binary | `./dist/app-linux-x64 migrate [--connection <name>] [--all]`; workers: `./dist/app-linux-x64 worker <queue\|schedule\|schedule:run\|command\|down\|up\|maintenance:status>` |
 | deno | `deno run -A dist/server/migrate.mjs` |
 | docker | `docker run --rm <image> node server/migrate.mjs` |
 | aws-lambda | invoke handler `index.migrate` with `{ "connection"?, "all"? }` |
@@ -320,6 +324,7 @@ Search in production: call `importSearchable()` / `syncSearchSettings()` from a 
 | --- | --- |
 | node / docker | child process + proxy (loads root `.env`) |
 | bun / deno | same with Bun / Deno (Deno may come from the `deno` npm package) |
+| binary | the current platform's executable as a child process (it must be among the targets) |
 | aws-lambda / vercel / netlify | function handler called in-process |
 | cloudflare | Miniflare (`pnpm add -D miniflare`): bindings from `dist/wrangler.json`, `.env`/`.env.production` passed as bindings, data in `.haze/preview`, D1 migrations auto-applied; no WebSocket proxying (use `wrangler dev -c dist/wrangler.json`) |
 

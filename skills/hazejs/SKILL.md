@@ -30,7 +30,7 @@ The full documentation lives in the framework repo under `docs/guide/*.md` (Engl
 | --- | --- |
 | `@hazejs/core` | Container, routing, middleware, validation, exceptions, auth, cache, queue, events, schedule, mail, notifications, broadcasting, WebSocket, storage, i18n, OpenAPI, observability, maintenance, TSX views |
 | `@hazejs/orm` | Drizzle-based models, query builder, migrations, factories (MySQL, PostgreSQL, SQLite, PGlite, Turso, D1, MongoDB) |
-| `@hazejs/vite` | Vite plugin: dev server with hot reload, full-stack integration, build presets (node, bun, deno, docker, aws-lambda, vercel, netlify, cloudflare) |
+| `@hazejs/vite` | Vite plugin: dev server with hot reload, full-stack integration, build presets (node, bun, deno, docker, aws-lambda, vercel, netlify, cloudflare, binary = standalone executables) |
 | `@hazejs/auto-import` | Optional, `autoImport: true` in `haze.config.ts`: compile-time imports for `app/<kind>/**` exports and curated `@hazejs/core`/`@hazejs/orm` APIs, types in `.haze/types/auto-imports.d.ts` (see operations.md) |
 | `@hazejs/cli` | The `haze` command (`dev`, `build`, `start`, `test`, `make:*`, `db:*`, `queue:work`, …) |
 | `@hazejs/testing` | Vitest integration, in-process HTTP client, fakes |

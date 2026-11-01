@@ -33,7 +33,9 @@ npx haze make:model --help   # 查看某个命令的选项
 
 | 选项 | 说明 |
 | --- | --- |
-| `--preset`、`-p` | 部署预设：`node`、`bun`、`deno`、`docker`、`cloudflare`、`vercel`、`netlify`、`aws-lambda`；默认取 `haze.config.ts` 的 `preset`，否则为 `node` |
+| `--preset`、`-p` | 部署预设：`node`、`bun`、`deno`、`docker`、`cloudflare`、`vercel`、`netlify`、`aws-lambda`、`binary`；默认取 `haze.config.ts` 的 `preset`，否则为 `node` |
+| `--compile` | 用 Bun 编译[独立可执行文件](./deployment#standalone-executables)（`binary` 预设） |
+| `--target` | 可执行文件的目标平台，逗号分隔：`linux-x64`、`linux-arm64`、`linux-x64-musl`、`linux-arm64-musl`、`darwin-x64`、`darwin-arm64`、`windows-x64`、`windows-arm64`；默认取 `haze.config.ts` 的 `binary.targets`，否则为当前平台 |
 | `--outDir` | 输出目录（默认 `dist`），仅纯后端项目 |
 | `--minify` | 压缩产物（默认 `false`），仅纯后端项目 |
 
@@ -41,7 +43,7 @@ npx haze make:model --help   # 查看某个命令的选项
 
 ### `haze start`
 
-运行生产产物：从 `haze.config.ts` 的 `outDir` 中查找 `dist/index.mjs`（纯后端）或 `dist/server/index.mjs`（全栈）。会设置 `NODE_ENV=production`，并从项目根目录加载 `.env`。需要先执行 `haze build`。
+运行生产产物：从 `haze.config.ts` 的 `outDir` 中查找 `dist/index.mjs`（纯后端）或 `dist/server/index.mjs`（全栈）；`haze build --compile` 之后运行当前平台的可执行文件。会设置 `NODE_ENV=production`，并从项目根目录加载 `.env`。需要先执行 `haze build`。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -50,7 +52,7 @@ npx haze make:model --help   # 查看某个命令的选项
 
 ### `haze preview`
 
-按部署预设的实际运行方式在本地运行构建产物：`node` / `bun` / `deno` / `docker` 启动产物子进程，`aws-lambda` / `vercel` / `netlify` 在进程内调用函数，`cloudflare` 用 Miniflare 运行。全栈项目使用自己的 `vite.config.ts`，等同于 `vite preview`。需要先执行 `haze build`。
+按部署预设的实际运行方式在本地运行构建产物：`node` / `bun` / `deno` / `docker` / `binary` 启动产物子进程，`aws-lambda` / `vercel` / `netlify` 在进程内调用函数，`cloudflare` 用 Miniflare 运行。全栈项目使用自己的 `vite.config.ts`，等同于 `vite preview`。需要先执行 `haze build`。
 
 | 选项 | 说明 |
 | --- | --- |

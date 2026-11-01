@@ -1,16 +1,18 @@
 import type { FinalizeContext, Layout, Preset, PresetContext, PresetName } from './types'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { cp, mkdir, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { normalizePath } from 'vite'
 import { VIRTUAL_MODULES } from '../constants'
+import { binaryFileName, binaryName, compileBinaries, hostTarget, projectName, resolveBinaryTargets } from './binary'
 import { EDGE_UNSUPPORTED_DRIVERS, writeRuntimePackageJson } from './deps'
 import { PRESET_NAMES } from './types'
 
+export { binaryFileName, hostTarget, resolveBinaryTargets } from './binary'
 export { bundleAllExcept, DRIVER_PACKAGES, EDGE_UNSUPPORTED_DRIVERS, externalPackages, externalPattern, findInstalled, scanExternals, traceDependencies } from './deps'
 export type { ExternalsOptions, TraceResult } from './deps'
-export { PRESET_NAMES } from './types'
-export type { CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName, VercelOptions } from './types'
+export { BINARY_TARGETS, PRESET_NAMES } from './types'
+export type { BinaryOptions, BinaryTarget, CloudflareOptions, FinalizeContext, Layout, Preset, PresetContext, PresetName, VercelOptions } from './types'
 
 const header = `import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -92,14 +94,6 @@ function serverLayout(context: PresetContext, dir = 'server'): Layout {
       : undefined,
     staticFromServer: '../client',
   }
-}
-
-function packageName(root: string): string {
-  const file = join(root, 'package.json')
-  const name = existsSync(file)
-    ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: string }).name
-    : undefined
-  return (name ?? 'hazejs-app').replace(/^@[^/]+\//, '').replace(/[^a-z0-9-]/gi, '-').toLowerCase()
 }
 
 const rel = (context: FinalizeContext, path: string): string => normalizePath(relative(context.root, path)) || '.'
@@ -206,6 +200,70 @@ function migrateHint(context: FinalizeContext, command: string): string {
     : ''
 }
 
+/**
+ * 独立可执行文件（binary 预设）的入口：Web 服务、迁移与 worker 在同一个文件中，按子命令分发。
+ * 前端产物（全栈）放在可执行文件旁边的 client/ 目录
+ */
+function binaryEntry(context: PresetContext): string {
+  // 迁移入口引用 @hazejs/orm：只在项目使用 ORM 时生成
+  const commands = context.orm
+    ? ['migrate', 'worker']
+    : ['worker']
+  const usage = `Usage: <executable> [serve]${context.orm
+    ? ' | migrate [--connection <name>] [--all]'
+    : ''} | worker <queue | schedule | schedule:run | command | down | up | maintenance:status> [...]`
+  return `import process from 'node:process'
+${context.fullstack
+  ? `import { dirname, join } from 'node:path'\n`
+  : ''}
+const usage = ${JSON.stringify(usage)}
+const command = process.argv[2]
+if (${JSON.stringify(commands)}.includes(command)) {
+  // 去掉子命令：迁移与 worker 入口按各自的参数解析
+  process.argv.splice(2, 1)
+  ${context.orm
+    ? `await (command === 'worker'
+    ? import('${VIRTUAL_MODULES.workerEntry}')
+    : import('${VIRTUAL_MODULES.migrateEntry}'))`
+    : `await import('${VIRTUAL_MODULES.workerEntry}')`}
+}
+else if (command === '--help' || command === '-h') {
+  console.log(usage)
+}
+else if (command && command !== 'serve') {
+  console.error(\`Unknown command "\${command}"\\n\${usage}\`)
+  process.exit(1)
+}
+else {
+  const { createApp } = await import('${VIRTUAL_MODULES.app}')
+  const app = await createApp({ mode: 'production', ${context.fullstack
+    ? `static: { dir: join(dirname(process.execPath), 'client'), spaFallback: true, exclude: ${JSON.stringify(context.prefixes)} },`
+    : ''} })
+  app.serve({
+    port: Number(process.env.PORT) || ${context.port},
+    hostname: process.env.HOST || ${JSON.stringify(context.host ?? '0.0.0.0')},
+  })
+}
+`
+}
+
+/** 当前平台的可执行文件（构建了的话），否则为第一个目标的 */
+function binaryEntryPath(context: PresetContext): string {
+  const targets = resolveBinaryTargets(context.binary?.targets)
+  const host = (() => {
+    try {
+      return hostTarget()
+    }
+    catch {
+      return undefined
+    }
+  })()
+  const target = host && targets.includes(host)
+    ? host
+    : targets[0]
+  return join(context.outDir, binaryFileName(binaryName(context), target))
+}
+
 export const presets: Record<PresetName, Preset> = {
   'node': {
     name: 'node',
@@ -270,10 +328,10 @@ CMD ["node", "server/index.mjs"]
 `)
       await writeFile(join(context.outDir, '.dockerignore'), 'node_modules\nDockerfile\n.dockerignore\n')
     },
-    hint: context => `Build image: docker build -t ${packageName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} -e APP_KEY=<key> ${packageName(context.root)}${context.orm
-      ? `\nMigrate: docker run --rm ${packageName(context.root)} node server/migrate.mjs`
-      : ''}\nQueue worker: docker run ${packageName(context.root)} node server/worker.mjs queue${context.schedules
-      ? `\nScheduler: docker run ${packageName(context.root)} node server/worker.mjs schedule`
+    hint: context => `Build image: docker build -t ${projectName(context.root)} ${rel(context, context.outDir)}\nRun: docker run -p ${context.port}:${context.port} -e APP_KEY=<key> ${projectName(context.root)}${context.orm
+      ? `\nMigrate: docker run --rm ${projectName(context.root)} node server/migrate.mjs`
+      : ''}\nQueue worker: docker run ${projectName(context.root)} node server/worker.mjs queue${context.schedules
+      ? `\nScheduler: docker run ${projectName(context.root)} node server/worker.mjs schedule`
       : ''}`,
   },
 
@@ -531,7 +589,7 @@ ${context.websocket
         d1_databases?: Record<string, unknown>[]
       }
       const config: Record<string, unknown> = {
-        name: packageName(context.root),
+        name: projectName(context.root),
         main: 'index.mjs',
         compatibility_date: '2026-01-01',
         ...user,
@@ -591,6 +649,41 @@ ${context.websocket
         .map(database => `\nApply D1 migrations: npx wrangler d1 migrations apply ${database.database_name ?? database.binding} --remote -c ${wrangler}`)
       // Workers 没有 .env：APP_KEY 等密钥以 secret 绑定提供
       return `Deploy: npx wrangler deploy -c ${wrangler}\nSecrets: npx wrangler secret put APP_KEY -c ${wrangler}${d1.join('')}`
+    },
+  },
+
+  'binary': {
+    name: 'binary',
+    // 驱动等保持裸导入，由 Bun 从项目的 node_modules 重新打包进可执行文件（不追踪）
+    bundle: 'drivers-external',
+    conditions: ['bun', 'module', 'node', 'production'],
+    // 中间产物（JS）放在 .haze/binary，dist 中只有可执行文件与前端产物
+    layout: context => ({
+      serverDir: join(context.root, '.haze', 'binary', 'server'),
+      clientDir: context.fullstack
+        ? join(context.outDir, 'client')
+        : undefined,
+      staticFromServer: 'client',
+    }),
+    entry: binaryEntry,
+    entryPath: binaryEntryPath,
+    async finalize(context) {
+      await compileBinaries(context, message => console.warn(`[hazejs] ${message}`))
+    },
+    hint: (context) => {
+      const name = binaryName(context)
+      const files = resolveBinaryTargets(context.binary?.targets).map(target => rel(context, join(context.outDir, binaryFileName(name, target))))
+      const run = rel(context, binaryEntryPath(context))
+      const command = run.startsWith('.') || run.startsWith('/')
+        ? run
+        : `./${run}`
+      return `Executables: ${files.join(', ')}\nRun: ${command}  (or haze start; .env is read from the working directory)${context.orm
+        ? `\nMigrate: ${command} migrate`
+        : ''}\nQueue worker: ${command} worker queue${context.schedules
+        ? `\nScheduler: ${command} worker schedule`
+        : ''}${context.fullstack
+        ? `\nDeploy ${rel(context, join(context.outDir, 'client'))} next to the executable (static files are served from <executable dir>/client)`
+        : ''}`
     },
   },
 }

@@ -41,7 +41,7 @@ features:
     linkText: Read the AI guide
   - icon: 🌍
     title: Deploy anywhere
-    details: Presets for node, bun, deno, docker, cloudflare, vercel, netlify and aws-lambda. Native dependencies are traced, so the output runs on its own.
+    details: Presets for node, bun, deno, docker, cloudflare, vercel, netlify and aws-lambda, plus standalone executables. Native dependencies are traced, so the output runs on its own.
   - icon: ☁️
     title: Edge-native drivers
     details: Cloudflare D1, KV, R2, Queues, Cron Triggers and Durable Objects; Turso over HTTP; Upstash for serverless Redis.

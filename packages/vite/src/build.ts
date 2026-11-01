@@ -1,6 +1,6 @@
 import type { InlineConfig } from 'vite'
 import type { BuildInfo } from './plugin'
-import type { PresetName } from './presets'
+import type { BinaryTarget, PresetName } from './presets'
 import { rm } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import process from 'node:process'
@@ -16,6 +16,8 @@ export interface BuildServerOptions {
   preset?: PresetName
   minify?: boolean
   sourcemap?: boolean
+  /** binary 预设的目标平台（覆盖 haze.config.ts 的 binary.targets） */
+  targets?: BinaryTarget[]
 }
 
 export interface BuildServerResult extends BuildInfo {
@@ -46,6 +48,9 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Bui
     preset: options.preset ?? config.preset,
     cloudflare: config.cloudflare,
     vercel: config.vercel,
+    binary: options.targets?.length
+      ? { ...config.binary, targets: options.targets }
+      : config.binary,
     externals: config.externals,
     autoImport: config.autoImport,
     standalone: true,

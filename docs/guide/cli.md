@@ -33,7 +33,9 @@ Build for production. `NODE_ENV` defaults to `production`.
 
 | Option | Description |
 | --- | --- |
-| `--preset`, `-p` | Deployment preset: `node`, `bun`, `deno`, `docker`, `cloudflare`, `vercel`, `netlify`, `aws-lambda`. Defaults to `preset` in `haze.config.ts`, then `node` |
+| `--preset`, `-p` | Deployment preset: `node`, `bun`, `deno`, `docker`, `cloudflare`, `vercel`, `netlify`, `aws-lambda`, `binary`. Defaults to `preset` in `haze.config.ts`, then `node` |
+| `--compile` | Compile [standalone executables](./deployment#standalone-executables) with Bun (the `binary` preset) |
+| `--target` | Executable targets, comma-separated: `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`. Defaults to `binary.targets` in `haze.config.ts`, then the current platform |
 | `--outDir` | Output directory (default `dist`). Backend-only projects |
 | `--minify` | Minify the output (default `false`). Backend-only projects |
 
@@ -41,7 +43,7 @@ Full-stack projects are built by the project's Vite config, producing `dist/clie
 
 ### `haze start`
 
-Run the production build: `dist/index.mjs` (backend-only) or `dist/server/index.mjs` (full-stack), from the `outDir` in `haze.config.ts`. It sets `NODE_ENV=production` and loads `.env` from the project root. Run `haze build` first.
+Run the production build: `dist/index.mjs` (backend-only) or `dist/server/index.mjs` (full-stack), from the `outDir` in `haze.config.ts`, or the executable for the current platform after `haze build --compile`. It sets `NODE_ENV=production` and loads `.env` from the project root. Run `haze build` first.
 
 | Option | Description |
 | --- | --- |
@@ -50,7 +52,7 @@ Run the production build: `dist/index.mjs` (backend-only) or `dist/server/index.
 
 ### `haze preview`
 
-Run the build output locally the way its preset runs it — a child process for `node` / `bun` / `deno` / `docker`, an in-process function call for `aws-lambda` / `vercel` / `netlify`, Miniflare for `cloudflare`. Full-stack projects use their `vite.config.ts`, so this is the same as `vite preview`. Run `haze build` first.
+Run the build output locally the way its preset runs it — a child process for `node` / `bun` / `deno` / `docker` / `binary`, an in-process function call for `aws-lambda` / `vercel` / `netlify`, Miniflare for `cloudflare`. Full-stack projects use their `vite.config.ts`, so this is the same as `vite preview`. Run `haze build` first.
 
 | Option | Description |
 | --- | --- |
