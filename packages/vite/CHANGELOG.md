@@ -1,5 +1,17 @@
 # @hazejs/vite
 
+## 1.1.0
+
+### Minor Changes
+
+- [#16](https://github.com/penna-org/haze/pull/16) [`6ccd6a5`](https://github.com/penna-org/haze/commit/6ccd6a5520bd49edaad518008bac81e793eca08d) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - 新增 `haze build --compile`（`binary` 预设）：用 Bun 把后端编译为 Linux / macOS / Windows 的独立可执行文件，可在任意系统上交叉编译（`--target linux-x64,darwin-arm64,windows-x64`，或 `haze.config.ts` 的 `binary.targets`）。Web 服务、`migrate` 与 `worker` 是同一个可执行文件的子命令；libsql 的原生模块按目标平台嵌入（其它平台的从 npm registry 下载），pglite 的 WASM 与数据文件一并嵌入。`haze start` / `haze preview` 运行当前平台的可执行文件。默认构建方式不变。
+
+### Patch Changes
+
+- [#16](https://github.com/penna-org/haze/pull/16) [`e642b2e`](https://github.com/penna-org/haze/commit/e642b2e6f5f48126068df6b3862035238d57e501) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - `Hash.verify()` 支持校验从其它系统迁移来的 bcrypt（`$2a$` / `$2b$` / `$2y$`，可选依赖 `bcryptjs`）与 argon2（`$argon2id$` / `$argon2i$` / `$argon2d$`，Node ≥ 24.7 与 Bun 使用 `node:crypto`，更早的 Node 使用可选依赖 `hash-wasm`）哈希，`Hash.needsRehash()` 对它们返回 true；缺少依赖时抛出带安装提示的错误。`modelUserProvider` 新增 `rehash` 选项（默认 true）：登录成功后把过时的哈希换成 `Hash.make()` 的结果并保存。格式无法解析的哈希串现在返回 false，而不是抛出 base64 解码错误。
+- Updated dependencies [[`e642b2e`](https://github.com/penna-org/haze/commit/e642b2e6f5f48126068df6b3862035238d57e501)]:
+  - @hazejs/core@1.1.0
+
 ## 1.0.0
 
 ### Major Changes

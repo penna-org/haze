@@ -1,5 +1,11 @@
 # @hazejs/core
 
+## 1.1.0
+
+### Minor Changes
+
+- [#16](https://github.com/penna-org/haze/pull/16) [`e642b2e`](https://github.com/penna-org/haze/commit/e642b2e6f5f48126068df6b3862035238d57e501) Thanks [@aibayanyu20](https://github.com/aibayanyu20)! - `Hash.verify()` 支持校验从其它系统迁移来的 bcrypt（`$2a$` / `$2b$` / `$2y$`，可选依赖 `bcryptjs`）与 argon2（`$argon2id$` / `$argon2i$` / `$argon2d$`，Node ≥ 24.7 与 Bun 使用 `node:crypto`，更早的 Node 使用可选依赖 `hash-wasm`）哈希，`Hash.needsRehash()` 对它们返回 true；缺少依赖时抛出带安装提示的错误。`modelUserProvider` 新增 `rehash` 选项（默认 true）：登录成功后把过时的哈希换成 `Hash.make()` 的结果并保存。格式无法解析的哈希串现在返回 false，而不是抛出 base64 解码错误。
+
 ## 1.0.0
 
 ### Major Changes
