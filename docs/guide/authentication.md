@@ -41,7 +41,8 @@ export default defineAuthConfig(() => ({
 | Option | Default | Description |
 |--------|---------|-------------|
 | `username` | `'email'` | Login field(s). An array is allowed; every field present in the credentials is matched |
-| `password` | `'password'` | Column holding the hash from `Hash.make()`. The credential with the same name is the plain-text password |
+| `password` | `'password'` | Column holding the hash from `Hash.make()`, or a bcrypt / argon2 hash [migrated from another system](#migrating-password-hashes). The credential with the same name is the plain-text password |
+| `rehash` | `true` | After a successful login, replace a hash whose algorithm or parameters are outdated (`Hash.needsRehash()`) with a fresh `Hash.make()` hash and save the model |
 
 To load users from somewhere else (a remote service, LDAP, …), implement the `UserProvider` interface with `defineUserProvider`:
 
@@ -74,6 +75,23 @@ Hash.needsRehash(hash)                                // true if the parameters 
 await Hash.make('correct horse', { algorithm: 'pbkdf2' })
 ```
 
+### Migrating password hashes {#migrating-password-hashes}
+
+Users imported from another system (Laravel, Django, Express with `bcrypt`…) can keep their passwords. `Hash.verify()` also accepts these formats; `Hash.make()` still produces scrypt:
+
+| Format | Example | Needs |
+| --- | --- | --- |
+| bcrypt | `$2b$10$…`, `$2a$…`, `$2y$…` (PHP) | `pnpm add bcryptjs` |
+| argon2id / argon2i / argon2d | `$argon2id$v=19$m=65536,t=3,p=4$…` | Nothing on Node.js 24.7+ and Bun (`node:crypto`). On older Node.js: `pnpm add hash-wasm` |
+
+`Hash.needsRehash()` is always true for them. `modelUserProvider` replaces the hash with scrypt after the user's next successful login, so the old hashes disappear as users log in (`rehash: false` turns that off). With a custom provider, do it yourself after `Hash.verify()` succeeds:
+
+```ts
+if (Hash.needsRehash(account.passwordHash))
+  await saveAccountPassword(account.id, await Hash.make(password))
+```
+
+When the package for a format is missing, `Hash.verify()` throws an error that names the package to install, so users are not locked out without a reason. Both packages are pure JavaScript / WASM, so they also work in [standalone executables](./deployment#standalone-executables). Native modules such as `bcrypt` do not.
 ## Logging in with JWT
 
 The template's `AuthController` shows the whole flow:

@@ -81,7 +81,7 @@ const accounts = defineUserProvider<Account>({
 })
 ```
 
-Passwords: `await Hash.make(pw)`, `await Hash.verify(hash, pw)`, `Hash.needsRehash(hash)` (scrypt, PBKDF2 fallback).
+Passwords: `await Hash.make(pw)`, `await Hash.verify(hash, pw)`, `Hash.needsRehash(hash)` (scrypt, PBKDF2 fallback; `verify` also accepts migrated bcrypt `$2a$/$2b$/$2y$` (needs `bcryptjs`) and argon2 PHC hashes (`node:crypto` on Node ≥ 24.7 / Bun, else `hash-wasm`)). `modelUserProvider` rehashes outdated hashes after a successful login (`rehash: false` to disable).
 
 ## Logging in
 
@@ -734,12 +734,12 @@ Built-in middleware are enabled by name in `config/middleware.ts` (`defineMiddle
 
 ```ts
 const hash = await Hash.make(password)             // $scrypt$n=16384,r=8,p=1$<salt>$<key>
-await Hash.verify(hash, password)                  // constant-time; unknown format → false
-if (Hash.needsRehash(user.password))               // params differ from current defaults
-  await user.fill({ password: await Hash.make(password) }).save() // do this right after a successful login
+await Hash.verify(hash, password)                  // constant-time; unknown format → false; missing bcryptjs / hash-wasm → throws
+if (Hash.needsRehash(user.password))               // params differ, or a bcrypt / argon2 hash
+  await user.fill({ password: await Hash.make(password) }).save() // custom providers: right after a successful login
 ```
 
-`HashOptions` (per call; there is no global hash config): `algorithm: 'scrypt' | 'pbkdf2'` (default `'scrypt'`; falls back to PBKDF2-SHA256 when `node:crypto` is unavailable), `cost` (scrypt N, `16384`), `iterations` (PBKDF2, `600000`). Pass the same options to `make` and `needsRehash`. `modelUserProvider` verifies but never rehashes automatically.
+`HashOptions` (per call; there is no global hash config): `algorithm: 'scrypt' | 'pbkdf2'` (default `'scrypt'`; falls back to PBKDF2-SHA256 when `node:crypto` is unavailable), `cost` (scrypt N, `16384`), `iterations` (PBKDF2, `600000`). Pass the same options to `make` and `needsRehash`. `modelUserProvider` rehashes automatically after a successful login (option `rehash`, default `true`). Migrated formats are verify-only: bcrypt (`$2a$`/`$2b$`/`$2y$`, optional peer `bcryptjs`) and argon2id/i/d `v=19` (`node:crypto.argon2` on Node ≥ 24.7 / Bun, else optional peer `hash-wasm`); `needsRehash` is always true for them.
 
 ### Sessions
 

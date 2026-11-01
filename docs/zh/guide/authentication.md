@@ -41,7 +41,8 @@ export default defineAuthConfig(() => ({
 | 选项 | 默认值 | 说明 |
 |------|--------|------|
 | `username` | `'email'` | 登录名字段，可以是数组：凭据中出现的字段都会参与匹配 |
-| `password` | `'password'` | 保存 `Hash.make()` 哈希的列；凭据中的同名字段是明文密码 |
+| `password` | `'password'` | 保存 `Hash.make()` 哈希的列，也可以是[从其它系统迁移来的](#migrating-password-hashes) bcrypt / argon2 哈希；凭据中的同名字段是明文密码 |
+| `rehash` | `true` | 登录成功后，哈希的算法或参数已过时（`Hash.needsRehash()`）时用 `Hash.make()` 重新哈希并保存模型 |
 
 用户来自别处（远程服务、LDAP 等）时，用 `defineUserProvider` 实现 `UserProvider` 接口：
 
@@ -74,6 +75,23 @@ Hash.needsRehash(hash)                                // 参数已过时时返�
 await Hash.make('correct horse', { algorithm: 'pbkdf2' })
 ```
 
+### 迁移密码哈希 {#migrating-password-hashes}
+
+从其它系统（Laravel、Django、使用 `bcrypt` 的 Express 等）导入的用户可以继续使用原密码。`Hash.verify()` 也能校验下列格式，`Hash.make()` 生成的仍然是 scrypt：
+
+| 格式 | 示例 | 需要 |
+| --- | --- | --- |
+| bcrypt | `$2b$10$…`、`$2a$…`、`$2y$…`（PHP） | `pnpm add bcryptjs` |
+| argon2id / argon2i / argon2d | `$argon2id$v=19$m=65536,t=3,p=4$…` | Node.js 24.7+ 与 Bun 不需要额外安装（`node:crypto`）；更早的 Node.js：`pnpm add hash-wasm` |
+
+对这些格式，`Hash.needsRehash()` 总是返回 true。`modelUserProvider` 会在用户下次登录成功后把哈希换成 scrypt，旧哈希随着用户登录逐步消失（`rehash: false` 关闭）。自定义的用户来源需要在 `Hash.verify()` 成功后自己处理：
+
+```ts
+if (Hash.needsRehash(account.passwordHash))
+  await saveAccountPassword(account.id, await Hash.make(password))
+```
+
+缺少对应格式所需的包时，`Hash.verify()` 会抛出错误并说明要安装哪个包，不会在没有任何提示的情况下让用户无法登录。这两个包都是纯 JavaScript / WASM 实现，在[独立可执行文件](./deployment#standalone-executables)中同样可用；`bcrypt` 这类原生模块则不行。
 ## JWT 登录
 
 模板中的 `AuthController` 展示了完整流程：

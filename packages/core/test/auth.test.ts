@@ -1,7 +1,8 @@
 import type { Application, ApplicationOptions, RouteRegistrar, SessionStore, UserProvider } from '../src'
 import { generateKeyPairSync } from 'node:crypto'
+import bcrypt from 'bcryptjs'
 import { decodeJwt } from 'jose'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createApplication, defineRoutes, defineUserProvider, ForbiddenException, generateKey, Hash, issueTestCredentials, memorySessionStore, UnauthorizedException } from '../src'
 
 const APP_KEY = generateKey()
@@ -84,6 +85,72 @@ describe('hash', () => {
     expect(await Hash.verify(pbkdf2, 'secret')).toBe(true)
     expect(Hash.needsRehash(pbkdf2)).toBe(true)
     expect(await Hash.verify('not-a-hash', 'secret')).toBe(false)
+  })
+})
+
+describe('hash: migrated bcrypt / argon2 hashes', () => {
+  // node 的 bcrypt（cost 10）与 hash-wasm 生成的 argon2（m=1024,t=2,p=1），密码均为 secret
+  const nativeBcrypt = '$2b$10$oLGPHBsNC5YBDbZ4ymvTbuSvMxl.M4RZGvjKU4K5whceXvGxnd.5y'
+  const argon2 = {
+    argon2id: '$argon2id$v=19$m=1024,t=2,p=1$aGF6ZS10ZXN0LXNhbHQhIQ$WH+i89eXacUIISFPg6LQNKPQ0hSCj0OPexFL32lm/mk',
+    argon2i: '$argon2i$v=19$m=1024,t=2,p=1$aGF6ZS10ZXN0LXNhbHQhIQ$HxqgxK7qXRbcZxXq4Z7k9EyQh/btRsboqxrei3ANAmw',
+    argon2d: '$argon2d$v=19$m=1024,t=2,p=1$aGF6ZS10ZXN0LXNhbHQhIQ$znOC2yKxN5DN6mVjovrkxzjoDl6mb/ZltSymu9/GFWA',
+  }
+
+  it('verifies bcrypt hashes ($2a$ / $2b$ / $2y$) and always asks to rehash them', async () => {
+    const hash = await bcrypt.hash('secret', 4)
+    for (const variant of [
+      hash,
+      hash.replace('$2b$', '$2a$'),
+      hash.replace('$2b$', '$2y$'),
+      nativeBcrypt,
+    ]) {
+      expect(await Hash.verify(variant, 'secret')).toBe(true)
+      expect(await Hash.verify(variant, 'wrong')).toBe(false)
+      expect(Hash.needsRehash(variant)).toBe(true)
+    }
+  })
+
+  it('verifies argon2id / argon2i / argon2d PHC strings', async () => {
+    for (const hash of Object.values(argon2)) {
+      expect(await Hash.verify(hash, 'secret')).toBe(true)
+      expect(await Hash.verify(hash, 'wrong')).toBe(false)
+      expect(Hash.needsRehash(hash)).toBe(true)
+    }
+    // 不支持的版本（v=16）按无法识别处理
+    expect(await Hash.verify(argon2.argon2id.replace('v=19', 'v=16'), 'secret')).toBe(false)
+  })
+
+  it('falls back to hash-wasm where node:crypto has no argon2 (Node < 24.7)', async () => {
+    vi.resetModules()
+    vi.doMock('node:crypto', async original => ({
+      ...await original<typeof import('node:crypto')>(),
+      argon2: undefined,
+    }))
+    try {
+      const { Hash: Fallback } = await import('../src/security/hash')
+      expect(await Fallback.verify(argon2.argon2id, 'secret')).toBe(true)
+      expect(await Fallback.verify(argon2.argon2id, 'wrong')).toBe(false)
+    }
+    finally {
+      vi.doUnmock('node:crypto')
+      vi.resetModules()
+    }
+  })
+
+  it('tells which package to install when bcryptjs is missing', async () => {
+    vi.resetModules()
+    vi.doMock('bcryptjs', () => {
+      throw new Error('Cannot find package \'bcryptjs\'')
+    })
+    try {
+      const { Hash: Missing } = await import('../src/security/hash')
+      await expect(Missing.verify(nativeBcrypt, 'secret')).rejects.toThrow('Verifying bcrypt hashes requires bcryptjs. Install it with: pnpm add bcryptjs')
+    }
+    finally {
+      vi.doUnmock('bcryptjs')
+      vi.resetModules()
+    }
   })
 })
 
