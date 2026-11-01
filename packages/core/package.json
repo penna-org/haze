@@ -82,7 +82,9 @@
     "@simplewebauthn/server": "^13.0.0 || ^14.0.0",
     "@upstash/redis": "^1.40.0",
     "@valibot/to-json-schema": "^1.0.0",
+    "bcryptjs": "^3.0.0",
     "bullmq": "^6.5.0",
+    "hash-wasm": "^4.12.0",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.0"
   },
@@ -111,7 +113,13 @@
     "@valibot/to-json-schema": {
       "optional": true
     },
+    "bcryptjs": {
+      "optional": true
+    },
     "bullmq": {
+      "optional": true
+    },
+    "hash-wasm": {
       "optional": true
     },
     "ioredis": {
@@ -140,7 +148,9 @@
     "@simplewebauthn/server": "catalog:",
     "@upstash/redis": "catalog:",
     "@valibot/to-json-schema": "catalog:",
+    "bcryptjs": "catalog:",
     "bullmq": "catalog:",
+    "hash-wasm": "catalog:",
     "ioredis": "catalog:",
     "miniflare": "catalog:",
     "nodemailer": "catalog:",

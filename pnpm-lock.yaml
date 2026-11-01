@@ -111,6 +111,9 @@ catalogs:
     '@vitejs/plugin-vue':
       specifier: ^6.0.10
       version: 6.0.10
+    bcryptjs:
+      specifier: ^3.0.3
+      version: 3.0.3
     bullmq:
       specifier: ^6.5.0
       version: 6.5.0
@@ -147,6 +150,9 @@ catalogs:
     h3:
       specifier: ^2.0.8
       version: 2.0.8
+    hash-wasm:
+      specifier: ^4.12.0
+      version: 4.12.0
     ioredis:
       specifier: ^6.0.0
       version: 6.0.0
@@ -393,9 +399,15 @@ importers:
       '@valibot/to-json-schema':
         specifier: 'catalog:'
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
+      bcryptjs:
+        specifier: 'catalog:'
+        version: 3.0.3
       bullmq:
         specifier: 'catalog:'
         version: 6.5.0(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
+      hash-wasm:
+        specifier: 'catalog:'
+        version: 4.12.0
       ioredis:
         specifier: 'catalog:'
         version: 6.0.0(supports-color@10.2.2)
@@ -625,6 +637,9 @@ importers:
       '@types/pg':
         specifier: 'catalog:'
         version: 8.23.1
+      bcryptjs:
+        specifier: 'catalog:'
+        version: 3.0.3
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.4(@electric-sql/pglite@0.5.12)(@libsql/client@0.18.0)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(@upstash/redis@1.40.0)(mysql2@3.24.6(@types/node@24.19.2))(pg@8.23.1)(postgres@3.4.9)
@@ -2933,6 +2948,10 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
+    hasBin: true
+
   birpc@2.9.0:
     resolution: {integrity: sha512-KrayHS5pBi69Xi9JmvoqrIgYGDkD6mcSe/i6YKi3w5kekCLzrX4+nawcXqrj2tIp50Kw/mT/s3p+GVK0A0sKxw==}
 
@@ -3736,6 +3755,9 @@ packages:
         optional: true
       ocache:
         optional: true
+
+  hash-wasm@4.12.0:
+    resolution: {integrity: sha512-+/2B2rYLb48I/evdOIhP+K/DD2ca2fgBjp6O+GBEnCDk2e4rpeXIK8GvIyRPjTezgmWn9gmKwkQjjx6BtqDHVQ==}
 
   hashery@1.5.1:
     resolution: {integrity: sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==}
@@ -7238,6 +7260,8 @@ snapshots:
 
   baseline-browser-mapping@2.11.33: {}
 
+  bcryptjs@3.0.3: {}
+
   birpc@2.9.0: {}
 
   boolbase@1.0.0: {}
@@ -8012,6 +8036,8 @@ snapshots:
       srvx: 1.0.7
     optionalDependencies:
       crossws: 0.4.16(srvx@1.0.7)
+
+  hash-wasm@4.12.0: {}
 
   hashery@1.5.1:
     dependencies:

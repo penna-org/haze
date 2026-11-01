@@ -32,7 +32,7 @@ hazejs gives you the productivity of Laravel / ThinkPHP and the ergonomics of a 
 - **Everything in the box** — routing, IoC container, validation, ORM + migrations, auth (JWT / session), authorization (gates & policies), CSRF, rate limiting, cache, queues, scheduler, events, WebSocket, Socket.IO, file storage, mail, AI and test fakes. No glue code, one config style.
 - **Hot reload without restarts** — `haze dev` swaps controllers, services, routes and config in place; database pools, Redis connections and sockets survive edits.
 - **Full-stack with Vite** — add `haze()` to any Vite project: `/api/**` goes to your backend in dev, `vite build` emits client + server, `vite preview` runs the real build output.
-- **Deploy anywhere** — `haze build --preset node | bun | deno | docker | cloudflare | vercel | netlify | aws-lambda`. Native dependencies are traced into `dist/node_modules` (like Nitro), so the output runs on its own.
+- **Deploy anywhere** — `haze build --preset node | bun | deno | docker | cloudflare | vercel | netlify | aws-lambda`. Native dependencies are traced into `dist/node_modules` (like Nitro), so the output runs on its own. `haze build --compile` produces standalone executables for Linux, macOS and Windows, database drivers included.
 - **Edge-native drivers** — D1, KV, R2, Queues, Cron Triggers and Durable Objects (WebSocket) on Cloudflare; Turso / libSQL over HTTP; Upstash for serverless Redis.
 - **Typed end to end** — config keys, named routes and policy abilities are generated as types; request validation is Standard Schema (valibot, zod, arktype, …).
 - **Testing first** — `useTestApp()`, `actingAs(user)`, `refreshDatabase()`, and `fake()` for queues, events, mail and storage.
@@ -126,7 +126,7 @@ export default defineListener(UserRegistered, async ({ userId }) => {
 | AI | `@hazejs/ai`: OpenAI, Anthropic, Gemini, Azure, Bedrock, Workers AI and 11 OpenAI-compatible providers with no SDK dependencies — streaming, tool loops, structured output, embeddings & RAG, agents with memory, images, speech, MCP client/server, `useChat` for Vue/React, `AI.fake()` |
 | Tooling | `haze` CLI: `dev`, `build`, `preview`, `start`, `test`, `route:list`, `module:list`, `typegen`, `make:*`, `db:*`, `queue:*`, `schedule:*`, `openapi`, `repl`, `key:generate`, and your own commands in `app/command`; optional auto imports via `@hazejs/auto-import`; agent skills via `npx skills add penna-org/haze` |
 | Observability | Health checks, OpenTelemetry traces and metrics, log channels (file, HTTP, JSON), dev dashboard at `/__haze` with a queue dashboard; `@hazejs/devtools` adds a module graph, request waterfalls, AI and task panels, and an MCP endpoint for coding agents |
-| Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda — with migration and worker entries |
+| Deployment | node, bun, deno, docker, cloudflare, vercel, netlify, aws-lambda, standalone executables — with migration and worker entries |
 
 See how this compares with other Node.js frameworks, and what is coming next, in the [roadmap](https://haze.yanyu.me/roadmap).
 

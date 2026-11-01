@@ -11,7 +11,7 @@ import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Miniflare } from 'miniflare'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildServer } from '../src'
+import { binaryFileName, buildServer, hostTarget, resolveBinaryTargets } from '../src'
 import { copyFixture } from './utils'
 
 let fixture: ReturnType<typeof copyFixture> | undefined
@@ -132,6 +132,38 @@ describe('deployment presets', () => {
       return
     const result = await build('bun')
     await expectServes(bun, [result.entry], result.root)
+  })
+
+  it('binary: compiles a standalone executable with Bun', async () => {
+    const bun = which('bun')
+    if (!bun)
+      return
+    const result = await build('binary', `export default { binary: { name: 'app' } }\n`)
+    const file = binaryFileName('app', hostTarget())
+    expect(result.entry).toBe(join(result.root, 'dist', file))
+    // 中间产物（JS）不在 dist 中，依赖已打包进可执行文件
+    expect(readdirSync(join(result.root, 'dist'))).toEqual([file])
+    expect(result.hint).toContain(`./dist/${file} worker queue`)
+    expect(execFileSync(result.entry, ['--help'], { encoding: 'utf8' })).toContain('worker <queue')
+    // 自包含：拷到项目之外（没有 node_modules）仍可运行
+    const elsewhere = mkdtempSync(join(tmpdir(), 'hazejs-binary-'))
+    try {
+      cpSync(result.entry, join(elsewhere, file))
+      await expectServes(join(elsewhere, file), [], elsewhere, { APP_NAME: 'basic' })
+    }
+    finally {
+      rmSync(elsewhere, { recursive: true, force: true })
+    }
+  }, 120_000)
+
+  it('binary: validates targets and names Windows executables .exe', () => {
+    expect(resolveBinaryTargets('linux-x64, windows-x64,linux-x64')).toEqual(['linux-x64', 'windows-x64'])
+    expect(resolveBinaryTargets(undefined)).toEqual([
+      hostTarget(),
+    ])
+    expect(() => resolveBinaryTargets(['linux-x86'])).toThrow('Unknown binary target "linux-x86"')
+    expect(binaryFileName('app', 'windows-x64')).toBe('app-windows-x64.exe')
+    expect(binaryFileName('app', 'linux-arm64-musl')).toBe('app-linux-arm64-musl')
   })
 
   it('deno: fully bundled single entry runs with deno run', async () => {

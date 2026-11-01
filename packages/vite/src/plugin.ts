@@ -6,7 +6,7 @@ import type { AutoImportConfig, AutoImportHost } from './auto-import'
 import type { DevtoolsConfig, DevtoolsInstance, DevtoolsModule } from './devtools'
 import type { AppHost, ReloadResult } from './host'
 import type { ModulePackage } from './modules'
-import type { CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
+import type { BinaryOptions, CloudflareOptions, ExternalsOptions, Layout, PresetContext, PresetName, TraceResult, VercelOptions } from './presets'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
@@ -43,6 +43,8 @@ export interface HazePluginOptions {
   cloudflare?: CloudflareOptions
   /** vercel 预设的选项（默认读取 haze.config.ts） */
   vercel?: VercelOptions
+  /** binary 预设的目标平台与文件名（默认读取 haze.config.ts；HAZE_BINARY_TARGETS 环境变量覆盖目标平台） */
+  binary?: BinaryOptions
   /** 依赖的打包 / 追踪方式（默认读取 haze.config.ts） */
   externals?: ExternalsOptions
   /** 开发时的 DevTools（需安装 `@hazejs/devtools`；默认读取 haze.config.ts，否则开启） */
@@ -100,6 +102,7 @@ interface Settings {
   modulePackages: ModulePackage[]
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
+  binary: BinaryOptions | undefined
   externals: ExternalsOptions
   devtools: boolean | DevtoolsConfig
   autoImport: AutoImportConfig | false
@@ -139,6 +142,7 @@ export function haze(options: HazePluginOptions = {}): [main: Plugin<HazePluginA
     modulePackages: [],
     cloudflare: undefined,
     vercel: undefined,
+    binary: undefined,
     externals: {},
     devtools: true,
     autoImport: false,
@@ -217,6 +221,14 @@ export function haze(options: HazePluginOptions = {}): [main: Plugin<HazePluginA
       settings.preset = options.preset ?? process.env.HAZE_PRESET ?? fileConfig?.preset ?? 'node'
       settings.cloudflare = options.cloudflare ?? fileConfig?.cloudflare
       settings.vercel = options.vercel ?? fileConfig?.vercel
+      settings.binary = options.binary ?? fileConfig?.binary
+      // haze build --compile --target（全栈项目经 vite.config 构建时由环境变量传入）
+      if (process.env.HAZE_BINARY_TARGETS) {
+        settings.binary = {
+          ...settings.binary,
+          targets: process.env.HAZE_BINARY_TARGETS.split(',') as BinaryOptions['targets'],
+        }
+      }
       settings.externals = options.externals ?? fileConfig?.externals ?? {}
       settings.devtools = options.devtools ?? fileConfig?.devtools ?? true
       settings.autoImport = resolveAutoImportConfig(options.autoImport ?? fileConfig?.autoImport)
@@ -344,10 +356,11 @@ export function haze(options: HazePluginOptions = {}): [main: Plugin<HazePluginA
               traced,
             }
             await preset.finalize?.(finalize)
+            const entry = preset.entryPath?.(context) ?? join(layout.serverDir, 'index.mjs')
             writeBuildManifest(settings.root, {
               preset: preset.name,
               layout,
-              entry: join(layout.serverDir, 'index.mjs'),
+              entry,
               fullstack: settings.fullstack,
               prefixes: settings.prefixes,
             })
@@ -356,7 +369,7 @@ export function haze(options: HazePluginOptions = {}): [main: Plugin<HazePluginA
               layout,
               externals,
               traced,
-              entry: join(layout.serverDir, 'index.mjs'),
+              entry,
               ...(migrateScript && {
                 migrate: join(layout.serverDir, 'migrate.mjs'),
               }),
@@ -711,6 +724,7 @@ function presetContext(settings: Settings): PresetContext {
     orm: settings.orm,
     cloudflare: settings.cloudflare,
     vercel: settings.vercel,
+    binary: settings.binary,
     schedules: hasSources(join(settings.srcDir, 'schedule')) || subdirs(join(settings.srcDir, 'modules')).some(dir => hasSources(join(dir, 'schedule'))),
     websocket: settings.cloudflare?.websocket ?? usesWebSocket(settings.srcDir),
     outDir: settings.outDir,

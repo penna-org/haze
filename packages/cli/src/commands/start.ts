@@ -1,8 +1,9 @@
+import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { loadHazeConfig } from '@hazejs/vite'
+import { loadHazeConfig, readBuildManifest } from '@hazejs/vite'
 import { defineCommand } from 'citty'
 import { resolveRoot, rootArg, serverArgs } from '../args'
 
@@ -20,7 +21,11 @@ export default defineCommand({
       join(outDir, 'index.mjs'),
       join(outDir, 'server', 'index.mjs'),
     ].find(file => existsSync(file))
-    if (!entry)
+    // haze build --compile：运行当前平台的可执行文件
+    const binary = !entry && existsSync(join(root, '.haze', 'build.json'))
+      ? readBuildManifest(root)
+      : undefined
+    if (!entry && binary?.preset !== 'binary')
       throw new Error(`No build output found in ${relative(process.cwd(), outDir) || '.'}. Run \`haze build\` first.`)
 
     process.env.NODE_ENV = 'production'
@@ -28,6 +33,15 @@ export default defineCommand({
       process.env.PORT = args.port
     if (args.host)
       process.env.HOST = args.host
+    if (!entry) {
+      if (!existsSync(binary!.entry))
+        throw new Error(`No executable for this platform in ${relative(process.cwd(), outDir) || '.'}. Run \`haze build --compile\` (with the current platform in --target) first.`)
+      const child = spawn(binary!.entry, [], { cwd: root, stdio: 'inherit' })
+      for (const signal of ['SIGINT', 'SIGTERM'] as const)
+        process.on(signal, () => child.kill(signal))
+      child.once('exit', code => process.exit(code ?? 0))
+      return
+    }
     // .env 从项目根目录加载
     process.chdir(root)
     // 入口内部会调用 app.serve()，监听地址由 srvx 输出

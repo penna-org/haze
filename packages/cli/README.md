@@ -12,7 +12,8 @@ pnpm add -D @hazejs/cli
 
 ```bash
 haze dev                       # hot-reloading dev server (no restarts)
-haze build --preset node       # node | bun | deno | docker | cloudflare | vercel | netlify | aws-lambda
+haze build --preset node       # node | bun | deno | docker | cloudflare | vercel | netlify | aws-lambda | binary
+haze build --compile --target linux-x64,windows-x64  # standalone executables (needs Bun)
 haze preview                   # run the build output locally
 haze make:controller Post --resource
 haze db:generate && haze db:migrate

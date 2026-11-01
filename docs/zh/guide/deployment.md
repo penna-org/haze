@@ -8,6 +8,7 @@
 haze build                     # node 预设（默认）
 haze build --preset docker     # 或 -p docker
 haze build --preset cloudflare --minify
+haze build --compile           # 独立可执行文件（binary 预设）
 ```
 
 也可以在 `haze.config.ts` 中设置预设，命令行的 `--preset` 优先：
@@ -37,10 +38,11 @@ export default defineHazeConfig({
 | `vercel` | `.vercel/output/`（Build Output API） | `vercel deploy --prebuilt` |
 | `netlify` | `dist/server/`、`.netlify/v1/functions/haze-server.mjs`、`netlify.toml` | `netlify deploy --build` |
 | `cloudflare` | `dist/index.mjs`（单文件 Worker）+ `dist/wrangler.json` | `npx wrangler deploy -c dist/wrangler.json` |
+| `binary` | `dist/<name>-<target>` 可执行文件（全栈：另有 `dist/client`） | `./dist/<name>-linux-x64`，见[独立可执行文件](#standalone-executables) |
 
 每次构建结束，命令行都会打印当前项目实际可用的命令，包括迁移与 worker 的命令。
 
-全栈项目中，`node`、`bun`、`deno`、`docker` 与 `aws-lambda` 由同一进程托管 `dist/client`（非 API 路径回退到 SPA 入口）；`vercel`、`netlify` 与 `cloudflare` 的静态文件由平台 CDN 提供，只有后端前缀下的请求才会进入函数。
+全栈项目中，`node`、`bun`、`deno`、`docker`、`binary` 与 `aws-lambda` 由同一进程托管 `dist/client`（非 API 路径回退到 SPA 入口）；`vercel`、`netlify` 与 `cloudflare` 的静态文件由平台 CDN 提供，只有后端前缀下的请求才会进入函数。
 
 ## 环境变量与 APP_KEY
 
@@ -228,6 +230,68 @@ export default defineConfig(() => ({
   exclude: ['/api', '/socket.io'],
 }))
 ```
+
+## 独立可执行文件 {#standalone-executables}
+
+`haze build --compile`（`binary` 预设）用 [Bun](https://bun.sh) 的 `bun build --compile` 把后端编译成每个平台一个的可执行文件。可执行文件内含 Bun 运行时、业务代码、所有已安装的依赖与迁移文件，服务器上不需要 Node.js、Bun 或 `node_modules`。构建机的 `PATH` 中需要有 Bun；在任何系统上都能构建全部目标平台。
+
+```bash
+haze build --compile                                         # 当前平台
+haze build --compile --target linux-x64,darwin-arm64,windows-x64
+```
+
+| 目标 | 运行环境 |
+| --- | --- |
+| `linux-x64`、`linux-arm64` | glibc 的 Linux（Debian、Ubuntu、RHEL 等） |
+| `linux-x64-musl`、`linux-arm64-musl` | Alpine 等 musl 发行版，需要安装 `libstdc++` 与 `libgcc`（`apk add libstdc++ libgcc`） |
+| `darwin-x64`、`darwin-arm64` | Intel / Apple 芯片的 macOS |
+| `windows-x64`、`windows-arm64` | Windows（`.exe`） |
+
+可执行文件输出为 `dist/<name>-<target>`（Windows 另加 `.exe`），名称取自 `package.json` 的 `name`。中间产物（JS）放在 `.haze/binary`，`dist` 中只有需要部署的文件。目标平台与名称也可以在 `haze.config.ts` 中设置；`--target` 优先于 `binary.targets`，`preset: 'binary'` 与 `--compile` 等效：
+
+```ts
+// haze.config.ts
+import { defineHazeConfig } from '@hazejs/vite'
+
+export default defineHazeConfig({
+  binary: {
+    targets: ['linux-x64', 'windows-x64'],
+    name: 'my-api', // 默认取 package.json 的 name
+  },
+})
+```
+
+Web 服务、迁移与 worker 是同一个可执行文件的子命令：
+
+```bash
+./my-api-linux-x64                    # Web 服务（PORT / HOST；.env 从工作目录读取）
+./my-api-linux-x64 migrate            # 生产迁移（使用 @hazejs/orm 时；--connection、--all）
+./my-api-linux-x64 worker queue       # 队列 worker；另有 schedule、schedule:run、command <name>、down、up
+./my-api-linux-x64 --help
+```
+
+`haze start` 与 `haze preview` 运行当前平台的可执行文件。全栈项目需要把 `dist/client` 部署在可执行文件旁边：静态文件从 `<可执行文件所在目录>/client` 读取。
+
+### 可执行文件中的驱动
+
+打包工具无法跟踪所有依赖，编译时会处理原本会失效的几类：
+
+| 驱动 | 在可执行文件中 |
+| --- | --- |
+| `postgres`、`node-postgres`、`mysql`、`mongodb`、`turso` | 直接打包（纯 JavaScript） |
+| `sqlite`（libsql） | 嵌入各目标平台的 libsql 原生模块；其它平台的模块从 npm registry 下载（遵循 `npm_config_registry`），缓存在 `node_modules/.cache/hazejs/native`。libsql 没有 `windows-arm64` 版本 |
+| `pglite` | 嵌入它的 WASM 与数据文件（以 `new URL('./file', import.meta.url)` 读取的包内资源同样会嵌入） |
+| Redis（`ioredis`）、队列（`bullmq`） | 直接打包；`msgpackr-extract` 是可选依赖，不可用时回退到 JavaScript 实现 |
+| `d1` | 仅 Cloudflare |
+
+未安装的驱动与其它预设一样保持 external，只在使用时报错。其它原生包（`better-sqlite3`、`sharp`、`bcrypt` 等）在运行时按平台加载二进制，无法嵌入；业务代码引入这类包时构建会给出警告。请优先选择 JavaScript 或 WASM 实现（`Hash` 本身使用 `node:crypto`）。
+
+注意：
+
+- 可执行文件运行在 Bun 上，而不是 Node.js。`bun` 预设使用同一个运行时，可以先用 `haze build --preset bun && bun dist/index.mjs` 检查兼容性。
+- Bun 自带的 `.env` 加载已关闭，与其它预设一样由应用从工作目录加载 `.env` / `.env.production`。
+- 可执行文件含运行时，体积约 60–120 MB。
+- 在 macOS 上构建的可执行文件带有 ad-hoc 签名。对外分发时，请用 Developer ID 为 macOS 版本签名（并公证），Windows 版本签名后可以避免 SmartScreen 警告。
 
 ## AWS Lambda
 

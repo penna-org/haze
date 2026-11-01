@@ -21,6 +21,9 @@ export const DRIVER_PACKAGES = [
   '@socket.io/bun-engine',
   '@socket.io/redis-adapter',
   '@upstash/redis',
+  // 迁移来的 bcrypt / argon2 密码哈希（Hash.verify）：core 的可选依赖，未安装时替换为空模块
+  'bcryptjs',
+  'hash-wasm',
   'bullmq',
   'ioredis',
   'libsql',

@@ -59,7 +59,7 @@ export function staticDirOf(manifest: BuildManifest): string | undefined {
 
 /**
  * 按部署预设运行**构建产物**（而不是源码）：
- * - node / bun / deno / docker：在随机端口启动产物进程，请求全部转发给它
+ * - node / bun / deno / docker / binary：在随机端口启动产物进程（binary 为可执行文件），请求全部转发给它
  * - aws-lambda / vercel / netlify：进程内加载函数 handler
  * - cloudflare：用 Miniflare（workerd）运行 Worker，绑定来自 wrangler.json
  */
@@ -81,6 +81,7 @@ export async function startPreview(root: string, manifest: BuildManifest, logger
     case 'bun':
     case 'deno':
     case 'docker':
+    case 'binary':
       return {
         matches,
         ...await startProcess(root, manifest),
@@ -126,6 +127,12 @@ async function importEntry(file: string): Promise<Record<string, any>> {
 
 /** 产物按预设的运行时构建（bun / deno 的导出条件），必须用对应运行时执行 */
 function runtimeCommand(root: string, preset: PresetName, entry: string): string[] {
+  // 可执行文件直接运行（只能预览当前平台的）
+  if (preset === 'binary') {
+    if (!existsSync(entry))
+      throw new Error(`No executable for this platform in the build (${entry}). Add the current platform to the targets to preview it`)
+    return [entry]
+  }
   if (preset === 'bun') {
     const bun = which('bun')
     if (!bun)
@@ -358,7 +365,7 @@ function freePort(): Promise<number> {
   })
 }
 
-function which(command: string): string | undefined {
+export function which(command: string): string | undefined {
   try {
     return execFileSync(process.platform === 'win32'
       ? 'where'

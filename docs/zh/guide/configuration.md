@@ -225,9 +225,10 @@ export default defineHazeConfig({
 | `host` | 开发为 `localhost`，生产为 `0.0.0.0` | 监听地址；生产环境 `HOST` 环境变量优先 |
 | `outDir` | `'dist'` | 构建输出目录 |
 | `typegen` | `true` | `haze dev` 运行时自动生成 `.haze/types` |
-| `preset` | `'node'` | 部署预设：`node`、`bun`、`deno`、`docker`、`cloudflare`、`vercel`、`netlify`、`aws-lambda`；`haze build --preset` 可覆盖 |
+| `preset` | `'node'` | 部署预设：`node`、`bun`、`deno`、`docker`、`cloudflare`、`vercel`、`netlify`、`aws-lambda`、`binary`；`haze build --preset` 可覆盖 |
 | `cloudflare` | — | `wrangler`（合并进生成的 `wrangler.json`：绑定、vars、routes 等）与 `websocket`（生成 WebSocket 的 Durable Object，路由中使用了 `r.ws()` 时默认开启） |
 | `vercel` | — | `cron`：触发定时任务的 Vercel Cron 表达式（默认每分钟） |
+| `binary` | — | [独立可执行文件](./deployment#standalone-executables)：`targets`（默认当前平台，`haze build --target` 可覆盖）与 `name`（默认取 `package.json` 的 `name`） |
 | `externals` | — | 依赖处理：`trace`（把 external 依赖追踪复制进产物，默认 `true`）、`traceDeps`（额外保持 external 并追踪的包，`pkg*` 表示整包复制）、`inline`（强制打包的包） |
 | `devtools` | 安装了 `@hazejs/devtools` 时开启 | [DevTools](./devtools) 的选项（`base`、`auth`、`terminals`、`embedded`、`mcp`）；`false` 关闭 DevTools |
 | `autoImport` | `false` | [自动导入](./auto-import)（需安装 `@hazejs/auto-import`）：`true`，或传入选项（`dirs`、`imports`、`presets`、`ignore`、`exclude`） |

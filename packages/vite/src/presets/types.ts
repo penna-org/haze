@@ -9,6 +9,7 @@ export const PRESET_NAMES = [
   'vercel',
   'netlify',
   'aws-lambda',
+  'binary',
 ] as const
 
 export type PresetName = (typeof PRESET_NAMES)[number]
@@ -30,6 +31,28 @@ export interface VercelOptions {
   cron?: string
 }
 
+/** binary 预设可编译的目标平台（Bun 独立可执行文件） */
+export const BINARY_TARGETS = [
+  'linux-x64',
+  'linux-arm64',
+  'linux-x64-musl',
+  'linux-arm64-musl',
+  'darwin-x64',
+  'darwin-arm64',
+  'windows-x64',
+  'windows-arm64',
+] as const
+
+export type BinaryTarget = (typeof BINARY_TARGETS)[number]
+
+/** haze.config.ts 的 binary 选项 */
+export interface BinaryOptions {
+  /** 目标平台，默认当前机器的平台（`haze build --compile --target linux-x64,windows-x64` 优先） */
+  targets?: BinaryTarget[]
+  /** 可执行文件名（不含平台后缀与 `.exe`），默认取 package.json 的 name */
+  name?: string
+}
+
 export interface PresetContext {
   root: string
   /** haze.config.ts 的 externals 选项 */
@@ -48,6 +71,7 @@ export interface PresetContext {
   orm: boolean
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
+  binary: BinaryOptions | undefined
   /** 存在 schedule/*.ts：生成 Cron Triggers / Vercel Cron 等触发配置 */
   schedules: boolean
   /** 路由中使用了 r.ws()：Cloudflare 生成 WebSocket 的 Durable Object */
@@ -106,6 +130,8 @@ export interface Preset {
   /** 输出独立的迁移脚本 `migrate.mjs`（常驻进程型运行时，部署前执行） */
   migrateScript?: boolean
   layout: (context: PresetContext) => Layout
+  /** 运行产物的入口文件（`haze start` / 预览使用），默认 `<serverDir>/index.mjs` */
+  entryPath?: (context: PresetContext) => string
   /** 生产入口（virtual:haze/server-entry）源码 */
   entry: (context: PresetContext & { layout: Layout }) => string
   /** 构建完成后生成平台配置、复制依赖等 */

@@ -99,6 +99,7 @@
     "@hazejs/core": "workspace:*",
     "@libsql/client": "catalog:",
     "@types/pg": "catalog:",
+    "bcryptjs": "catalog:",
     "drizzle-orm": "catalog:",
     "miniflare": "catalog:",
     "mongodb": "catalog:",

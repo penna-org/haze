@@ -2,7 +2,7 @@ import type { UserConfig } from 'vite'
 import type { AutoImportConfig } from './auto-import'
 import type { DevtoolsConfig } from './devtools'
 import type { ExternalsOptions } from './presets/deps'
-import type { CloudflareOptions, PresetName, VercelOptions } from './presets/types'
+import type { BinaryOptions, CloudflareOptions, PresetName, VercelOptions } from './presets/types'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { loadConfigFromFile } from 'vite'
@@ -19,12 +19,14 @@ export interface HazeConfig {
   outDir?: string
   /** 开发时自动生成配置键 / 路由名类型到 .haze/types，默认 true */
   typegen?: boolean
-  /** 部署预设：node（默认）| bun | deno | docker | cloudflare | vercel | netlify | aws-lambda */
+  /** 部署预设：node（默认）| bun | deno | docker | cloudflare | vercel | netlify | aws-lambda | binary */
   preset?: PresetName
   /** cloudflare 预设：合并进 wrangler.json 的绑定等配置 */
   cloudflare?: CloudflareOptions
   /** vercel 预设：定时任务触发频率等 */
   vercel?: VercelOptions
+  /** binary 预设（`haze build --compile`）：目标平台与可执行文件名 */
+  binary?: BinaryOptions
   /** 依赖处理：默认能打包的都打包，驱动 / 原生模块追踪复制进产物的 node_modules */
   externals?: ExternalsOptions
   /** 开发时的 DevTools（需安装 `@hazejs/devtools`），默认开启；false 关闭 */
@@ -48,6 +50,7 @@ export interface ResolvedHazeConfig {
   preset: PresetName | undefined
   cloudflare: CloudflareOptions | undefined
   vercel: VercelOptions | undefined
+  binary: BinaryOptions | undefined
   externals: ExternalsOptions | undefined
   devtools: boolean | DevtoolsConfig
   autoImport: boolean | AutoImportConfig
@@ -95,6 +98,7 @@ export async function loadHazeConfig(root: string, mode = 'development'): Promis
     preset: config.preset,
     cloudflare: config.cloudflare,
     vercel: config.vercel,
+    binary: config.binary,
     externals: config.externals,
     devtools: config.devtools ?? true,
     autoImport: config.autoImport ?? false,

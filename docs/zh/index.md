@@ -41,7 +41,7 @@ features:
     linkText: 查看 AI 指南
   - icon: 🌍
     title: 随处部署
-    details: 提供 node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda 预设，原生依赖自动追踪进产物，可独立运行。
+    details: 提供 node、bun、deno、docker、cloudflare、vercel、netlify、aws-lambda 预设与独立可执行文件，原生依赖自动追踪进产物，可独立运行。
   - icon: ☁️
     title: Edge 原生驱动
     details: Cloudflare D1、KV、R2、Queues、Cron Triggers 与 Durable Objects；Turso HTTP；Serverless 场景的 Upstash Redis。
