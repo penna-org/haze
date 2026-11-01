@@ -38,7 +38,7 @@ return AI.streamText({ model: 'fast', messages }).toResponse()
 
 Frontend: `useChat` from `@hazejs/ai/vue` or `@hazejs/ai/react`, or the framework-agnostic `createChat` from `@hazejs/ai/client`. Vercel AI SDK UI is supported via `toUIMessageStreamResponse()`.
 
-Part of [hazejs](https://github.com/penna-org/haze) — see the [AI guide](https://penna-org.github.io/haze/guide/ai) for the full documentation.
+Part of [hazejs](https://github.com/penna-org/haze) — see the [AI guide](https://haze.yanyu.me/guide/ai) for the full documentation.
 
 ## License
 

@@ -230,6 +230,7 @@ export default defineHazeConfig({
 | `vercel` | — | `cron`：触发定时任务的 Vercel Cron 表达式（默认每分钟） |
 | `externals` | — | 依赖处理：`trace`（把 external 依赖追踪复制进产物，默认 `true`）、`traceDeps`（额外保持 external 并追踪的包，`pkg*` 表示整包复制）、`inline`（强制打包的包） |
 | `devtools` | 安装了 `@hazejs/devtools` 时开启 | [DevTools](./devtools) 的选项（`base`、`auth`、`terminals`、`embedded`、`mcp`）；`false` 关闭 DevTools |
+| `autoImport` | `false` | [自动导入](./auto-import)（需安装 `@hazejs/auto-import`）：`true`，或传入选项（`dirs`、`imports`、`presets`、`ignore`、`exclude`） |
 | `vite` | — | 纯后端项目透传给 Vite 的配置（插件、别名等）；全栈项目请直接写在 `vite.config.ts` 中 |
 
 全栈项目的开发服务器使用 Vite 的端口，`port` 只决定生产环境的默认端口。与部署预设相关的选项见 [Vite 全栈](./fullstack)与[部署](./deployment)。

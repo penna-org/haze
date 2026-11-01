@@ -230,6 +230,7 @@ export default defineHazeConfig({
 | `vercel` | — | `cron`: the Vercel Cron expression that triggers scheduled tasks (every minute by default) |
 | `externals` | — | Dependency handling: `trace` (copy external dependencies into the output, default `true`), `traceDeps` (extra packages to keep external and trace; `pkg*` copies the whole package), `inline` (force-bundle packages) |
 | `devtools` | On when `@hazejs/devtools` is installed | [DevTools](./devtools) options (`base`, `auth`, `terminals`, `embedded`, `mcp`); `false` turns DevTools off |
+| `autoImport` | `false` | [Auto imports](./auto-import) (requires `@hazejs/auto-import`): `true`, or options (`dirs`, `imports`, `presets`, `ignore`, `exclude`) |
 | `vite` | — | Extra Vite config (plugins, aliases…) for backend-only projects. Full-stack projects use `vite.config.ts` instead |
 
 In full-stack projects the dev server runs on Vite's port, so `port` only sets the production default. See [Full-stack with Vite](./fullstack) and [Deployment](./deployment) for the preset-specific options.

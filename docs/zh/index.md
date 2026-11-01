@@ -47,5 +47,5 @@ features:
     details: Cloudflare D1、KV、R2、Queues、Cron Triggers 与 Durable Objects；Turso HTTP；Serverless 场景的 Upstash Redis。
   - icon: ✅
     title: 类型完整、易于测试
-    details: 配置、路由、授权能力自动生成类型，请求校验遵循 Standard Schema，队列、事件、邮件、存储都有测试替身。
+    details: 配置、路由、授权能力自动生成类型，请求校验遵循 Standard Schema，队列、事件、邮件、存储都有测试替身；可选的自动导入省去 import，类型照样完整。
 ---

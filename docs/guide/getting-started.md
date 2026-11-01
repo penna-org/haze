@@ -46,8 +46,9 @@ With npm, separate the flags from the package name: `npm create hazejs@latest my
 | `api` | A backend-only service. Code lives at the project root (`app/`, `config/`, `route/`). |
 | `vue` | Vue 3 + hazejs in one repository, one port and one build. The backend lives in `server/`. |
 | `react` | The same full-stack setup with React 19. |
+| `module` | A publishable [module](./modules) package (routes, middleware, config and migrations) that other projects enable in `config/modules.ts`. |
 
-In non-interactive environments (CI, no TTY) the `api` template is used by default. Pass `--force` to scaffold into a non-empty directory (its contents are removed first).
+In non-interactive environments (CI, no TTY) the `api` template is used by default. Pass `--force` to scaffold into a non-empty directory (its contents are removed first), and `--auto-import` to turn on [auto imports](./auto-import) so controllers, services and framework APIs need no `import` statements.
 
 The scaffolder:
 
@@ -231,6 +232,24 @@ Every template ships with these scripts:
 | `db:seed` | `haze db:seed` | Run seeders |
 
 Extra flags are passed through, for example `pnpm db:generate --name create_posts`. The [CLI Reference](./cli) documents every command.
+
+## AI coding agents
+
+hazejs ships [Agent Skills](https://agentskills.io) that teach Claude Code, Cursor, Codex and other skill-aware coding agents the framework's conventions and APIs. Install them into your project with the [`skills`](https://github.com/vercel-labs/skills) CLI:
+
+```sh
+npx skills add penna-org/haze
+```
+
+The command lists the skills and asks which ones and which agents to install for:
+
+| Skill | Use it for |
+| --- | --- |
+| `hazejs` | Building apps: routing, validation, database, auth, queues, realtime, AI, testing, deployment and the rest of the framework |
+| `hazejs-migration` | Porting a Fastify, Express, Koa, Hono or NestJS backend to hazejs while keeping its API contract |
+| `hazejs-contributing` | Working on the framework itself (the `penna-org/haze` repository) |
+
+Pick skills and agents up front with `--skill hazejs --agent claude-code`, add `-g` to install for your user instead of the project, and run `npx skills update` after upgrading hazejs. The [DevTools](./devtools) MCP endpoint lets the agent inspect the running app as well.
 
 ## Next steps
 

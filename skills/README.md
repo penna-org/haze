@@ -10,7 +10,17 @@
 
 ## Installing
 
-Skills are plain folders. Copy or symlink the ones you need into your agent's skills directory, for example for Claude Code in a project:
+With the [`skills`](https://github.com/vercel-labs/skills) CLI, from your project:
+
+```bash
+npx skills add penna-org/haze                                   # pick skills and agents interactively
+npx skills add penna-org/haze --skill hazejs --agent claude-code
+npx skills add penna-org/haze --list                            # list the skills without installing
+```
+
+Add `-g` to install for your user instead of the project, and run `npx skills update` to pull newer versions.
+
+Skills are also plain folders, so you can copy or symlink the ones you need into your agent's skills directory by hand, for example for Claude Code in a project:
 
 ```bash
 mkdir -p .claude/skills

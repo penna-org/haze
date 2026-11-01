@@ -47,5 +47,5 @@ features:
     details: Cloudflare D1, KV, R2, Queues, Cron Triggers and Durable Objects; Turso over HTTP; Upstash for serverless Redis.
   - icon: ✅
     title: Typed and testable
-    details: Generated types for config, routes and abilities, Standard Schema validation, and fakes for queues, events, mail and storage.
+    details: Generated types for config, routes and abilities, Standard Schema validation, and fakes for queues, events, mail and storage. Optional auto imports drop the import lines without losing a type.
 ---

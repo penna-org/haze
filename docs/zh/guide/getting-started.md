@@ -46,8 +46,9 @@ pnpm create hazejs my-app -t react   # React 19 全栈
 | `api` | 纯后端服务，代码直接位于项目根目录（`app/`、`config/`、`route/`） |
 | `vue` | Vue 3 + hazejs：同一个仓库、同一个端口、一次构建，后端代码位于 `server/` |
 | `react` | 同样的全栈结构，前端换成 React 19 |
+| `module` | 可发布的[模块](./modules)包（路由、中间件、配置与迁移），供其它项目在 `config/modules.ts` 中启用 |
 
-在非交互环境中（CI、没有 TTY）默认使用 `api` 模板。目标目录非空时需要加 `--force`（会先清空该目录）。
+在非交互环境中（CI、没有 TTY）默认使用 `api` 模板。目标目录非空时需要加 `--force`（会先清空该目录）；加 `--auto-import` 可开启[自动导入](./auto-import)，控制器、服务与框架 API 无需手写 `import`。
 
 脚手架会：
 
@@ -231,6 +232,24 @@ pnpm test
 | `db:seed` | `haze db:seed` | 执行数据填充 |
 
 额外的参数会原样传给命令，例如 `pnpm db:generate --name create_posts`。所有命令的说明见[命令行参考](./cli)。
+
+## AI 编码助手
+
+hazejs 提供了 [Agent Skills](https://agentskills.io)，让 Claude Code、Cursor、Codex 等支持 skill 的编码助手掌握框架的约定与 API。用 [`skills`](https://github.com/vercel-labs/skills) 命令行安装到项目中：
+
+```sh
+npx skills add penna-org/haze
+```
+
+命令会列出可用的 skill，并询问要安装哪些、装给哪些助手：
+
+| Skill | 用途 |
+| --- | --- |
+| `hazejs` | 用 hazejs 开发应用：路由、校验、数据库、认证、队列、实时通信、AI、测试、部署等 |
+| `hazejs-migration` | 把 Fastify、Express、Koa、Hono 或 NestJS 后端迁移到 hazejs，同时保持原有接口契约 |
+| `hazejs-contributing` | 开发框架本身（`penna-org/haze` 仓库） |
+
+也可以直接指定：`--skill hazejs --agent claude-code`；加 `-g` 安装到用户级而不是当前项目；升级 hazejs 后运行 `npx skills update` 更新。配合[开发者工具](./devtools)的 MCP 端点，助手还能直接查看正在运行的应用。
 
 ## 下一步
 

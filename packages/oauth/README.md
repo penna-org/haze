@@ -45,7 +45,7 @@ export class OAuthController {
 }
 ```
 
-Part of [hazejs](https://github.com/penna-org/haze). See the [OAuth guide](https://penna-org.github.io/haze/guide/oauth) for every provider's options.
+Part of [hazejs](https://github.com/penna-org/haze). See the [OAuth guide](https://haze.yanyu.me/guide/oauth) for every provider's options.
 
 ## License
 

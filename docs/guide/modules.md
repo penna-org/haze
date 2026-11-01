@@ -189,7 +189,7 @@ export default defineModule({
 {
   "files": ["database", "dist"],
   "hazejs": { "module": true },
-  "peerDependencies": { "@hazejs/core": "^0.2.0" }
+  "peerDependencies": { "@hazejs/core": "^1.0.0" }
 }
 ```
 

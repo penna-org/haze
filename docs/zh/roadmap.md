@@ -70,8 +70,9 @@ hazejs 的目标是成为 Node.js 生态中最完整的后端框架：生产应�
 | M28 | **模块**：以本地 `modules/<name>/` 目录或 npm 包（`defineModule`）提供可复用的功能单元，包含路由、中间件、默认配置、提供者、迁移、任务、事件、命令与授权策略；`make:module`、`module:list` 与 `module` 模板 |
 | M29 | **统一 Redis 连接**：`config/redis.ts` 声明命名连接（单机、TLS、Cluster、Sentinel、自定义工厂），缓存、队列、WebSocket、广播、Socket.IO 与微服务按名字引用；共享命令连接、`Redis` 门面、按连接 PING 的 `redisCheck()` |
 | M30 | **ThinkPHP 风格的缓存接口**：`delete` / `clear` / `inc` / `dec` 与 PSR-16 别名、原子的 `push`、`ttl()` / `touch()`、`handler()`、所有驱动可用的标签缓存、带类型的 Redis 哈希 / 列表 / 集合 / 有序集合（memory 驱动模拟，供测试）、`cache()` 助手函数、还原 `Date` / `BigInt` / `Map` / `Set` 的 JSON 序列化 |
-| M33 | **自动导入**（`@hazejs/auto-import`）：控制器、服务、模型、中间件等 `app/<kind>` 目录以及精选的框架 API 在开发服务器、构建、测试和 CLI 中无需 import 即可使用，并生成全局类型声明保留类型提示；`haze.config.ts` 的 `autoImport`、各包自带预设、`create-hazejs --auto-import` |
 | M32 | **用真实后端验证整个框架**：按 hazejs 的约定重建 ai-admin（本地模块、`inject()`、路由文件、JWT Guard 钩子与 Gate 回退、`@hazejs/socket.io`、`@hazejs/orm`、队列 / 定时任务 / 事件），并在 Docker 中端到端验证；框架侧修复包括 `AuthorizationException`、`ctx.route`、`app.onBooted()`、`runInServer`、带 `shutdownTimeout` 的优雅退出、25 个 ORM 缺口与 14 个队列 / 定时任务 / 事件缺口 |
+| M33 | **自动导入**（`@hazejs/auto-import`）：控制器、服务、模型、中间件等 `app/<kind>` 目录以及精选的框架 API 在开发服务器、构建、测试和 CLI 中无需 import 即可使用，并生成全局类型声明保留类型提示；`haze.config.ts` 的 `autoImport`、各包自带预设、`create-hazejs --auto-import` |
+| 1.0 | **首个正式版**（2026-10-30）：所有 `@hazejs/*` 包与 `create-hazejs` 发布 1.0.0，此后遵循语义化版本；代理后的 `ctx.ip` 改取最近一层可信代理追加的地址（`trustProxy` 可传跳数），Workers 与 Lambda 直接使用平台提供的客户端地址；两步验证的失败次数与通行密钥挑战改为在服务端记录 |
 | M31 | **开发常用能力**：模型工厂（`defineFactory`、状态、序列、`for` / `has` / `hasAttached`、faker）、读写分离（写后读主库、连接池参数）、出站 `Http` 客户端（重试、超时、并发池、命名客户端、`Http.fake()`）、队列数据库驱动、任务链、批量、唯一任务与任务中间件、维护模式（`haze down` / `up`、密钥绕过、暂停 worker）与零依赖的 TSX 服务端视图 |
 
 ## 后续计划
