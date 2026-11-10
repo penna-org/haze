@@ -146,7 +146,7 @@ export default defineGraphQLConfig({
 | `introspection` | on outside production | Allow `__schema` / `__type` queries |
 | `maxDepth` | `15` | Maximum query depth; `false` disables the check |
 | `maxComplexity` | off | Maximum query complexity; `false` or `0` disables the check |
-| `subscriptions` | `false` | Subscriptions over WebSocket on the same path; `{ connectionInitWaitTimeout, onConnect }` |
+| `subscriptions` | `false` | Subscriptions over WebSocket on the same path; `{ connectionInitWaitTimeout, onConnect, maxSubscriptionsPerConnection }` |
 
 The provider options take everything above plus `context`, `formatError`, `rootValue`, `validationRules`, and `middleware` (route middleware such as `'throttle:60,1'`). Options passed to the provider override the config file. The schema can be a function that returns it (or a dynamic `import()`); it is loaded on the first request.
 
@@ -348,7 +348,7 @@ Subscription: {
 },
 ```
 
-`subscribe` can return any `AsyncIterable`, so an async generator works too. `pubsub.subscribe(topic, { filter })` drops events per subscriber.
+`subscribe` can return any `AsyncIterable`, so an async generator works too. `pubsub.subscribe(topic, { filter })` drops events per subscriber. Each subscriber buffers at most 1000 undelivered events (`createPubSub({ maxBufferSize })`, or per subscription `subscribe(topic, { maxBufferSize })`); a consumer that falls further behind loses the oldest ones.
 
 On the client:
 
@@ -375,7 +375,7 @@ export default defineGraphQLConfig({
 })
 ```
 
-`onConnect` may also return an object, which is sent as the `connection_ack` payload. Other close codes follow the protocol: `4400` invalid message, `4401` `subscribe` before the connection is acknowledged, `4408` no `connection_init` within `connectionInitWaitTimeout` (default 3000 ms), `4409` duplicate operation id, `4429` a second `connection_init`, `4500` internal error.
+`onConnect` may also return an object, which is sent as the `connection_ack` payload. Other close codes follow the protocol: `4400` invalid message, `4401` `subscribe` before the connection is acknowledged, `4408` no `connection_init` within `connectionInitWaitTimeout` (default 3000 ms), `4409` duplicate operation id, `4429` a second `connection_init`, `4500` internal error. A connection may run at most `maxSubscriptionsPerConnection` (default 100) operations at once; a `subscribe` beyond that is answered with an `error` message (`extensions.code: TOO_MANY_SUBSCRIPTIONS`) and the connection stays open.
 
 Queries and mutations sent over the socket are executed too. Inside subscriptions, use `ctx.inject()` rather than the global `inject()`: there is no HTTP request around them.
 

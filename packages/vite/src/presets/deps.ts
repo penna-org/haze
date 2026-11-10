@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { traceNodeModules } from 'nf3'
 import { NodeNativePackages, NonBundleablePackages } from 'nf3/db'
+import { parseSync } from 'vite'
 
 /** 数据库驱动：含原生二进制 / WASM / 可选原生依赖，不打包，运行时从 node_modules 加载（或追踪进产物） */
 export const DRIVER_PACKAGES = [
@@ -137,9 +138,37 @@ export async function traceDependencies(serverDir: string, root: string, options
 }
 
 const builtins = new Set(builtinModules)
-/** 产物中的 import / export ... from / import() 语句（Rolldown 输出的规范格式） */
-const IMPORT_RE = /(?:^|[;\n])\s*(?:import|export)\s[^;]*?\bfrom\s*["']([^"']+)["']|(?:^|[;\n])\s*import\s*["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/g
+/**
+ * 解析失败时的回退：产物中的 import / export ... from / import() 语句。
+ * 关键字后不要求空白，压缩后的 `import{a}from"pg"`、`import*as x from"pg"`、`export*from"pg"` 也能匹配
+ */
+const IMPORT_RE = /(?:^|[;}\n])\s*(?:import|export)(?![\w$])[^;"'`(]+?(?<![\w$])from\s*["']([^"']+)["']|(?:^|[;}\n])\s*import\s*["']([^"']+)["']|(?<![\w$.])import\(\s*["'`]([^"'`$]+)["'`]\s*[,)]/g
+/** 动态导入的参数是字符串字面量（或没有插值的模板字符串） */
+const LITERAL_RE = /^(["'])([^"'\\]+)\1$|^`([^`$\\]+)`$/
 const PACKAGE_RE = /^(?:@[\w.~-]+\/)?[\w.~-]+(?:\/.*)?$/
+
+/**
+ * 代码中导入的模块标识符（静态 import、export ... from 与参数为字面量的 import()）。
+ * 用 Vite 自带的解析器（oxc）读取，不依赖输出格式——`haze build --minify` 压缩后的产物同样准确，
+ * 字符串、注释中形似 import 的文本也不会误判
+ */
+export function importSpecifiers(code: string, file = 'chunk.mjs'): string[] {
+  try {
+    const { module, errors } = parseSync(file, code)
+    if (!errors.length) {
+      return [
+        ...module.staticImports.map(item => item.moduleRequest.value),
+        ...module.staticExports.flatMap(item => item.entries.flatMap(entry => entry.moduleRequest?.value ?? [])),
+        ...module.dynamicImports.flatMap((item) => {
+          const literal = LITERAL_RE.exec(code.slice(item.moduleRequest.start, item.moduleRequest.end).trim())
+          return literal?.[2] ?? literal?.[3] ?? []
+        }),
+      ]
+    }
+  }
+  catch {}
+  return Array.from(code.matchAll(IMPORT_RE), match => match[1] ?? match[2] ?? match[3])
+}
 
 /** 扫描产物中的裸模块导入，得到运行时仍需要的包名 */
 export function scanExternals(dir: string): string[] {
@@ -147,8 +176,7 @@ export function scanExternals(dir: string): string[] {
   for (const file of walk(dir)) {
     if (!/\.m?js$/.test(file))
       continue
-    for (const match of readFileSync(file, 'utf8').matchAll(IMPORT_RE)) {
-      const specifier = match[1] ?? match[2] ?? match[3]
+    for (const specifier of importSpecifiers(readFileSync(file, 'utf8'), file)) {
       // 跳过相对路径、运行时内置（node:、cloudflare: 等协议）与 Node 内置模块
       if (!specifier || !PACKAGE_RE.test(specifier) || specifier.startsWith('.') || builtins.has(specifier.split('/')[0]))
         continue

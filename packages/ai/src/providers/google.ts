@@ -2,8 +2,8 @@ import type { FetchFunction, RequestOptions } from '../http'
 import type { ProviderInstance, ProviderSettings } from '../provider'
 import type { AssistantContentPart, DataContent, EmbeddingModel, FinishReason, ImageModel, JSONSchema, LanguageModel, Message, ModelRequest, ModelResponse, ModelStreamPart, ProviderMetadata, ReasoningEffort, SpeechModel, ToolChoice, Usage, UserContentPart } from '../types'
 import { fromBase64, generatedFile, resolveData } from '../data'
-import { AIError } from '../errors'
-import { compact, parseSSE, postJSON, postStream, safeParseJSON, toReadableStream } from '../http'
+import { AIError, APICallError } from '../errors'
+import { compact, parseSSE, postJSON, postStream, safeParseJSON, toReadableStream, truncatedStreamError } from '../http'
 import { createProvider, optionalEnv, withoutTrailingSlash } from '../provider'
 
 /**
@@ -548,8 +548,9 @@ export function googleLanguageModel(endpoint: GoogleEndpoint, modelId: string): 
 
     async stream(options) {
       const { body, warnings } = buildGoogleBody(modelId, options)
-      const { body: stream } = await postStream(request('streamGenerateContent?alt=sse', body, options))
-      return toReadableStream(streamParts(stream, warnings))
+      const target = request('streamGenerateContent?alt=sse', body, options)
+      const { body: stream } = await postStream(target)
+      return toReadableStream(streamParts(stream, warnings, target))
     },
   }
 }
@@ -559,7 +560,7 @@ export function googleLanguageModel(endpoint: GoogleEndpoint, modelId: string): 
  * 文本部分上的签名（常见于最后一个空文本部分）没有对应的流事件，借 reasoning-end 记录为只含签名的空推理部分，
  * 回传时还原为 { text: '', thoughtSignature }。
  */
-async function* streamParts(stream: ReadableStream<Uint8Array>, warnings: string[]): AsyncGenerator<ModelStreamPart> {
+async function* streamParts(stream: ReadableStream<Uint8Array>, warnings: string[], endpoint: { provider: string, url: string }): AsyncGenerator<ModelStreamPart> {
   for (const message of warnings)
     yield { type: 'warning', message }
   let finishReason: string | undefined
@@ -572,9 +573,18 @@ async function* streamParts(stream: ReadableStream<Uint8Array>, warnings: string
   for await (const event of parseSSE(stream)) {
     const chunk = JSON.parse(event.data)
     if (chunk.error) {
+      const status = Number(chunk.error.code)
       yield {
         type: 'error',
-        error: new Error(chunk.error.message ?? JSON.stringify(chunk.error)),
+        error: new APICallError({
+          message: `${endpoint.provider} stream error: ${chunk.error.message ?? JSON.stringify(chunk.error)}`,
+          provider: endpoint.provider,
+          url: endpoint.url,
+          responseBody: event.data,
+          isRetryable: Number.isInteger(status)
+            ? status === 408 || status === 409 || status === 429 || status >= 500
+            : /UNAVAILABLE|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|INTERNAL/.test(String(chunk.error.status ?? '')),
+        }),
       }
       return
     }
@@ -631,6 +641,14 @@ async function* streamParts(stream: ReadableStream<Uint8Array>, warnings: string
     }
     if (candidate?.finishReason)
       finishReason = candidate.finishReason
+  }
+  // 没有 finishReason（也不是提示被拦截）就结束：连接中途断开，不当作正常结束
+  if (!finishReason && !blocked) {
+    yield {
+      type: 'error',
+      error: truncatedStreamError(endpoint.provider, endpoint.url),
+    }
+    return
   }
   if (reasoningOpen)
     yield { type: 'reasoning-end' }

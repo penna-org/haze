@@ -114,6 +114,24 @@ export function parseDuration(value: string | number): number {
   return Number(match[1]) * unit
 }
 
+const wildcards = new Map<string, RegExp>()
+
+/**
+ * `/api/webhooks/*` 风格的通配模式 → 正则（`*` 匹配任意字符）。模式来自配置，数量有限：
+ * 编译一次后复用，不在每个请求里重新构造
+ */
+export function wildcardRegExp(pattern: string): RegExp {
+  let regex = wildcards.get(pattern)
+  if (!regex) {
+    regex = new RegExp(`^${pattern.split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
+    // 模式通常只有配置里的几条；运行时传入的（如 Maintenance.down({ except })）也不该无限增长
+    if (wildcards.size >= 1000)
+      wildcards.clear()
+    wildcards.set(pattern, regex)
+  }
+  return regex
+}
+
 /**
  * JSON.stringify 的 replacer：BigInt 输出为字符串（JSON 不支持 BigInt，
  * 与 Java 把 Long 序列化为字符串的约定一致，前端不会丢失精度）
@@ -122,6 +140,21 @@ export function jsonReplacer(_key: string, value: unknown): unknown {
   return typeof value === 'bigint'
     ? value.toString()
     : value
+}
+
+/**
+ * 序列化响应体：先按最常见的情况直接 JSON.stringify（没有 BigInt 时不多走一遍），
+ * 只有遇到 BigInt 抛出 TypeError 时才带 jsonReplacer 重试（toJSON() 返回值里的 BigInt 同样会被转换）
+ */
+export function stringifyJson(value: unknown, space?: number): string {
+  try {
+    return JSON.stringify(value, undefined, space)
+  }
+  catch (error) {
+    if (!(error instanceof TypeError))
+      throw error
+    return JSON.stringify(value, jsonReplacer, space)
+  }
 }
 
 /**

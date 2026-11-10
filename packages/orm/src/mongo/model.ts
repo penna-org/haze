@@ -153,6 +153,7 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
     return new MongoModelQuery(this).onlyTrashed()
   }
 
+  /** 按 _id 查询；_id 为 undefined / null 时返回 undefined（不会退化为“取第一条”） */
   static find<M extends MongoModelLike>(this: MongoModelClass<M>, id: unknown): Promise<M | undefined> {
     return new MongoModelQuery(this).find(id)
   }
@@ -195,7 +196,7 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
 
   // ---------------------------------------------------------------- 持久化
 
-  /** 保存；可传入要写入的数据。before 事件返回 false 时不写入 */
+  /** 保存；可传入要写入的数据（按批量赋值处理，见 fill()）。before 事件返回 false 时不写入 */
   async save(data?: Partial<T>): Promise<this> {
     if (data)
       this.fill(data as Record<string, unknown>)
@@ -224,7 +225,8 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
           return this
         if (meta.updatedAt && !(meta.updatedAt in dirty))
           dirty[meta.updatedAt] = this.$attributes[meta.updatedAt] = new Date()
-        await this.$whereKey().update(dirty)
+        // 属性名只作为字段写入：不会被当作 $set / $inc 等更新运算符
+        await this.$whereKey().update(dirty, { operators: false })
         this.syncOriginal()
         await this.runHook('onAfterUpdate')
       }
@@ -242,7 +244,7 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
       return false
     if (softDelete) {
       const now = new Date()
-      await this.$whereKey().update({ [softDelete]: now })
+      await this.$whereKey().update({ [softDelete]: now }, { operators: false })
       this.$attributes[softDelete] = now
       this.$original[softDelete] = now
     }
@@ -271,7 +273,7 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
       return this
     if (!await this.runHook('onBeforeRestore'))
       return this
-    await this.$whereKey().update({ [softDelete]: null })
+    await this.$whereKey().update({ [softDelete]: null }, { operators: false })
     this.$attributes[softDelete] = null
     this.$original[softDelete] = null
     await this.runHook('onAfterRestore')
@@ -311,7 +313,28 @@ export class MongoModel<T extends Document = Document> extends ActiveRecord<With
   }
 
   protected $whereKey(): MongoQuery<Document> {
-    return this.$query().where('_id', this.$attributes._id)
+    return this.$query().where('_id', this.$original._id ?? this.$attributes._id)
+  }
+
+  /**
+   * 批量赋值的字段名不能是更新运算符（`$set`）或路径（`a.b`）：这类键来自用户输入时会改写其它字段。
+   * forceFill() 同样拒绝
+   */
+  protected override acceptsAttribute(key: string): boolean {
+    if (key.startsWith('$') || key.includes('.'))
+      throw new DatabaseError(`${this.constructor.name}: cannot mass-assign "${key}" (field names cannot start with "$" or contain ".")`)
+    return super.acceptsAttribute(key)
+  }
+
+  /** 默认拒绝批量赋值：已存在文档的 _id（新建时可以指定）与软删除字段 */
+  protected override protectedAttributes(): string[] {
+    const { softDelete } = this.$meta()
+    return [
+      this.$exists
+        ? '_id'
+        : undefined,
+      softDelete,
+    ].filter((key): key is string => key !== undefined)
   }
 }
 

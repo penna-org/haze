@@ -169,7 +169,9 @@ r.group({ prefix: '/api/auth', as: 'auth.' }, (r) => {
 | `POST` | `/tokens` | `tokens.store` | `{ name, abilities? }` → `201 { token, accessToken }` |
 | `DELETE` | `/tokens/:id` | `tokens.destroy` | `204`；令牌不属于该用户时 `404` |
 
-`tokens: { abilities }` 限制客户端可以申请的能力（超出时返回 `422`）；请求体中没有 `abilities` 时，令牌获得这个列表中的全部能力。`tokens: true` 不做限制。其它选项见[认证](./authentication#现成的路由)。
+`tokens: { abilities }` 限制客户端可以申请的能力（超出时返回 `422`）；请求体中没有 `abilities` 时，令牌获得这个列表中的全部能力。`tokens: true` 不做限制。
+
+请求本身用个人访问令牌认证时，新令牌只能获得当前令牌具备的能力（`['posts:read']` 的令牌申请 `['*']` 会得到 `422`），请求体中没有 `abilities` 时沿用当前令牌的能力。用 Session 或 JWT 认证的请求不受这条限制。其它选项见[认证](./authentication#现成的路由)。
 
 api、vue、react 模板在 `app/controller/TokenController.ts` 中手写了同样的接口（`GET/POST /api/auth/tokens`、`DELETE /api/auth/tokens/:id`），`GET /api/auth/me` 同时接受 JWT 与令牌（`auth:api,token`）。
 

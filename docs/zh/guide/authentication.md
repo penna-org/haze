@@ -370,9 +370,9 @@ import { PasswordReset, validate, ValidationException } from '@hazejs/core'
 export class PasswordResetController {
   async forgot(ctx: HttpContext) {
     const { email } = await validate(ForgotPasswordSchema, await ctx.body())
-    const status = await PasswordReset.sendLink(email)
-    // 无论邮箱是否注册都返回同样的结果
-    return { status: status === 'throttled' ? 'throttled' : 'sent' }
+    await PasswordReset.sendLink(email)
+    // 邮箱未注册、间隔太短、已发送都返回同样的结果
+    return { status: 'sent' }
   }
 
   async reset(ctx: HttpContext) {
@@ -384,7 +384,7 @@ export class PasswordResetController {
 }
 ```
 
-- `PasswordReset.sendLink(email)` 返回 `'sent'`、`'throttled'` 或 `'invalid-user'`。不要把 `'invalid-user'` 告诉客户端，否则这个接口可以被用来探测哪些邮箱注册过。
+- `PasswordReset.sendLink(email)` 返回 `'sent'`、`'throttled'` 或 `'invalid-user'`。不要把 `'invalid-user'` 或 `'throttled'` 告诉客户端（只有注册过的邮箱才会被限制间隔），否则这个接口可以被用来探测哪些邮箱注册过。`authRoutes()` 在这三种情况下都返回 `{ status: 'sent' }`。
 - `PasswordReset.reset({ email, token, password }, callback?)` 返回 `'reset'`、`'invalid-token'`（错误、过期或已使用）或 `'invalid-user'`。默认把 `Hash.make(password)` 写入密码字段并保存用户；需要做更多事情（如吊销 API 令牌）时传入回调：
 
 ```ts
@@ -418,7 +418,7 @@ export default defineRoutes((r) => {
 |------|------|
 | `verification` | `POST /email/verification-notification`（`verification.send`，需登录）、`GET /email/verify/:id/:hash`（`verification.verify`） |
 | `passwordReset` | `POST /forgot-password`（`password.email`）、`POST /reset-password`（`password.update`） |
-| `tokens` | `GET /tokens`、`POST /tokens`、`DELETE /tokens/:id`（`tokens.*`，需登录）；`{ abilities }` 限制可申请的能力 |
+| `tokens` | `GET /tokens`、`POST /tokens`、`DELETE /tokens/:id`（`tokens.*`，需登录）；`{ abilities }` 限制可申请的能力；用令牌认证的请求不能申请超出该令牌的能力 |
 | `auth` | 需要登录的路由使用的中间件，默认 `['auth']` |
 | `throttle` | 其余路由的限流，默认 `'throttle:6,60'`，`false` 关闭 |
 | `minPasswordLength` | 新密码的最短长度，默认 `8` |

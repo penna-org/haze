@@ -20,6 +20,15 @@ export function seconds(ttl: CacheTtl): number | undefined {
 
 type Operation = TelemetryEvents['cache']['operation']
 
+/** remember() 正在执行的计算：按底层存储与实际键记录（标签缓存每次调用都是新实例，不能记在实例上） */
+const flights = new WeakMap<CacheStore, Map<string, Promise<unknown>>>()
+function flightsOf(store: CacheStore): Map<string, Promise<unknown>> {
+  let map = flights.get(store)
+  if (!map)
+    flights.set(store, map = new Map())
+  return map
+}
+
 /**
  * 某个存储上的缓存操作（Cache.store(name) 返回）。
  * ThinkPHP / PSR-16 的方法名与原来的方法名并存：`delete` = `forget`、`clear` = `flush`、
@@ -148,15 +157,31 @@ export class CacheRepository<Handler = unknown> {
     return value
   }
 
-  /** 读取缓存，不存在时执行 fn 并写入（fn 返回 undefined 时不缓存） */
+  /**
+   * 读取缓存，不存在时执行 fn 并写入（fn 返回 undefined 时不缓存）。
+   * 同一进程内对同一个键的并发未命中只执行一次 fn（其余调用等待并得到同一个结果，fn 抛错时一起收到这个错误，错误不缓存）
+   */
   async remember<T>(key: string, ttl: CacheTtl, fn: () => T | Promise<T>): Promise<T> {
-    const cached = await this.get<T>(key)
+    const storageKey = await this.#resolveOne(key)
+    const flights = flightsOf(this.store)
+    const pending = flights.get(storageKey)
+    if (pending)
+      return pending as Promise<T>
+    const cached = await this.#read<T>(key, storageKey)
     if (cached !== undefined)
       return cached
-    const value = await fn()
-    if (value !== undefined)
-      await this.set(key, value, ttl)
-    return value
+    // 读取期间可能已有别的调用开始计算
+    const started = flights.get(storageKey)
+    if (started)
+      return started as Promise<T>
+    const flight = (async () => {
+      const value = await fn()
+      if (value !== undefined)
+        await this.set(key, value, ttl)
+      return value
+    })().finally(() => flights.delete(storageKey))
+    flights.set(storageKey, flight)
+    return flight
   }
 
   rememberForever<T>(key: string, fn: () => T | Promise<T>): Promise<T> {

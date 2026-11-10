@@ -382,12 +382,12 @@ if (await lock.get()) {
 - To release from another process, pass the owner along and use `Cache.restoreLock(name, lock.owner)`.
 
 ::: tip
-`remember()` does not protect against a stampede: concurrent misses each compute the value. Wrap expensive computations in a lock if that matters.
+Within one process, concurrent misses on the same key run the callback once: the other callers wait for it and get the same result (or the same error, which is not cached). Across processes each instance still computes the value once; wrap expensive computations in a lock if that matters.
 :::
 
 ## Caching responses
 
-The built-in `cacheResponse` middleware caches successful `GET` / `HEAD` responses by path and query string:
+The built-in `cacheResponse` middleware caches successful `GET` / `HEAD` responses by application, host, path and query string (plus the negotiated locale when i18n is enabled):
 
 ```ts
 // route/api.ts

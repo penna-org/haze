@@ -58,6 +58,7 @@ haze make:model Article --dialect mongodb
 
 ```ts
 const user = await User.find(1)          // User | undefined
+await User.find(undefined)               // undefined（null 同样）：缺少主键时不会退化为取第一条
 const user = await User.findOrFail(1)    // 不存在时抛出 ModelNotFoundException（404）
 const everyone = await User.all()
 const total = await User.count()
@@ -165,6 +166,30 @@ const user = await User.findOrEmpty(id)                 // 不会是 undefined
 if (user.isEmpty()) { /* ... */ }
 ```
 
+### 批量赋值
+
+`create(data)`、`save(data)` 与 `fill(data)` 的数据通常来自请求，除了表中不存在的字段，下面这些也会被忽略：
+
+- 不在 `static fillable` 中的列（设置了白名单时），以及 `static guarded` 中的列；
+- 受保护的列（无需任何配置）：**已存在**记录的主键（新建时可以指定主键）、[租户列](./tenancy)、软删除列和[乐观锁](#乐观锁)版本列。
+
+被忽略的字段不会报错，与未知字段一样。
+
+```ts
+export class User extends Model.define(users) {
+  static override fillable = ['name', 'email', 'bio'] // 白名单；undefined（默认）表示全部列
+  static override guarded = ['role']                  // 黑名单，在 fillable 之后判断
+}
+
+await User.create({ name: 'Ada', role: 'admin', deletedAt: new Date() })   // role 与 deletedAt 被忽略
+await user.save({ id: 2, name: 'Ada' })                                    // 已存在的记录：id 被忽略
+
+// 可信数据的写法：
+await User.create(row, ['name', 'role', 'tenantId'])   // allowField 中列出的字段总是接受
+user.forceFill({ role: 'admin', deletedAt: null })     // 跳过 fillable / guarded 与受保护的列
+user.role = 'admin'                                    // 直接给属性赋值不受限制
+```
+
 静态的 `update()`、`saveAll()` 和 `destroy()` 会逐个处理模型，因此事件、时间戳和软删除都会生效。这也意味着它们**先查出匹配的行再逐条写入**：N+1 条语句、不是原子的，并且读取整行（大 JSON 文档的表很慢）。需要多次写入保持原子性时使用 `User.transaction(...)`，见[事务](./transactions)。按需要选择写法：
 
 | 需要 | 写法 |
@@ -187,6 +212,8 @@ await Article.query().delete(1)                        // 一条语句；开启�
 `updateById()` 忽略值为 `undefined` 的键与[只读字段](#只读字段)，写入 `updatedAt`，把[乐观锁](#乐观锁)版本加 1（不检查版本），遵守软删除、全局作用域与多租户，不触发模型事件。
 
 `create()`（以及新模型的 `save()`）用应用的时钟写入 `createdAt` / `updatedAt`，而不是数据库的时钟——模型赋了值时不会用到列的 `defaultNow()`。在 SQL 中与 `now()` 比较这些时间戳时要注意，或者自己赋值。`create()` 的值可以是 drizzle 的 `sql` 表达式，返回的模型中是写入后的值。
+
+JSON 列的原地修改（`user.meta.city = 'Paris'`、`user.tags.push('x')`）也能被发现：普通对象与数组会与加载 / 上次保存时的快照按值比较。
 
 其他实例方法：`isDirty(key?)`、`getDirty()`、`getOriginal(key?)`、`getData()`（原始属性，类型为表的行）、`refresh()`（从数据库重新读取），以及 `exists` 属性。
 
@@ -446,13 +473,19 @@ export class Article extends MongoModel.define<ArticleDoc>('articles') {
 ```
 
 ```ts
-import { Mongo } from '@hazejs/orm/mongo'
+import { Mongo, mongoOp } from '@hazejs/orm/mongo'
 
 const article = await Article.findOrFail('6650…')  // 字符串 id 自动转为 ObjectId
 await Article.where('views', '>', 100).paginate(1, 20)
+await Article.where('tags', mongoOp({ $all: ['orm'] })).select()                  // 查询运算符需要显式声明
+await Article.query().whereRaw({ $or: [{ views: 0 }, { 'meta.pinned': true }] }).select() // 原生 MongoDB 过滤器
 await Mongo.collection('articles').aggregate([{ $group: { _id: null, views: { $sum: '$views' } } }])
 await Mongo.transaction(async () => { /* 需要副本集 */ })
 ```
+
+条件可以直接接收请求参数：值是带 `$` 键的普通对象（`where('email', { $ne: null })`）、字段名以 `$` 开头（`where({ $where: '…' })`）时抛出 `DatabaseError`。自己写的运算符用 `mongoOp({ ... })` 包裹，或把完整的过滤器传给 `whereRaw()` / `orWhereRaw()`，不要传入请求数据。`find(id)` 只接受字符串、数字或 `ObjectId`；`undefined` / `null` 返回 `undefined`，其它类型抛错。
+
+[批量赋值](#批量赋值)与 SQL 模型一致（`static fillable` / `guarded`、`forceFill()`），受保护的字段是已存在文档的 `_id` 和软删除字段。以 `$` 开头或包含 `.` 的键会抛错，`save()` 也不会把属性名当作更新运算符。`Mongo.collection().update(values)` 仍然接受运算符（`{ $inc: { views: 1 } }`）；`values` 来自输入时传 `{ operators: false }`。
 
 MongoDB 没有迁移，索引通过 `(await Mongo.db()).collection(...).createIndex()` 管理。`haze make:model Article --dialect mongodb` 会生成带文档接口的模型。
 

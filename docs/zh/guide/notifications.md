@@ -90,6 +90,8 @@ export class User extends Model.define(users) {
 
 类名在运行时读取，如果生产构建会压缩类名，请显式写上 `notifiableType`（`static notifiableType = 'User'`）。
 
+一次投递失败不会中断其余的：每个接收者、每个渠道都会尝试，失败的记录日志，最后 `notify()` 抛出这个错误（多个失败时为 `AggregateError`）。
+
 ## 排队发送
 
 设置 `queue` 后经队列发送。每个渠道是一个独立的任务（`notification:send`），Slack 调用失败重试时不会把邮件再发一遍：

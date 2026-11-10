@@ -39,7 +39,7 @@ jobs:
         ports: ['6379:6379']
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
       upstash:
-        image: hiett/serverless-redis-http:latest
+        image: hiett/serverless-redis-http:0.0.10
         ports: ['8079:80']
         env:
           SRH_MODE: env
@@ -52,17 +52,24 @@ jobs:
           MYSQL_ROOT_PASSWORD: haze
           MYSQL_DATABASE: haze_test
         options: --health-cmd "mysqladmin ping -phaze" --health-interval 5s --health-timeout 3s --health-retries 20
+      postgres:
+        image: postgres:17
+        ports: ['5433:5432']
+        env:
+          POSTGRES_PASSWORD: haze
+          POSTGRES_DB: haze_test
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
       turso:
-        image: ghcr.io/tursodatabase/libsql-server:latest
+        image: ghcr.io/tursodatabase/libsql-server:v0.24.33
         ports: ['8080:8080']
       s3:
-        image: rustfs/rustfs:latest
+        image: rustfs/rustfs:1.0.4
         ports: ['19000:9000']
         env:
           RUSTFS_ACCESS_KEY: rustfsadmin
           RUSTFS_SECRET_KEY: rustfsadmin
       mailpit:
-        image: axllent/mailpit:latest
+        image: axllent/mailpit:v1.33.1
         ports: ['11025:1025', '18025:8025']
       nats:
         image: nats:2
@@ -92,6 +99,7 @@ jobs:
       HAZE_TEST_UPSTASH_URL: http://127.0.0.1:8079
       HAZE_TEST_UPSTASH_TOKEN: haze_test_token
       HAZE_TEST_MYSQL_URL: mysql://root:haze@127.0.0.1:3307/haze_test
+      HAZE_TEST_PG_URL: postgres://postgres:haze@127.0.0.1:5433/haze_test
       HAZE_TEST_TURSO_URL: http://127.0.0.1:8080
       HAZE_TEST_S3_ENDPOINT: http://127.0.0.1:19000
       HAZE_TEST_SMTP_URL: smtp://127.0.0.1:11025
@@ -112,6 +120,12 @@ jobs:
       # Bun 预设与 Socket.IO Bun 引擎的测试（未安装时跳过）
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: pnpm install --frozen-lockfile
+      # mongodb-memory-server 首次运行会下载 mongod 二进制（packages/orm/test/mongo.test.ts），默认存放在 ~/.cache/mongodb-binaries
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: mongodb-binaries-${{ runner.os }}-
       # 等待搜索服务就绪（没有内置健康检查的服务）
       - run: |
           for url in http://127.0.0.1:7700/health http://127.0.0.1:8108/health; do

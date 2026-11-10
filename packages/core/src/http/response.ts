@@ -30,3 +30,20 @@ export function raw<T>(value: T): RawValue<T> {
 export function isRaw(value: unknown): value is RawValue {
   return typeof value === 'object' && value !== null && kRaw in value
 }
+
+const buffered = new WeakSet<Response>()
+
+/**
+ * 标记一次性生成（不是流）的 Response：视图、缓存命中等。请求作用域据此不为它推迟释放请求容器
+ * （未标记、带响应体又没有 Content-Length 的 Response 按流式响应处理）
+ * @internal
+ */
+export function markBuffered(response: Response): Response {
+  buffered.add(response)
+  return response
+}
+
+/** @internal */
+export function isBufferedResponse(response: Response): boolean {
+  return buffered.has(response)
+}

@@ -1,6 +1,7 @@
 import type { CookieOptions, HttpContext } from '@hazejs/core'
 import type { BaseProviderConfig, DriverOptions, MappedUser, OAuthToken, OAuthUser } from './types'
 import { appKey } from '@hazejs/core'
+import { DEFAULT_HTTP_TIMEOUT } from './config'
 import { codeChallenge, randomString, safeEqual, seal, unseal } from './crypto'
 import { InvalidStateException, OAuthException } from './errors'
 
@@ -265,6 +266,9 @@ export abstract class OAuthProvider<C extends BaseProviderConfig = BaseProviderC
       name: mapped.name || null,
       nickname: mapped.nickname || null,
       email: mapped.email || null,
+      emailVerified: mapped.email
+        ? mapped.emailVerified ?? null
+        : null,
       avatar: mapped.avatar || null,
       raw,
       token,
@@ -353,13 +357,25 @@ export abstract class OAuthProvider<C extends BaseProviderConfig = BaseProviderC
       body = JSON.stringify(options.json)
     }
     let response: Response
+    let text: string
+    const timeout = this.options.timeout ?? DEFAULT_HTTP_TIMEOUT
     try {
-      response = await this.options.fetch(target.href, { method: options.method ?? 'GET', headers, body })
+      // 第三方不响应时不能一直占着请求：默认 10 秒超时（含读取响应体）
+      response = await this.options.fetch(target.href, {
+        method: options.method ?? 'GET',
+        headers,
+        body,
+        ...(timeout > 0 && {
+          signal: AbortSignal.timeout(timeout),
+        }),
+      })
+      text = await response.text()
     }
     catch (error) {
+      if ((error as Error)?.name === 'TimeoutError')
+        throw new OAuthException(this.name, `Request to ${target.origin}${target.pathname} timed out after ${timeout}ms`, { status: 504, code: 'provider_timeout', cause: error })
       throw new OAuthException(this.name, `Request to ${target.origin}${target.pathname} failed`, { status: 502, code: 'provider_unreachable', cause: error })
     }
-    const text = await response.text()
     const data = parseBody(text)
     if (!response.ok) {
       const status = response.status >= 500

@@ -146,7 +146,7 @@ export default defineGraphQLConfig({
 | `introspection` | 非生产环境开启 | 是否允许 `__schema` / `__type` 内省查询 |
 | `maxDepth` | `15` | 最大查询深度；`false` 关闭检查 |
 | `maxComplexity` | 不限制 | 最大查询复杂度；`false` 或 `0` 关闭检查 |
-| `subscriptions` | `false` | 同一路径上的 WebSocket 订阅；可传 `{ connectionInitWaitTimeout, onConnect }` |
+| `subscriptions` | `false` | 同一路径上的 WebSocket 订阅；可传 `{ connectionInitWaitTimeout, onConnect, maxSubscriptionsPerConnection }` |
 
 服务提供者的选项除上表外，还有 `context`、`formatError`、`rootValue`、`validationRules` 与 `middleware`（路由中间件，如 `'throttle:60,1'`）。传给服务提供者的选项优先于配置文件。schema 也可以是返回 schema（或动态 `import()`）的函数，第一次请求时加载。
 
@@ -348,7 +348,7 @@ Subscription: {
 },
 ```
 
-`subscribe` 可以返回任意 `AsyncIterable`，异步生成器同样可以。`pubsub.subscribe(topic, { filter })` 按订阅者过滤事件。
+`subscribe` 可以返回任意 `AsyncIterable`，异步生成器同样可以。`pubsub.subscribe(topic, { filter })` 按订阅者过滤事件。每个订阅者最多缓冲 1000 条尚未送达的事件（`createPubSub({ maxBufferSize })`，或单个订阅 `subscribe(topic, { maxBufferSize })`）；消费落后更多时丢弃最旧的事件。
 
 客户端：
 
@@ -375,7 +375,7 @@ export default defineGraphQLConfig({
 })
 ```
 
-`onConnect` 也可以返回一个对象，作为 `connection_ack` 的 payload 发送。其它关闭码遵循协议：`4400` 消息格式错误，`4401` 连接确认前发送 `subscribe`，`4408` 在 `connectionInitWaitTimeout`（默认 3000 毫秒）内未收到 `connection_init`，`4409` 操作 id 重复，`4429` 重复发送 `connection_init`，`4500` 服务器内部错误。
+`onConnect` 也可以返回一个对象，作为 `connection_ack` 的 payload 发送。其它关闭码遵循协议：`4400` 消息格式错误，`4401` 连接确认前发送 `subscribe`，`4408` 在 `connectionInitWaitTimeout`（默认 3000 毫秒）内未收到 `connection_init`，`4409` 操作 id 重复，`4429` 重复发送 `connection_init`，`4500` 服务器内部错误。单个连接上同时进行的操作数上限为 `maxSubscriptionsPerConnection`（默认 100）；超出的 `subscribe` 会收到 `error` 消息（`extensions.code: TOO_MANY_SUBSCRIPTIONS`），连接保持不断开。
 
 经 WebSocket 发送的查询与 mutation 同样会执行。订阅中请用 `ctx.inject()` 而不是全局的 `inject()`：订阅不在 HTTP 请求之内。
 

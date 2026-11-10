@@ -20,7 +20,7 @@ export interface BroadcastingConfig {
   }
   /** SSE 心跳间隔（秒或 '25s'），默认 25 秒 */
   heartbeat?: number | string
-  /** 每个 SSE 连接最多订阅的频道数，默认 100 */
+  /** 每个 SSE / WebSocket 连接最多订阅的频道数，默认 100 */
   maxChannels?: number
 }
 

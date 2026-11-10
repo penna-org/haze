@@ -1,5 +1,7 @@
 import type { MiddlewareHandler } from '../types'
 import { CacheManager } from '../../cache/manager'
+import { markBuffered } from '../../http/response'
+import { I18nManager } from '../../i18n/manager'
 import { parseDuration } from '../../utils'
 
 interface CachedResponse {
@@ -22,7 +24,7 @@ function fromBase64(value: string): Uint8Array {
 }
 
 /**
- * `cacheResponse:60`：缓存 GET / HEAD 的成功响应（按 URL）；`cacheResponse:60,user` 按当前用户区分。
+ * `cacheResponse:60`：缓存 GET / HEAD 的成功响应（按应用、域名与 URL，启用多语言时再按语言）；`cacheResponse:60,user` 按当前用户区分。
  * 只缓存 200，跳过 `Cache-Control: no-store / private` 的响应；缓存副本不含 Set-Cookie。
  * 响应头 `X-Cache: HIT / MISS`，命中时带 `Age`。存储为 config/cache.ts 的 responseStore（默认 default）。
  */
@@ -32,7 +34,11 @@ export const cacheResponse: MiddlewareHandler = async (ctx, next, ttlArg = '60',
   const manager = ctx.make(CacheManager)
   const cache = manager.store(manager.config.responseStore)
   const ttl = parseDuration(ttlArg)
-  let key = `response:${ctx.path}${ctx.url.search}`
+  // 多应用分发后 ctx.path 已去掉挂载前缀：键中带上应用名与域名，不同应用 / 域名下的同名路径互不串用；
+  // 启用多语言时再按协商出的语言区分
+  let key = `response:${ctx.appName ?? ''}|${ctx.url.host}${ctx.path}${ctx.url.search}`
+  if (ctx.container.has(I18nManager) && ctx.make(I18nManager).enabled)
+    key += `|locale:${ctx.locale}`
   if (scope === 'user')
     key += `|user:${(await ctx.auth.id().catch(() => undefined)) ?? 'guest'}`
 
@@ -41,9 +47,9 @@ export const cacheResponse: MiddlewareHandler = async (ctx, next, ttlArg = '60',
     const headers = new Headers(hit.headers)
     headers.set('x-cache', 'HIT')
     headers.set('age', String(Math.max(0, Math.floor((Date.now() - hit.storedAt) / 1000))))
-    return new Response(ctx.method === 'HEAD'
+    return markBuffered(new Response(ctx.method === 'HEAD'
       ? null
-      : fromBase64(hit.body) as Uint8Array<ArrayBuffer>, { status: hit.status, headers })
+      : fromBase64(hit.body) as Uint8Array<ArrayBuffer>, { status: hit.status, headers }))
   }
 
   ctx.onResponse(async (response) => {

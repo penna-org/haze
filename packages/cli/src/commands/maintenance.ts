@@ -11,7 +11,7 @@ type Manager = InstanceType<Core['MaintenanceManager']>
 
 /** 在应用的模块图中取维护模式管理器（与开发服务器读取同一份配置与存储） */
 async function withMaintenance<T>(root: string, run: (manager: Manager, core: Core) => Promise<T>): Promise<T> {
-  const server: DevServer = await createDevServer({ root, listen: false })
+  const server: DevServer = await createDevServer({ root, listen: false, watch: false })
   try {
     if (!server.app)
       throw new Error('Application failed to start')

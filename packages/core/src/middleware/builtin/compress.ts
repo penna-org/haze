@@ -9,7 +9,16 @@ export interface CompressOptions {
   threshold?: string | number
   /** 按优先级排列的编码，默认 br、gzip、deflate（br 需要运行时提供 node:zlib） */
   encodings?: Encoding[]
+  /**
+   * 压缩级别。br 为 Brotli quality（0–11），默认 4：Node 的默认值 11 是为静态资源预压缩准备的，
+   * 用在动态响应上会慢两个数量级；gzip / deflate 为 zlib level（0–9），设置后改用 node:zlib
+   * （不设置时使用运行时内置的 CompressionStream 及其默认级别）
+   */
+  level?: Partial<Record<Encoding, number>>
 }
+
+/** 动态响应的 Brotli quality：压缩率接近 gzip -6 以上，耗时为 quality 11 的百分之一左右 */
+const DEFAULT_BROTLI_QUALITY = 4
 
 export function defineCompressConfig(config: CompressOptions | (() => CompressOptions)): CompressOptions | (() => CompressOptions) {
   return config
@@ -17,20 +26,44 @@ export function defineCompressConfig(config: CompressOptions | (() => CompressOp
 
 const COMPRESSIBLE = /^(?:text\/(?!event-stream)|application\/(?:json|javascript|xml|wasm|x-www-form-urlencoded|graphql|ld\+json|manifest\+json|[\w.+-]*\+(?:json|xml))|image\/svg\+xml|font\/(?:ttf|otf))/i
 
-type Compressor = () => Promise<ReadableWritablePair<Uint8Array, Uint8Array> | undefined>
+type Compressor = (level: number | undefined, size: number | undefined) => Promise<ReadableWritablePair<Uint8Array, Uint8Array> | undefined>
+
+type WebPair = ReadableWritablePair<Uint8Array, Uint8Array>
+
+/** gzip / deflate：指定了级别且运行时提供 node:zlib 时用它，否则用 CompressionStream */
+function zlibCompressor(format: 'gzip' | 'deflate'): Compressor {
+  return async (level) => {
+    if (level !== undefined) {
+      try {
+        const [zlib, { Duplex }] = await Promise.all([import('node:zlib'), import('node:stream')])
+        return Duplex.toWeb(format === 'gzip'
+          ? zlib.createGzip({ level })
+          : zlib.createDeflate({ level })) as unknown as WebPair
+      }
+      catch {}
+    }
+    return new CompressionStream(format) as unknown as WebPair
+  }
+}
 
 const compressors: Record<Encoding, Compressor> = {
-  br: async () => {
+  br: async (level, size) => {
     try {
-      const [{ createBrotliCompress }, { Duplex }] = await Promise.all([import('node:zlib'), import('node:stream')])
-      return Duplex.toWeb(createBrotliCompress()) as unknown as ReadableWritablePair<Uint8Array, Uint8Array>
+      const [{ createBrotliCompress, constants }, { Duplex }] = await Promise.all([import('node:zlib'), import('node:stream')])
+      return Duplex.toWeb(createBrotliCompress({
+        params: {
+          [constants.BROTLI_PARAM_QUALITY]: level ?? DEFAULT_BROTLI_QUALITY,
+          // 已知长度时告诉编码器，便于它选择窗口与缓冲大小
+          ...(size !== undefined && { [constants.BROTLI_PARAM_SIZE_HINT]: size }),
+        },
+      })) as unknown as WebPair
     }
     catch {
       return undefined
     }
   },
-  gzip: async () => new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
-  deflate: async () => new CompressionStream('deflate') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
+  gzip: zlibCompressor('gzip'),
+  deflate: zlibCompressor('deflate'),
 }
 
 /** 读取流的开头直到 limit 字节：返回拼回的完整流，以及整个流是否小于 limit */
@@ -110,7 +143,9 @@ export const compress: MiddlewareHandler = (ctx, next) => {
     if (body.small)
       return new Response(body.stream, { status: response.status, statusText: response.statusText, headers })
     for (const encoding of candidates) {
-      const compressor = await compressors[encoding]()
+      const compressor = await compressors[encoding](options.level?.[encoding], length === null || !Number.isFinite(Number(length))
+        ? undefined
+        : Number(length))
       if (!compressor)
         continue
       headers.delete('content-length')

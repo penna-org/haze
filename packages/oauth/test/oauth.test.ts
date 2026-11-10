@@ -4,7 +4,7 @@ import type { MockProviders } from './mock-providers'
 import { createVerify, generateKeyPairSync } from 'node:crypto'
 import { createApplication, defineRoutes, generateKey } from '@hazejs/core'
 import { decodeJwt, decodeProtectedHeader, exportJWK } from 'jose'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { alipaySign, alipaySignContent, clearDiscoveryCache, clearJwksCache, defineOAuthProvider, extractResponseNode, OAuth, registerOAuthProvider, rsaSign, rsaVerify, signClientSecret, verifyIdToken } from '../src'
 import { APPLE_KEY_ID, APPLE_TEAM, CLIENT_ID, CLIENT_SECRET, createMockProviders } from './mock-providers'
 
@@ -180,6 +180,8 @@ describe('provider flows against the mock servers', () => {
       name: 'The Octocat',
       nickname: 'octocat',
       email: 'octocat@example.com',
+      // 来自 /user/emails 中已验证的条目
+      emailVerified: true,
       avatar: 'https://avatars.example/octocat.png',
       token: { tokenType: 'bearer' },
     })
@@ -195,6 +197,7 @@ describe('provider flows against the mock servers', () => {
       id: 'google-1',
       name: 'Grace Hopper',
       email: 'grace@example.com',
+      emailVerified: true,
       avatar: 'https://lh3.example/grace.jpg',
     })
     expect(user.token.idToken).toBeTruthy()
@@ -225,7 +228,13 @@ describe('provider flows against the mock servers', () => {
     const app = await boot()
     const { user, location } = await login(app, 'microsoft')
     expect(location.href).toContain('https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize')
-    expect(user).toMatchObject({ id: 'ms-1', name: 'Ada Lovelace', email: 'ada@contoso.com' })
+    // mail / UPN 由租户管理员控制：不视为已验证
+    expect(user).toMatchObject({
+      id: 'ms-1',
+      name: 'Ada Lovelace',
+      email: 'ada@contoso.com',
+      emailVerified: false,
+    })
   })
 
   it('gitlab: self-hosted base URL', async () => {
@@ -233,6 +242,8 @@ describe('provider flows against the mock servers', () => {
     const { user, location } = await login(app, 'gitlab')
     expect(location.origin).toBe('https://git.example.com')
     expect(user).toMatchObject({ id: '42', nickname: 'linus', email: 'linus@example.com' })
+    // 没有 confirmed_at：未知
+    expect(user.emailVerified).toBeNull()
   })
 
   it('discord: animated avatar URL', async () => {
@@ -241,6 +252,7 @@ describe('provider flows against the mock servers', () => {
     expect(location.searchParams.has('code_challenge')).toBe(false)
     expect(user).toMatchObject({
       id: '80351110224678912',
+      emailVerified: true,
       name: 'Nelly',
       nickname: 'nelly',
       avatar: 'https://cdn.discordapp.com/avatars/80351110224678912/a_8342729096ea3675442027381ff50dfe.gif',
@@ -543,14 +555,46 @@ describe('tokens and signatures', () => {
       alg: 'ES256',
     })
     const fresh = await mock.idToken({ iss: 'https://idp.example.com', aud: CLIENT_ID, sub: 'r' }, 'ES256', 'ec-2', rotated.privateKey)
-    expect((await verifyIdToken(fresh, options)).sub).toBe('r')
-    expect(mock.counters.jwks).toBe(jwks + 1)
+    // 冷却时间内（距上次拉取不到 30 秒）不因未知 kid 重新请求：伪造 kid 不能放大成对 JWKS 的请求
+    await expect(verifyIdToken(fresh, options)).rejects.toThrow()
+    expect(mock.counters.jwks).toBe(jwks)
+    const now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now + 31_000)
+    try {
+      // 并发的校验共用同一次刷新
+      const [first, second] = await Promise.all([
+        verifyIdToken(fresh, options),
+        verifyIdToken(fresh, options),
+      ])
+      expect([first.sub, second.sub]).toEqual(['r', 'r'])
+      expect(mock.counters.jwks).toBe(jwks + 1)
+    }
+    finally {
+      clock.mockRestore()
+    }
     mock.extraJwks.length = 0
 
     // 未知密钥签名
     const stranger = generateKeyPairSync('ec', { namedCurve: 'P-256' })
     const forged = await mock.idToken({ iss: 'https://idp.example.com', aud: CLIENT_ID, sub: 'x' }, 'ES256', 'ec-1', stranger.privateKey)
     await expect(verifyIdToken(forged, options)).rejects.toThrow()
+  })
+
+  it('times out requests to the provider and JWKS endpoint', async () => {
+    const hang: typeof fetch = (_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+    })
+    await expect(verifyIdToken('a.b.c', {
+      jwksUri: 'https://slow.example.com/jwks',
+      issuer: 'https://slow.example.com',
+      audience: CLIENT_ID,
+      fetch: hang,
+      timeout: 20,
+    })).rejects.toMatchObject({ name: 'TimeoutError' })
+
+    const app = await boot({ fetch: hang, timeout: 20 })
+    const res = await app.request('/auth/github/callback?stateless=1&code=c-1')
+    expect(res.status).toBe(504)
   })
 
   it('alipay signing: content order, PKCS#8 / PKCS#1 / bare keys, response node extraction', async () => {

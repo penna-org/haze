@@ -47,7 +47,7 @@ export default defineGraphQLConfig({
 | `introspection` | on unless app mode is `production` | off → graphql-js `NoSchemaIntrospectionCustomRule` (validation error) |
 | `maxDepth` | `15` | `false` disables |
 | `maxComplexity` | off | number; `false`/`0` = off |
-| `subscriptions` | `false` | `true` or `{ connectionInitWaitTimeout (ms, default 3000), onConnect(ctx, payload) }` |
+| `subscriptions` | `false` | `true` or `{ connectionInitWaitTimeout (ms, default 3000), onConnect(ctx, payload), maxSubscriptionsPerConnection (default 100) }` |
 | `context` | — | `(ctx: HttpContext) => object \| void`, merged into the GraphQL context per operation |
 | `rootValue` | — | passed to `execute` |
 | `validationRules` | — | extra graphql-js `ValidationRule[]` appended to `specifiedRules` |
@@ -214,7 +214,7 @@ Subscription: {
 },
 ```
 
-`PubSub`: `publish(topic, payload)`, `subscribe(topic, { filter? })` → `AsyncIterableIterator`, `listenerCount(topic?)`. In-process only.
+`PubSub`: `publish(topic, payload)`, `subscribe(topic, { filter?, maxBufferSize? })` → `AsyncIterableIterator` (per-subscriber buffer capped at 1000 undelivered events by default, oldest dropped; `createPubSub({ maxBufferSize })`), `listenerCount(topic?)`. In-process only.
 
 ```ts
 // client
@@ -224,7 +224,7 @@ const client = createClient({ url: 'wss://example.com/graphql', connectionParams
 
 - Auth: upgrade-request headers/cookies are reused; `authorization` / `Authorization` / `token` in the `connection_init` payload becomes the `Authorization` header (`Bearer ` added if no scheme). So `ctx.auth` works.
 - `onConnect(ctx, payload)`: `false` (or throwing) closes with **4403**; returning an object sends it as the `connection_ack` payload.
-- Close codes: 4400 invalid message, 4401 `subscribe` before ack, 4408 no `connection_init` within `connectionInitWaitTimeout` (3000 ms), 4409 duplicate operation id, 4429 second `connection_init`, 4500 internal error.
+- Close codes: 4400 invalid message, 4401 `subscribe` before ack, 4408 no `connection_init` within `connectionInitWaitTimeout` (3000 ms), 4409 duplicate operation id, 4429 second `connection_init`, 4500 internal error. More than `maxSubscriptionsPerConnection` (default 100) concurrent operations on one connection → that `subscribe` gets an `error` message with code `TOO_MANY_SUBSCRIPTIONS` (connection stays open).
 - Upgrade without `Sec-WebSocket-Protocol: graphql-transport-ws` → 400; upgrade with subscriptions off → 400. Queries/mutations over the socket also work. Subscription operations over HTTP are rejected (`BAD_REQUEST`).
 - Runtimes: `haze dev`, node / bun / deno / docker builds. vercel / netlify / aws-lambda reject upgrades (426). On Cloudflare the build only auto-enables its WebSocket Durable Object when a route file contains `.ws(`; the provider does not, so you'd need `cloudflare: { websocket: true }` in `haze.config.ts` (untested path).
 

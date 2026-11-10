@@ -6,17 +6,55 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
-permissions:
-  contents: write
-  pull-requests: write
-  # npm 可信发布（Trusted Publishing）：pnpm 用 OIDC 身份令牌换取短期 npm 令牌，并自动附带 provenance
-  id-token: write
+# 各 job 单独声明所需权限
+permissions: {}
 
 jobs:
-  release:
-    name: Version or publish
+  # 与 CI 工作流由同一次 push 触发：等同一提交的 CI 结束，成功后才开 Version PR / 发布，CI 失败时不会发布
+  ci:
+    name: Wait for CI
     runs-on: ubuntu-latest
     if: github.repository == 'penna-org/haze'
+    timeout-minutes: 60
+    permissions:
+      actions: read
+    outputs:
+      conclusion: ${{ steps.wait.outputs.conclusion }}
+    steps:
+      - id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # CI 的运行记录可能晚于本工作流出现；重新运行 CI 后再重新运行本工作流会读取最新一次的结果
+          for i in $(seq 1 110); do
+            run=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --event push --limit 1 --json status,conclusion,url --jq '.[0] // empty')
+            if [ "$(jq -r '.status // empty' <<< "$run")" = completed ]; then
+              conclusion=$(jq -r '.conclusion' <<< "$run")
+              echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+              echo "CI $conclusion: $(jq -r '.url' <<< "$run")"
+              case "$conclusion" in
+                success) exit 0 ;;
+                # 被更新的提交取代（CI 的 concurrency 取消了旧的运行）：跳过，由新提交的 Release 处理
+                cancelled) echo "::notice::CI was cancelled for $GITHUB_SHA (superseded by a newer commit); skipping the release"; exit 0 ;;
+                *) echo "::error::CI did not succeed for $GITHUB_SHA ($conclusion); nothing is published"; exit 1 ;;
+              esac
+            fi
+            sleep 30
+          done
+          echo "::error::Timed out waiting for the CI run of $GITHUB_SHA"
+          exit 1
+
+  release:
+    name: Version or publish
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.repository == 'penna-org/haze' && needs.ci.outputs.conclusion == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+      # npm 可信发布（Trusted Publishing）：pnpm 用 OIDC 身份令牌换取短期 npm 令牌，并自动附带 provenance
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

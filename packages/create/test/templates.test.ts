@@ -35,6 +35,55 @@ describe('scaffold', () => {
       expect(project.read(file), file).not.toMatch(/\{\{\w+\}\}/)
   })
 
+  it('keeps the generated .env (APP_KEY) out of git and ships .env.example without secrets', () => {
+    for (const template of ['api', 'vue', 'react'] as const) {
+      const created = createProject(template)
+      try {
+        const ignored = created.read('.gitignore').split('\n')
+        expect(ignored, template).toContain('.env')
+        // 示例与测试环境文件进入 git
+        expect(ignored, template).not.toContain('.env.example')
+        expect(ignored, template).not.toContain('.env.test')
+        // .env：创建时生成真实的 APP_KEY；.env.example：相同的键，APP_KEY 留空
+        const keys = (file: string): string[] => [
+          ...created.read(file).matchAll(/^([A-Z_]\w*)=/gm),
+        ].map(match => match[1]).sort()
+        expect(/^APP_KEY=(.*)$/m.exec(created.read('.env'))![1], template).toMatch(/^[\w-]{43}$/)
+        expect(/^APP_KEY=(.*)$/m.exec(created.read('.env.example'))![1], template).toBe('')
+        expect(keys('.env.example'), template).toEqual(keys('.env'))
+        expect(created.read('.env.example'), template).toContain('haze key:generate')
+        expect(created.read('README.md'), template).toContain('cp .env.example .env')
+      }
+      finally {
+        created.cleanup()
+      }
+    }
+  })
+
+  it('template dependency ranges match the workspace catalog', () => {
+    // 模板的 package.json 写死版本范围（发布后不能用 catalog:），与 pnpm-workspace.yaml 的 catalog 保持一致
+    const workspace = readFileSync(new URL('../../../pnpm-workspace.yaml', import.meta.url), 'utf8')
+    const catalog = Object.fromEntries([
+      ...workspace.slice(workspace.indexOf('\ncatalog:\n')).matchAll(/^ {2}'?([^'\s:][^':]*)'?: (\S.*)$/gm),
+    ].map(match => [match[1], match[2]]))
+    expect(catalog).toMatchObject({
+      vite: expect.any(String),
+      typescript: expect.any(String),
+    })
+    const templatesDir = new URL('../templates/', import.meta.url)
+    const drift: string[] = []
+    for (const template of readdirSync(templatesDir)) {
+      const pkg = JSON.parse(readFileSync(new URL(`${template}/package.json`, templatesDir), 'utf8')) as Record<string, Record<string, string> | undefined>
+      for (const field of ['dependencies', 'devDependencies']) {
+        for (const [name, range] of Object.entries(pkg[field] ?? {})) {
+          if (catalog[name] && catalog[name] !== range)
+            drift.push(`${template}/package.json ${field}.${name}: ${range} (catalog: ${catalog[name]})`)
+        }
+      }
+    }
+    expect(drift).toEqual([])
+  })
+
   it('refuses to overwrite a non-empty directory without force', () => {
     project = createProject('api')
     expect(() => scaffold({ dir: project!.root, template: 'api' })).toThrow(/not empty/)

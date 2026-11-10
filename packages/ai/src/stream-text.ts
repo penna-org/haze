@@ -93,7 +93,10 @@ export interface StreamTextResult {
   readonly totalUsage: Promise<Usage>
   readonly steps: Promise<StepResult[]>
   readonly response: Promise<ResponseInfo & { messages: Message[] }>
-  /** 等待全部完成（等价于 await text，但不抛出） */
+  /**
+   * 等待全部完成（等价于 await text，但不抛出）。调用后，即使响应（toResponse 等）被客户端取消也继续生成到结束；
+   * 否则响应体被取消且没有其它消费者时会中止生成。
+   */
   consume: () => Promise<void>
   /** hazejs 的 SSE 协议（配合 @hazejs/ai/client 的 createChat / useChat） */
   toResponse: (init?: ResponseInit & { sendReasoning?: boolean }) => Response
@@ -123,6 +126,52 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
     steps: deferred<StepResult[]>(),
     response: deferred<ResponseInfo & { messages: Message[] }>(),
   }
+  // 内部的中止信号：响应体被客户端取消且没有其它消费者时中止生成（模型调用与工具执行），与 options.abortSignal 合并
+  const cancellation = new AbortController()
+  const signal = options.abortSignal
+    ? AbortSignal.any([options.abortSignal, cancellation.signal])
+    : cancellation.signal
+  let consumers = 0
+  let keepAlive = false
+  let settled = false
+  /**
+   * 订阅事件；`response: true` 表示 HTTP 响应体：被取消（客户端断开）时，
+   * 若没有其它仍在读取的消费者、也没有调用过 consume()，中止生成。
+   */
+  const subscribe = (response = false): AsyncGenerator<TextStreamEvent, void, undefined> => {
+    const inner = buffer.iterate()
+    consumers++
+    let released = false
+    const release = (): void => {
+      if (!released) {
+        released = true
+        consumers--
+      }
+    }
+    const iterator: AsyncGenerator<TextStreamEvent, void, undefined> = {
+      async next() {
+        const item = await inner.next()
+        if (item.done)
+          release()
+        return item
+      },
+      return(value) {
+        release()
+        if (response && !settled && !keepAlive && consumers === 0)
+          cancellation.abort()
+        return inner.return(value)
+      },
+      throw(error) {
+        release()
+        return inner.throw(error)
+      },
+      [Symbol.asyncIterator]() {
+        return iterator
+      },
+      [Symbol.asyncDispose]: async () => void await iterator.return(),
+    }
+    return iterator
+  }
   const emit = async (event: TextStreamEvent): Promise<void> => {
     buffer.push(event)
     await options.onEvent?.(event)
@@ -141,12 +190,14 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
 
     for (let stepNumber = 0; ; stepNumber++) {
       await emit({ type: 'start-step', stepNumber })
-      const signal = abortSignal(options.abortSignal, options.timeout)
-      const stream = await withRetry(() => model.stream(buildRequest(options, [...messages], { tools, toolChoice, signal })), { maxRetries: options.maxRetries, signal: options.abortSignal })
+      const stepSignal = abortSignal(signal, options.timeout)
+      const stream = await withRetry(() => model.stream(buildRequest(options, [...messages], { tools, toolChoice, signal: stepSignal })), { maxRetries: options.maxRetries, signal })
 
       const content: AssistantContentPart[] = []
       const toolCalls: ToolCall[] = []
-      const pending: Array<Promise<ToolResult | undefined>> = []
+      // 工具在流读取期间就开始执行、流结束后才统一等待：推入时即挂上处理器（收敛为结果对象），
+      // 否则期间的失败（未知工具、中止）会成为 unhandledRejection
+      const pending: Array<Promise<{ ok: true, value: ToolResult | undefined } | { ok: false, error: unknown }>> = []
       let finishReason: FinishReason = 'other'
       let usage = emptyUsage()
       let providerMetadata: ProviderMetadata | undefined
@@ -170,6 +221,8 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
           const { value: part, done } = await reader.read() as { value: ModelStreamPart, done: boolean }
           if (done)
             break
+          // 适配器不一定响应中止信号（如自定义模型）：每个分片检查一次
+          signal.throwIfAborted()
           switch (part.type) {
             case 'response-metadata':
               response.id ??= part.id
@@ -223,7 +276,10 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
                   role: 'assistant',
                   content: [...content],
                 },
-              ], options.abortSignal))
+              ], signal).then(
+                value => ({ ok: true as const, value }),
+                (error: unknown) => ({ ok: false as const, error }),
+              ))
               break
             }
             case 'finish':
@@ -239,6 +295,11 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
           }
         }
       }
+      catch (error) {
+        // 出错时取消读取，关闭上游的响应体（仅 releaseLock 不会关闭连接）
+        await reader.cancel(error).catch(() => {})
+        throw error
+      }
       finally {
         reader.releaseLock()
       }
@@ -248,7 +309,15 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
       const assistant: Message = { role: 'assistant', content }
       messages.push(assistant)
       responseMessages.push(assistant)
-      const executed = (await Promise.all(pending)).filter(Boolean) as ToolResult[]
+      const outcomes = await Promise.all(pending)
+      // 与 Promise.all 相同：有工具调用失败（未知工具、中止）则整个生成失败
+      const executed: ToolResult[] = []
+      for (const outcome of outcomes) {
+        if (!outcome.ok)
+          throw outcome.error
+        if (outcome.value)
+          executed.push(outcome.value)
+      }
       for (const toolResult of executed)
         await emit({ type: 'tool-result', ...toolResult })
       if (executed.length) {
@@ -309,20 +378,24 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
       item.reject(error)
     if (options.onError)
       await options.onError(error)
-    else
+    // 客户端断开引起的中止是预期内的，不打印
+    else if (!cancellation.signal.aborted)
       console.error('[hazejs/ai] streamText failed:', error)
-  }).finally(() => buffer.close())
+  }).finally(() => {
+    settled = true
+    buffer.close()
+  })
 
   return {
     get fullStream() {
       return {
-        [Symbol.asyncIterator]: () => buffer.iterate(),
+        [Symbol.asyncIterator]: () => subscribe(),
       }
     },
     get textStream() {
       return {
         async* [Symbol.asyncIterator]() {
-          for await (const event of buffer.iterate()) {
+          for await (const event of subscribe()) {
             if (event.type === 'text-delta')
               yield event.text
             else if (event.type === 'error')
@@ -340,16 +413,19 @@ export function streamText<TOOLS extends ToolSet = ToolSet>(options: StreamTextO
     totalUsage: result.totalUsage.promise,
     steps: result.steps.promise,
     response: result.response.promise,
-    consume: () => done,
+    consume: () => {
+      keepAlive = true
+      return done
+    },
     toResponse(init) {
-      return toEventStreamResponse(buffer.iterate(), init)
+      return toEventStreamResponse(subscribe(true), init)
     },
     toUIMessageStreamResponse(init) {
-      return toUIMessageStreamResponse(buffer.iterate(), init)
+      return toUIMessageStreamResponse(subscribe(true), init)
     },
     toTextStreamResponse(init) {
       const encoder = new TextEncoder()
-      const iterator = buffer.iterate()
+      const iterator = subscribe(true)
       const body = new ReadableStream<Uint8Array>({
         async pull(controller) {
           while (true) {

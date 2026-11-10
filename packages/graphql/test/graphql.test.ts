@@ -1,10 +1,10 @@
 import type { Application } from '@hazejs/core'
 import type { GraphQLHandlerOptions, SchemaInput } from '../src'
 import { BusinessException, createApplication, createToken, defineAbilities, defineRoutes, defineUserProvider, deny, inject, issueTestCredentials, NotFoundException, validate } from '@hazejs/core'
-import { GraphQLInt, GraphQLScalarType, GraphQLSchema, GraphQLString } from 'graphql'
+import { GraphQLInt, GraphQLScalarType, GraphQLSchema, GraphQLString, validate as graphqlValidate, parse } from 'graphql'
 import * as v from 'valibot'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createLoader, createPubSub, defineLoader, defineSchema, field, GRAPHIQL_VERSIONS, graphqlHandler, graphqlProvider, list, negotiate, nonNull, objectType } from '../src'
+import { complexityLimit, createLoader, createPubSub, defineLoader, defineSchema, depthLimit, field, GRAPHIQL_VERSIONS, graphqlHandler, graphqlProvider, list, negotiate, nonNull, objectType } from '../src'
 
 interface User { id: number, name: string, role: 'admin' | 'member' }
 interface Post { id: number, title: string, authorId: number }
@@ -544,6 +544,73 @@ describe('limits', () => {
     expect(status).toBe(400)
     expect(body.errors![0].extensions).toMatchObject({ code: 'COMPLEXITY_LIMIT_EXCEEDED', complexity: 100, maxComplexity: 50 })
   })
+
+  it('measures doubling fragment chains in linear time', async () => {
+    // fragment F0 { ...F1 ...F1 } … 30 层：逐次展开是 2^30 次
+    const levels = 30
+    const fragments = Array.from({ length: levels }, (_, i) => i === levels - 1
+      ? `fragment F${i} on Query { hello }`
+      : `fragment F${i} on Query { ...F${i + 1} ...F${i + 1} }`).join(' ')
+    const document = parse(`{ ...F0 } ${fragments}`)
+    const started = performance.now()
+    expect(graphqlValidate(schema, document, [
+      depthLimit(15),
+    ])).toEqual([])
+    const errors = graphqlValidate(schema, document, [
+      complexityLimit(1000),
+    ])
+    expect(performance.now() - started).toBeLessThan(100)
+    expect(errors[0].extensions).toMatchObject({ code: 'COMPLEXITY_LIMIT_EXCEEDED', complexity: 2 ** (levels - 1) })
+
+    // 循环引用不会死循环（由内置规则报告）
+    const cyclic = parse('{ ...A } fragment A on Query { hello ...B } fragment B on Query { ...A }')
+    expect(graphqlValidate(schema, cyclic, [
+      depthLimit(15),
+      complexityLimit(1000),
+    ])).toEqual([])
+
+    const app = await boot({ maxComplexity: 1000 })
+    const viaHttp = performance.now()
+    const { status } = await gql(app, `{ ...F0 } ${fragments}`)
+    expect(status).toBe(400)
+    expect(performance.now() - viaHttp).toBeLessThan(1000)
+  })
+
+  it('caches parsing and static validation per query, re-checking complexity per request', async () => {
+    let validated = 0
+    const paged = defineSchema({
+      typeDefs: 'type Item { id: Int } type Query { items(first: Int!): [Item!]! }',
+      resolvers: {
+        Query: {
+          items: {
+            resolve: (_s: unknown, args: { first: number }) => Array.from({ length: args.first }, (_, id) => ({ id })),
+            complexity: ({ args, childComplexity }) => Number(args.first) * childComplexity,
+          },
+        },
+      },
+    })
+    const app = await boot({
+      schema: paged,
+      maxComplexity: 50,
+      validationRules: [
+        () => ({
+          Document() {
+            validated++
+          },
+        }),
+      ],
+    })
+    const query = 'query($n: Int!) { items(first: $n) { id } }'
+    expect((await gql(app, query, { n: 3 })).body.data.items).toHaveLength(3)
+    expect((await gql(app, query, { n: 5 })).body.data.items).toHaveLength(5)
+    expect(validated).toBe(1)
+    // 变量不同：复杂度仍按本次请求计算
+    expect((await gql(app, query, { n: 100 })).body.errors![0].extensions.code).toBe('COMPLEXITY_LIMIT_EXCEEDED')
+    // 校验失败的结果同样被缓存，且每次都返回错误
+    expect((await gql(app, '{ nope }')).status).toBe(400)
+    expect((await gql(app, '{ nope }')).status).toBe(400)
+    expect(validated).toBe(2)
+  })
 })
 
 describe('loaders', () => {
@@ -853,6 +920,66 @@ describe('subscriptions (graphql-transport-ws)', () => {
       wrong.addEventListener('open', resolve)
       wrong.addEventListener('error', reject)
     })).rejects.toBeTruthy()
+  })
+
+  it('limits concurrent operations per connection', async () => {
+    const { url } = await serve({
+      subscriptions: { maxSubscriptionsPerConnection: 2 },
+    })
+    const client = connect(url)
+    await client.opened
+    client.send({ type: 'connection_init' })
+    for (const id of ['1', '2', '3']) {
+      client.send({
+        id,
+        type: 'subscribe',
+        payload: { query: 'subscription { postAdded { id } }' },
+      })
+    }
+    expect(await client.next(2)).toEqual([
+      { type: 'connection_ack' },
+      {
+        id: '3',
+        type: 'error',
+        payload: [
+          {
+            message: 'Too many concurrent operations on this connection (limit 2)',
+            extensions: { code: 'TOO_MANY_SUBSCRIPTIONS' },
+          },
+        ],
+      },
+    ])
+    // 释放一个后可以继续订阅
+    client.send({ id: '1', type: 'complete' })
+    client.send({
+      id: '4',
+      type: 'subscribe',
+      payload: { query: '{ hello }' },
+    })
+    expect((await client.next(4)).slice(2)).toEqual([
+      {
+        id: '4',
+        type: 'next',
+        payload: {
+          data: { hello: 'Hello world' },
+        },
+      },
+      { id: '4', type: 'complete' },
+    ])
+  })
+
+  it('bounds the pubsub buffer of slow subscribers', async () => {
+    const bus = createPubSub<{ tick: number }>({ maxBufferSize: 3 })
+    const iterator = bus.subscribe('tick')
+    for (let n = 0; n < 10; n++)
+      bus.publish('tick', n)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // 只保留最新的 3 条
+    expect((await iterator.next()).value).toBe(7)
+    expect((await iterator.next()).value).toBe(8)
+    expect((await iterator.next()).value).toBe(9)
+    await iterator.return!()
+    expect(bus.listenerCount()).toBe(0)
   })
 
   it('times out connections that never initialise', async () => {

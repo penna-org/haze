@@ -128,7 +128,7 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
 | 选项 | 说明 |
 | --- | --- |
 | `path` | 路径，默认 `/socket.io/`（与客户端默认值一致） |
-| `cors` | Socket.IO 的 CORS 选项。默认沿用 `config/cors.ts` 的 `origin` 并允许携带凭据；设为 `false` 关闭（同源） |
+| `cors` | Socket.IO 的 CORS 选项。默认沿用 `config/cors.ts` 的 `origin` 并允许携带凭据。`config/cors.ts` 未配置来源（或为 `true` / `'*'`）时允许任意来源，但**不**允许携带凭据——跨域使用 Cookie 认证时请配置来源，或在这里写 `cors: { origin, credentials: true }`。设为 `false` 关闭（同源） |
 | `adapter` | 多实例：`{ driver: 'redis', connection?, url?, key? }`，基于 `@socket.io/redis-adapter`（`pnpm add @socket.io/redis-adapter ioredis`）。`connection` 为 [Redis 连接](./redis)名（默认 `default`），内联 `url` 优先。`key`（默认 `socket.io`）是 pub/sub 频道的前缀，连接的 `keyPrefix` 不作用于频道 |
 | `options` | 透传给 Socket.IO `Server` 的其他选项（`pingInterval`、`connectionStateRecovery` 等） |
 

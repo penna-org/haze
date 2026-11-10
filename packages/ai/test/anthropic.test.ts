@@ -723,4 +723,47 @@ describe('anthropic messages', () => {
         process.env.ANTHROPIC_AUTH_TOKEN = previous[1]
     }
   })
+
+  it('reports streams that end before message_stop as a retryable APICallError', async () => {
+    server.reply(() => ({
+      sse: [
+        {
+          event: 'message_start',
+          data: {
+            type: 'message_start',
+            message: {
+              id: 'msg_1',
+              model: 'claude',
+              usage: { input_tokens: 3 },
+            },
+          },
+        },
+        {
+          event: 'content_block_start',
+          data: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'text', text: '' },
+          },
+        },
+        {
+          event: 'content_block_delta',
+          data: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Hel' },
+          },
+        },
+      ],
+    }))
+    const result = streamText({
+      model: anthropic()('claude-sonnet-4-5'),
+      prompt: 'x',
+      onError: () => {},
+    })
+    const error = await result.finishReason.catch(error => error)
+    expect(error).toBeInstanceOf(APICallError)
+    expect(error).toMatchObject({ provider: 'anthropic', isRetryable: true })
+    expect(error.message).toContain('stream ended before the model finished')
+  })
 })

@@ -48,6 +48,8 @@ export interface OAuthConfig {
   cookie?: string
   /** 授权的有效期（从跳转到回调），默认 `10m` */
   stateTtl?: string | number
+  /** 请求第三方接口（令牌、用户信息、discovery、JWKS）的超时毫秒数，默认 10000；0 不限 */
+  timeout?: number
   /** 替换 HTTP 客户端（代理、测试中的模拟服务器），默认全局 fetch */
   fetch?: typeof fetch
 }
@@ -60,6 +62,9 @@ export function defineOAuthConfig(config: OAuthConfig | (() => OAuthConfig)): OA
 const UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 }
 
 /** `'10m'` / `600` → 秒 */
+/** 请求第三方接口的默认超时（毫秒） */
+export const DEFAULT_HTTP_TIMEOUT = 10_000
+
 export function parseTtl(value: string | number): number {
   if (typeof value === 'number')
     return value

@@ -58,6 +58,7 @@ Timestamp values follow the column type: `Date`, string or milliseconds.
 
 ```ts
 const user = await User.find(1)          // User | undefined
+await User.find(undefined)               // undefined (also for null): a missing id never falls back to the first row
 const user = await User.findOrFail(1)    // throws ModelNotFoundException (404)
 const everyone = await User.all()
 const total = await User.count()
@@ -165,6 +166,30 @@ const user = await User.findOrEmpty(id)                 // never undefined
 if (user.isEmpty()) { /* ... */ }
 ```
 
+### Mass assignment
+
+`create(data)`, `save(data)` and `fill(data)` usually receive request input, so they skip more than unknown keys:
+
+- columns outside `static fillable` (when you set it) and columns in `static guarded`;
+- protected columns, even without any configuration: the primary key of an **existing** record (a new record may be created with an explicit primary key), the [tenant column](./tenancy#one-database-with-a-tenant-column), the soft-delete column and the [optimistic lock](#optimistic-locking) version.
+
+Skipped keys are ignored silently, like unknown ones.
+
+```ts
+export class User extends Model.define(users) {
+  static override fillable = ['name', 'email', 'bio'] // whitelist; undefined (default) = every column
+  static override guarded = ['role']                  // blacklist, checked after fillable
+}
+
+await User.create({ name: 'Ada', role: 'admin', deletedAt: new Date() })   // role and deletedAt are ignored
+await user.save({ id: 2, name: 'Ada' })                                    // id is ignored on an existing record
+
+// opting out, for trusted data:
+await User.create(row, ['name', 'role', 'tenantId'])   // fields listed in allowField are always accepted
+user.forceFill({ role: 'admin', deletedAt: null })     // skips fillable / guarded / protected columns
+user.role = 'admin'                                    // assigning a property is never restricted
+```
+
 Static `update()`, `saveAll()` and `destroy()` go through each model, so events, timestamps and soft deletes apply. That also means they first **select the matching rows and then write them one by one**: N+1 statements, not atomic, and a read of every column (slow on tables with large JSON documents). Pick the form by what you need:
 
 | You need | Use |
@@ -187,6 +212,8 @@ await Article.query().delete(1)                        // one statement; soft de
 `updateById()` ignores `undefined` values and [read-only fields](#read-only-fields), sets `updatedAt`, increments the [optimistic lock](#optimistic-locking) version (without checking it) and respects soft deletes, global scopes and tenancy. It fires no model events.
 
 `create()` (and `save()` on a new model) writes `createdAt` / `updatedAt` from the application's clock, not the database's — the column's `defaultNow()` is not used when the model sets a value. Keep that in mind when comparing these timestamps with `now()` in SQL, or set the value yourself. Values passed to `create()` may be drizzle `sql` expressions; the returned model holds the stored values.
+
+Changes made in place to a JSON column (`user.meta.city = 'Paris'`, `user.tags.push('x')`) are detected: plain objects and arrays are compared by value against a snapshot taken when the model was loaded or last saved.
 
 Other instance helpers: `isDirty(key?)`, `getDirty()`, `getOriginal(key?)`, `getData()` (the raw attributes, typed as the table's row), `refresh()` (reload from the database) and the `exists` getter.
 
@@ -446,13 +473,19 @@ export class Article extends MongoModel.define<ArticleDoc>('articles') {
 ```
 
 ```ts
-import { Mongo } from '@hazejs/orm/mongo'
+import { Mongo, mongoOp } from '@hazejs/orm/mongo'
 
 const article = await Article.findOrFail('6650…')  // string ids become ObjectId
 await Article.where('views', '>', 100).paginate(1, 20)
+await Article.where('tags', mongoOp({ $all: ['orm'] })).select()                  // query operators must be declared
+await Article.query().whereRaw({ $or: [{ views: 0 }, { 'meta.pinned': true }] }).select() // a raw MongoDB filter
 await Mongo.collection('articles').aggregate([{ $group: { _id: null, views: { $sum: '$views' } } }])
 await Mongo.transaction(async () => { /* requires a replica set */ })
 ```
+
+Conditions are safe to feed with request input: a plain object with `$` keys as a value (`where('email', { $ne: null })`) and a field name starting with `$` (`where({ $where: '…' })`) throw a `DatabaseError`. Wrap operators you write yourself in `mongoOp({ ... })`, or pass a complete filter to `whereRaw()` / `orWhereRaw()` — never request input. `find(id)` accepts a string, a number or an `ObjectId`; `undefined` / `null` give `undefined`, anything else throws.
+
+[Mass assignment](#mass-assignment) works as on SQL models (`static fillable` / `guarded`, `forceFill()`); the protected fields are `_id` of an existing document and the soft-delete field. Keys starting with `$` or containing `.` throw, and `save()` never sends attribute names as update operators. `Mongo.collection().update(values)` still accepts operators (`{ $inc: { views: 1 } }`); pass `{ operators: false }` when `values` comes from input.
 
 MongoDB has no migrations; manage indexes through `(await Mongo.db()).collection(...).createIndex()`. `haze make:model Article --dialect mongodb` generates a model with a document interface.
 

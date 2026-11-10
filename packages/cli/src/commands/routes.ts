@@ -21,6 +21,8 @@ export default defineCommand({
       server = await createDevServer({
         root: resolveRoot(args.root),
         listen: false,
+        // 一次性命令：读取后即退出，不监听文件变化
+        watch: false,
       })
       if (!server.app)
         throw new Error('Application failed to start')

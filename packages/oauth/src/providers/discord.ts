@@ -35,6 +35,9 @@ export class DiscordProvider extends OAuthProvider {
       email: raw.verified === false
         ? undefined
         : raw.email,
+      emailVerified: raw.verified === true
+        ? true
+        : null,
       avatar,
     }
   }

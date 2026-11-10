@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { createApplication, defineEvent, defineListener, EventManager, Events, Queue } from '../src'
+import { BroadcastManager, createApplication, defineEvent, defineListener, EventManager, Events, Queue } from '../src'
 
 const log: string[] = []
 
@@ -124,5 +124,38 @@ describe('events', () => {
         logger: { level: 'silent' },
       },
     })).rejects.toThrow('defineListener')
+  })
+})
+
+describe('events with broadcastOn', () => {
+  it('runs the listeners when broadcasting fails', async () => {
+    const Shipped = defineEvent<{ id: number }>({
+      name: 'Shipped',
+      broadcastOn: () => {
+        throw new Error('broadcast failed')
+      },
+    })
+    const instance = await createApplication({
+      mode: 'test',
+      env: false,
+      events: {
+        '/app/event/Shipped.ts': { default: Shipped },
+      },
+      listeners: {
+        '/app/listener/Record.ts': {
+          default: defineListener(Shipped, ({ id }) => void log.push(`shipped:${id}`)),
+        },
+      },
+      config: {
+        logger: { level: 'silent' },
+      },
+      setup: (app) => {
+        if (!app.container.has(BroadcastManager))
+          app.container.instance(BroadcastManager, new BroadcastManager(app))
+      },
+    })
+    app = instance
+    await expect(Events.emit(Shipped, { id: 1 })).resolves.toBeUndefined()
+    expect(log).toEqual(['shipped:1'])
   })
 })

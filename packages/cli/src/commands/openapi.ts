@@ -17,7 +17,7 @@ export default defineCommand({
   },
   async run({ args }) {
     const root = resolveRoot(args.root)
-    const server = await createDevServer({ root, listen: false })
+    const server = await createDevServer({ root, listen: false, watch: false })
     try {
       if (!server.app)
         throw new Error('Application failed to start')

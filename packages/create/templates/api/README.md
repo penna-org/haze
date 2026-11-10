@@ -102,6 +102,7 @@ curl localhost:3000/api/auth/me -H 'authorization: Bearer <token>'
 ```
 
 - `APP_KEY`（`.env`，创建项目时已生成）用于签名 Cookie、加密 Session 与 JWT；更换：`npx haze key:generate --force`
+- `.env` 含密钥，不进入 git（`.gitignore` 已忽略）；克隆项目后执行 `cp .env.example .env && npx haze key:generate`。新增环境变量时同步更新 `.env.example`
 - 路由保护：`.middleware('auth')`、`'auth:web,api'`（任一 Guard 通过）、`'guest'`；代码中 `await ctx.auth.user()`、`ctx.auth.jwt().login(user)`
 - 浏览器同源场景可加 session Guard：`web: { driver: 'session', provider: 'users' }`，`ctx.auth.session('web').attempt(credentials)`
 - 测试：`await t.actingAs(user)` 返回已登录的客户端

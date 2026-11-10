@@ -42,6 +42,8 @@ export class MicrosoftProvider extends OAuthProvider<MicrosoftProviderConfig> {
       nickname: raw.userPrincipalName,
       // 个人账号的 mail 可能为空，退回 UPN
       email: raw.mail ?? raw.userPrincipalName,
+      // mail / UPN 由租户管理员任意设置，Graph /me 不提供已验证的声明：不能据此合并账号
+      emailVerified: false,
     }
   }
 }

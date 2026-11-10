@@ -25,6 +25,26 @@ class Project extends Model.define(projects) {
   static override belongsToTenant = true
 }
 
+const owners = sqliteTable('owners', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+})
+
+const tasks = sqliteTable('tasks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id').notNull(),
+  title: text('title').notNull(),
+})
+
+class Task extends Model.define(tasks) {}
+
+class Owner extends Model.define(owners) {
+  /** 中间模型 Project 按租户隔离（这里借用 status 列保存负责人 ID） */
+  tasks() {
+    return this.hasManyThrough(Task, Project, 'status', 'projectId')
+  }
+}
+
 class Note extends Model.define(notes) {
   static override connection = 'tenant'
 }
@@ -94,8 +114,8 @@ describe('single database with a tenant id column (belongsToTenant)', () => {
     expect(created.tenantId).toBe('acme')
     await Tenancy.run('acme', () => Project.create({ name: 'Anvil' }))
     await Tenancy.run('globex', () => Project.create({ name: 'Hammock' }))
-    // 显式指定的租户 ID 不被覆盖（中央上下文的管理操作）
-    await Project.create({ name: 'Shared', tenantId: 'globex' })
+    // 租户列不接受批量赋值；中央上下文的管理操作用 allowField 显式列出后才写入，且不被覆盖
+    await Project.create({ name: 'Shared', tenantId: 'globex' }, ['name', 'tenantId'])
 
     expect((await Tenancy.run('acme', () => Project.order('id').column('name')))).toEqual(['Rocket', 'Anvil'])
     expect((await Tenancy.run('globex', () => Project.order('id').column('name')))).toEqual(['Hammock', 'Shared'])
@@ -112,6 +132,36 @@ describe('single database with a tenant id column (belongsToTenant)', () => {
     expect(await Project.where('status', 2).count()).toBe(2)
     expect(await Tenancy.run('globex', () => Project.query().delete({ all: true }))).toBe(2)
     expect(await Project.order('id').column('name')).toEqual(['Rocket', 'Anvil'])
+  })
+
+  it('ignores a mass-assigned tenant id and scopes the intermediate model of through relations', async () => {
+    await boot()
+    await Db.execute(sql`create table projects (id integer primary key autoincrement, tenant_id text, name text not null, status integer not null default 1)`)
+    await Db.execute(sql`create table owners (id integer primary key autoincrement, name text not null)`)
+    await Db.execute(sql`create table tasks (id integer primary key autoincrement, project_id integer not null, title text not null)`)
+
+    // 请求数据中的 tenantId 被忽略：写入的仍是当前租户
+    const spoofed = await Tenancy.run('acme', () => Project.create({ name: 'Rocket', tenantId: 'globex' }))
+    expect(spoofed.tenantId).toBe('acme')
+    await Tenancy.run('acme', () => spoofed.save({ tenantId: 'globex', name: 'Rocket 2' }))
+    expect(await Db.table(projects).where('id', spoofed.id).value('tenantId')).toBe('acme')
+    expect(spoofed.name).toBe('Rocket 2')
+    // 没有租户上下文时同样忽略；forceFill / 直接赋值可以写
+    expect((await Project.create({ name: 'Central', tenantId: 'globex' })).tenantId).toBeNull()
+    const moved = new Project().forceFill({ name: 'Hammock', tenantId: 'globex' })
+    await moved.save()
+    expect(moved.tenantId).toBe('globex')
+
+    // 远程一对多：中间模型（Project）按当前租户过滤
+    const owner = await Owner.create({ name: 'Ada' })
+    await Db.table(projects).where('id', spoofed.id).update({ status: owner.id })
+    await Db.table(projects).where('id', moved.id).update({ status: owner.id })
+    await Task.create({ projectId: spoofed.id, title: 'acme task' })
+    await Task.create({ projectId: moved.id, title: 'globex task' })
+    expect((await Tenancy.run('acme', () => owner.tasks())).map(task => task.title)).toEqual(['acme task'])
+    expect((await Tenancy.run('globex', () => owner.tasks())).map(task => task.title)).toEqual(['globex task'])
+    expect((await owner.tasks()).map(task => task.title).sort()).toEqual(['acme task', 'globex task'])
+    expect(await Tenancy.run('acme', () => Owner.has('tasks').count())).toBe(1)
   })
 
   it('does not treat the tenant filter as a condition for bulk writes', async () => {

@@ -188,7 +188,8 @@ await User.where('role', 'admin').order('id', 'desc').paginate(1, 20) // { data,
 const user = await User.create({ name: 'Ada', email: 'ada@example.com' })   // events + timestamps
 await User.create(input, ['name', 'email'])                                  // allow-list fields
 user.name = 'Ada L.'; await user.save()                                      // only dirty columns
-await user.save({ name: 'Ada' }); user.fill(data)                            // unknown keys ignored
+await user.save({ name: 'Ada' }); user.fill(data)                            // unknown keys + guarded/protected columns ignored
+user.forceFill({ role: 'admin', tenantId: 't1' })                            // trusted data: no mass-assignment guard
 await user.allowField(['name', 'bio']).save(input)
 await user.force().save()                                                    // touch updatedAt with no changes
 await post.inc('views').save()                                               // also dec(); views = views + 1 in SQL
@@ -215,8 +216,9 @@ user.isDirty('name'); user.getDirty(); user.getOriginal(); user.getData(); await
 | `getKey()` | PK value |
 | `getAttr(key)` / `setAttr(key, v)` | through accessor / mutator; use `getAttr('postsCount')` for query-added fields (no typed property) |
 | `getRaw(key)` / `getData()` | raw value / all raw attributes (typed as table row, includes extra selected fields) |
-| `fill(data)` | mass-assign; ignores non-columns and keys outside `allowField()` |
-| `isDirty(key?)` / `getDirty()` / `getOriginal(key?)` | change tracking since load/last save (shallow: mutating a JSON object in place is **not** dirty — assign a new object) |
+| `fill(data)` | mass-assign (also what `create(data)` / `save(data)` do); ignores non-columns, keys outside `static fillable` / inside `static guarded`, and protected columns: PK of an existing record (explicit PK on create is fine), tenant, soft-delete and optimLock columns. `allowField([...])` overrides all of that for the listed keys |
+| `forceFill(data)` | mass-assign trusted data without those guards (still columns only) |
+| `isDirty(key?)` / `getDirty()` / `getOriginal(key?)` | change tracking since load/last save (JSON columns — plain objects / arrays — are compared by value, so in-place mutation like `user.meta.a = 2` is dirty) |
 | `withAttr(name, (v, data) => …)` / `withAttr({ … })` | per-instance dynamic accessor (wins over `getXxxAttr`) |
 | `refresh()` | reload from primary; throws `DatabaseError` if the row is gone |
 | `delete()` → `boolean` / `forceDelete()` / `restore()` / `trashed()` | soft-delete aware |
@@ -376,7 +378,7 @@ await (await Db.drizzle()).select().from(hot)
 |---|---|
 | `select()` / `selectOrFail()` | rows (404 when empty for `OrFail`) |
 | `selectRows()` | raw row objects even on model queries |
-| `find()` / `findOrFail()` | first row; model queries accept a PK `find(id)` |
+| `find()` / `findOrFail()` | first row; model queries accept a PK `find(id)` — `find(undefined \| null)` returns `undefined`, only the no-argument form returns the first row |
 | `findOrEmpty(id?)` | model queries only: model or empty model |
 | `value(col)` | `Row[col] \| undefined` (or a `field()` alias type) |
 | `column(col)` / `column(col, keyCol)` / `column('*', keyCol)` | `T[]` / `Record<string, T>` / `Record<string, Row>` |
@@ -385,10 +387,11 @@ await (await Db.drizzle()).select().from(hot)
 | `avg(col)` | `number \| null` |
 | `max(col)` / `min(col)` | column type `\| null` |
 | `exists()` | `boolean` (`select 1 … limit 1`) |
-| `paginate(page = 1, perPage = 15)` | `{ data, total, page, perPage, lastPage }` (`page` floored, min 1; `lastPage` min 1) |
+| `paginate(page = 1, perPage = 15)` | `{ data, total, page, perPage, lastPage }` (`page` and `perPage` floored, min 1; `lastPage` min 1) |
 | `paginateX(perPage = 15, { lastId?, key = PK, sort = 'desc' })` | `{ data, perPage, lastId, hasMore }` — keyset, no COUNT; ignores existing `order()` |
-| `chunk(size, (rows, page) => false \| void)` | offset batches; return `false` to stop |
-| `cursor(size = 200)` / `lazy(size = 200)` | async iterator; PK keyset when no `order`/`group`/`union`, else offsets |
+| `chunk(size, (rows, page) => false \| void)` | offset batches (ordered by PK when no `order()`); return `false` to stop |
+| `chunkById(size, (rows, page) => false \| void, column?)` | PK keyset batches (`where id > last`), safe while updating/deleting the walked rows; ignores `order()` |
+| `cursor(size = 200)` / `lazy(size = 200)` | async iterator; PK keyset when no `order`/`group`/`distinct`/`union` (PK is added to a `field()` selection), else offsets |
 | `toSQL()` / `toSQL('insert', values)` / `toSQL('update', values?)` / `toSQL('delete', target?)` | `{ sql, params }`, not executed |
 
 ```ts
@@ -473,7 +476,7 @@ export class User extends Model.define(users) {
 | `morphOne` / `morphMany` | `(Related, 'commentable' \| ['typeCol', 'idCol'], type = this class name)` | `R \| null` / `R[]` |
 | `morphTo` | `('commentable' \| ['typeCol', 'idCol'], { Post, Video })` — keys = stored type values; `.associate(m)`, `.dissociate()` | `R \| null` |
 
-Morph name `'commentable'` means columns `commentableType` / `commentableId`; unknown stored type throws on lazy load. Relation definitions can chain `where(...)`, `whereIn(col, list)`, `order(...)`, `tap(q => q.withTrashed())` (any related-query call); these apply to lazy, eager and `has()` queries. `bind(['bio'] | { about: 'bio' })` (hasOne, belongsTo, morphOne, morphTo) flattens related fields into the parent's JSON instead of nesting; `withDefault(data = {})` (those + hasOneThrough) returns a filled unsaved model instead of `null`.
+Morph name `'commentable'` means columns `commentableType` / `commentableId`; unknown stored type throws on lazy load. Relation definitions can chain `where(...)`, `whereIn(col, list)`, `order(...)`, `tap(q => q.withTrashed())` (any related-query call); these apply to lazy, eager and `has()` queries. `bind(['bio'] | { about: 'bio' })` (hasOne, belongsTo, morphOne, morphTo) flattens related fields into the parent's JSON instead of nesting; `withDefault(data = {})` (those + hasOneThrough) returns a filled unsaved model instead of `null`. Through relations skip soft-deleted (and, with `belongsToTenant`, other tenants') intermediate records; the through model's global scopes are not applied. `has()` / `hasWhere()` / `hasNot()` work on self-referential relations (parent / children on one table).
 
 ```ts
 await user.posts()                                                   // await to load (lazy, not cached)
@@ -679,12 +682,16 @@ export class Article extends MongoModel.define<ArticleDoc>('articles') {
 ```
 
 ```ts
-import { Mongo } from '@hazejs/orm/mongo'
-await Article.findOrFail('6650…')                     // string ids → ObjectId
+import { Mongo, mongoOp } from '@hazejs/orm/mongo'
+await Article.findOrFail('6650…')                     // string ids → ObjectId; find(undefined|null) → undefined; objects/arrays throw
 await Article.where('views', '>', 100).paginate(1, 20)
+await Article.where('tags', mongoOp({ $all: ['a'] })).select()   // operators must be wrapped; a plain { $ne: null } value throws
+await Article.query().whereRaw({ $or: [{ a: 1 }, { b: 2 }] })    // raw filter (never request input)
 await Mongo.collection('articles').aggregate([...])
 await Mongo.transaction(async () => {})               // replica set required
 ```
+
+`where()` rejects `$`-prefixed field names and plain-object values with `$` keys (request-input safe). Mass assignment (`create`/`save(data)`/`fill`): `static fillable`/`guarded`, `_id` of an existing doc and the soft-delete field are ignored, keys starting with `$` or containing `.` throw; `forceFill()` skips the guards. `Mongo.collection().update(values)` accepts operators (`$inc`…) unless `{ operators: false }`.
 
 No migrations (create indexes via `(await Mongo.db()).collection(...).createIndex()`). Replicas via `readPreference` in the URL. Mongo models support `hasOne`/`hasMany`/`belongsTo`/`morph*` relations; not `belongsToMany`, `*Through`, `withCount`/`has`, factories.
 
@@ -702,7 +709,7 @@ No migrations (create indexes via `(await Mongo.db()).collection(...).createInde
 - **In-place JSON mutation is not dirty** (`user.meta.x = 1; save()` writes nothing) — assign a new object.
 - **Composite primary keys** are not supported by models (`find(id)`, `save()` updates, `destroy`, `updateById`, `insertGetId`, `paginateX`/`replace` defaults); use `Db.table()` and pass `upsert({ target: [...] })`.
 - `create()` timestamps come from the app clock, not the column's `defaultNow()`.
-- **`find()` on a builder vs model**: `Db.table(t).find()` returns the first row; `User.find(1)` looks up by PK. `findOrFail` throws a 404 exception — fine in controllers, surprising in jobs.
+- **`find()` on a builder vs model**: `Db.table(t).find()` returns the first row; `User.find(1)` looks up by PK, and `User.find(undefined)` / `find(null)` is `undefined` (never the first row). `findOrFail` throws a 404 exception — fine in controllers, surprising in jobs.
 - **Manual `startTrans()`** is bound to the async context of the calling function; calling `commit()` from a different call chain throws. Prefer `Db.transaction()`.
 - **D1 has no interactive transactions**: `transaction()` / `startTrans()` throw; use `(await Db.drizzle()).batch([...])`. `saveAll()`, `relation.saveAll()` and `sync()` run without a transaction on D1. `read`/`write` on `d1` or `mongodb` throw. `Db.transaction()` on a `mongodb` connection throws — use `Mongo.transaction()`.
 - **SQLite ignores `lock()`** (no row locks).

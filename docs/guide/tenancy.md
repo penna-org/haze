@@ -207,7 +207,7 @@ export class Project extends Model.define(projects) {
 Inside a tenant context:
 
 - every query on the model, including relations, `find()`, counts and mass updates / deletes, adds `tenantId = <current tenant id>` (this filter does not count as a condition for the `{ all: true }` check: `Project.query().delete()` still throws);
-- new models get `tenantId` filled in when it is empty.
+- new models get `tenantId` filled in when it is empty. The column is not [mass assignable](./models#mass-assignment): a `tenantId` in `create(data)` / `save(data)` is ignored. To write it on purpose, list it in `allowField` (`Project.create(row, ['name', 'tenantId'])`), use `forceFill()` or assign the property.
 
 ```ts
 await Tenancy.run('acme', async () => {

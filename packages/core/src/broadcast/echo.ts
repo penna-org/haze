@@ -47,6 +47,11 @@ export interface EchoOptions {
   credentials?: 'omit' | 'same-origin' | 'include'
   /** 断线自动重连，默认 true */
   reconnect?: boolean
+  /**
+   * WebSocket 心跳间隔（秒），默认 25，false 关闭：定期发送 ping，10 秒内没有收到 pong 视为连接已断开
+   * （网络切换、代理静默丢弃连接时浏览器不一定触发 close），关闭并按 reconnect 重连
+   */
+  heartbeat?: number | false
   /** socket.io：传入 socket.io-client 的 `io` 函数 */
   io?: (url: string, options?: Record<string, unknown>) => EchoSocketIOSocket
   /** socket.io：命名空间，默认 `/broadcasting` */
@@ -361,10 +366,13 @@ function readCookie(name: string): string | undefined {
 
 const needsAuth = (channel: string): boolean => channel.startsWith('private-') || channel.startsWith('presence-')
 
-/** 断线重连的等待时间：1s、2s、4s……最多 30s */
+/** 断线重连的等待时间：1s、2s、4s……最多 30s，再乘以 0.5–1 的随机系数（服务端重启时大量客户端不在同一时刻重连） */
 function backoff(attempt: number): number {
-  return Math.min(30_000, 1000 * 2 ** attempt)
+  return Math.min(30_000, 1000 * 2 ** attempt) * (0.5 + Math.random() * 0.5)
 }
+
+/** 等待 pong 的时间（毫秒） */
+const PONG_TIMEOUT = 10_000
 
 /** 订阅失败时转为 subscription_error */
 function authError(channel: string, error: unknown): EchoEnvelope {
@@ -386,6 +394,8 @@ class WebSocketConnector implements EchoConnector {
   #attempt = 0
   #closed = false
   #timer: ReturnType<typeof setTimeout> | undefined
+  #heartbeat: ReturnType<typeof setInterval> | undefined
+  #pong: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly echo: Echo) {
     this.#connect()
@@ -416,14 +426,58 @@ class WebSocketConnector implements EchoConnector {
   disconnect(): void {
     this.#closed = true
     clearTimeout(this.#timer)
+    this.#stopHeartbeat()
     this.#socket?.close()
+  }
+
+  #stopHeartbeat(): void {
+    clearInterval(this.#heartbeat)
+    clearTimeout(this.#pong)
+    this.#heartbeat = undefined
+    this.#pong = undefined
+  }
+
+  /** 连接就绪后开始心跳：每隔 heartbeat 秒发送 ping，PONG_TIMEOUT 内没有 pong 时按断线处理 */
+  #startHeartbeat(socket: WebSocket, lost: () => void): void {
+    this.#stopHeartbeat()
+    const seconds = this.echo.options.heartbeat ?? 25
+    if (seconds === false || !(seconds > 0))
+      return
+    this.#heartbeat = setInterval(() => {
+      if (this.#socket !== socket || this.#pong)
+        return
+      this.#send({ event: 'ping' })
+      this.#pong = setTimeout(() => {
+        this.#pong = undefined
+        // 半开的连接上 close() 可能很久才触发 close 事件：直接按断线处理
+        lost()
+        socket.close()
+      }, PONG_TIMEOUT)
+    }, seconds * 1000)
   }
 
   #connect(): void {
     const Ctor = this.echo.options.WebSocket ?? globalThis.WebSocket
     const socket = new Ctor(this.echo.url(`${this.echo.options.path}/ws`).replace(/^http/, 'ws'))
     this.#socket = socket
+    // 断线（close 事件或心跳超时，只处理一次）：按 reconnect 重连
+    let dropped = false
+    const lost = (): void => {
+      if (dropped)
+        return
+      dropped = true
+      if (this.#socket !== socket)
+        return
+      this.#stopHeartbeat()
+      this.#socketId = undefined
+      if (this.#closed || !this.echo.options.reconnect)
+        return
+      this.#timer = setTimeout(() => this.#connect(), backoff(this.#attempt++))
+    }
     socket.addEventListener('message', (event) => {
+      // 已按断线处理的旧连接：忽略迟到的消息
+      if (dropped)
+        return
       let envelope: EchoEnvelope
       try {
         envelope = JSON.parse(String(event.data))
@@ -431,9 +485,15 @@ class WebSocketConnector implements EchoConnector {
       catch {
         return
       }
+      if (envelope.event === 'haze:pong') {
+        clearTimeout(this.#pong)
+        this.#pong = undefined
+        return
+      }
       if (envelope.event === 'haze:connected') {
         this.#attempt = 0
         this.#socketId = envelope.data?.socket_id
+        this.#startHeartbeat(socket, lost)
         this.echo.dispatch(envelope)
         for (const channel of this.echo.channelNames())
           void this.#join(channel, this.#socketId!)
@@ -441,12 +501,7 @@ class WebSocketConnector implements EchoConnector {
       }
       this.echo.dispatch(envelope)
     })
-    socket.addEventListener('close', () => {
-      this.#socketId = undefined
-      if (this.#closed || !this.echo.options.reconnect)
-        return
-      this.#timer = setTimeout(() => this.#connect(), backoff(this.#attempt++))
-    })
+    socket.addEventListener('close', lost)
   }
 
   async #join(channel: string, socketId: string): Promise<void> {

@@ -269,10 +269,25 @@ export class NotificationManager {
           ? {}
           : options.queue)
       : undefined
+    // 每个接收者 × 渠道的投递互相隔离：一个失败（渠道不可用、地址无效）不影响其余的，全部尝试之后再抛出
+    const errors: unknown[] = []
+    const failed = (error: unknown, channel?: string): void => {
+      errors.push(error)
+      this.app.logger.error(channel
+        ? `Notification "${type}" could not be sent via "${channel}"`
+        : `Notification "${type}" could not be sent`, error)
+    }
     for (const notifiable of [notifiables].flat()) {
-      const channels = only ?? [
-        ...new Set(await options.via(notifiable, payload)),
-      ]
+      let channels: string[]
+      try {
+        channels = only ?? [
+          ...new Set(await options.via(notifiable, payload)),
+        ]
+      }
+      catch (error) {
+        failed(error)
+        continue
+      }
       const meta: NotificationMeta = {
         id: crypto.randomUUID(),
         type,
@@ -293,22 +308,31 @@ export class NotificationManager {
         continue
       }
       for (const channel of channels) {
-        const prepared = await this.#prepare(channel, notifiable, notification, meta)
-        // 没有地址（如按需发送时未指定该渠道）或内容为空：跳过
-        if (!prepared)
-          continue
-        const delivery: Delivery = {
-          channel,
-          route: prepared.route,
-          message: prepared.message,
-          notification: meta,
+        try {
+          const prepared = await this.#prepare(channel, notifiable, notification, meta)
+          // 没有地址（如按需发送时未指定该渠道）或内容为空：跳过
+          if (!prepared)
+            continue
+          const delivery: Delivery = {
+            channel,
+            route: prepared.route,
+            message: prepared.message,
+            notification: meta,
+          }
+          if (queue)
+            await this.app.make(QueueManager).dispatch(JOB, delivery, queue)
+          else
+            await this.deliver(delivery)
         }
-        if (queue)
-          await this.app.make(QueueManager).dispatch(JOB, delivery, queue)
-        else
-          await this.deliver(delivery)
+        catch (error) {
+          failed(error, channel)
+        }
       }
     }
+    if (errors.length === 1)
+      throw errors[0]
+    if (errors.length)
+      throw new AggregateError(errors, `Notification "${type}": ${errors.length} deliveries failed`)
   }
 
   async #prepare(channel: string, notifiable: unknown, notification: PendingNotification, meta: NotificationMeta): Promise<{ route: unknown, message: unknown } | undefined> {

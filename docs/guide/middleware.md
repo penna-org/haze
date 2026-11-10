@@ -10,7 +10,7 @@ Built-in middleware is available by name with no registration. Parameters follow
 |------|---------|--------|
 | `cors` | CORS headers and preflight. Must be global | `config/cors.ts` (`defineCorsConfig`) |
 | `secureHeaders` | `nosniff`, frame options, referrer policy and more. Adds HSTS on production HTTPS | `config/secureHeaders.ts` |
-| `compress` | br / gzip / deflate response compression | `config/compress.ts` |
+| `compress` | br / gzip / deflate response compression. Brotli uses quality 4 by default (fast enough for dynamic responses); tune with `level: { br, gzip, deflate }` | `config/compress.ts` |
 | `throttle:max,seconds` / `throttle:name` | Rate limiting per user or IP. Sends `RateLimit-*` headers, 429 when exceeded | `config/throttle.ts` |
 | `bodyLimit:size` | Request body limit for one route, e.g. `bodyLimit:10mb` (default `app.bodyLimit`, 1mb) | — |
 | `session` | Starts the session (`ctx.session`) | `config/session.ts` |

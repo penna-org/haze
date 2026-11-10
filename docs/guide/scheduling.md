@@ -130,6 +130,8 @@ export default defineJob({
 
 Set `runInServer: true` in `config/schedule.ts` to run due tasks inside the web process — handy for development and single-instance deployments. The loop starts when the HTTP server starts listening and stops when the application is disposed; tests and console commands never start it. With several instances, keep it off and run one `schedule:work` process (or use `onOneServer()` with a shared store).
 
+The long-running loop (`schedule:work`, `runInServer`) starts the due tasks every minute without waiting for the previous minute's tasks, so a task that takes five minutes does not delay the others; add `withoutOverlapping()` when a task must not run twice at the same time. A task that fails (including a throwing `when()` filter or an unavailable lock store) is logged and reported as failed without affecting the other tasks, and on shutdown the loop waits for running tasks.
+
 | Environment | How |
 | --- | --- |
 | Development | `npx haze schedule:work` (the template's `pnpm schedule`); reloads with your code |

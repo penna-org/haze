@@ -618,6 +618,7 @@ export default defineOAuthConfig(() => ({
 | `stateStore` | `'cookie'` | `'cookie'` (AES-GCM sealed with `APP_KEY`, no session needed) or `'session'` (key `_oauth.<provider>`) |
 | `cookie` | `'haze_oauth'` | Prefix; actual cookie `<prefix>_<provider>` (parallel flows don't collide) |
 | `stateTtl` | `'10m'` | Seconds or `'Ns/m/h/d'` |
+| `timeout` | `10000` | ms per provider call (token, profile, discovery, JWKS); `0` = none; timeout → `OAuthException` 504 `provider_timeout` |
 | `fetch` | global `fetch` | HTTP client for every provider call (proxies, tests) |
 
 ```ts
@@ -649,7 +650,7 @@ export class OAuthController {
 }
 ```
 
-`OAuthUser`: `provider` (config key), `id` (string; missing → `OAuthException` `missing_user_id`), `name`/`nickname`/`email`/`avatar` (`null` when absent), `raw` (vendor profile: unionid, phone, tenant, Apple `raw.user` on first sign-in …), `token: OAuthToken` = `{ accessToken, refreshToken?, expiresIn?, idToken?, tokenType?, scope?, raw }`.
+`OAuthUser`: `provider` (config key), `id` (string; missing → `OAuthException` `missing_user_id`), `name`/`nickname`/`email`/`avatar` (`null` when absent), `emailVerified: boolean | null` (`true` = provider confirms it: OIDC/Google/Apple `email_verified`, GitHub verified `/user/emails` entry, GitLab `confirmed_at`, Discord `verified`; `false` = unverified/untrustworthy, always for Microsoft; `null` = no signal), `raw` (vendor profile: unionid, phone, tenant, Apple `raw.user` on first sign-in …), `token: OAuthToken` = `{ accessToken, refreshToken?, expiresIn?, idToken?, tokenType?, scope?, raw }`.
 
 | Builder (fresh instance per `OAuth.driver()` call) | |
 |---|---|
@@ -663,7 +664,7 @@ export class OAuthController {
 | `await .userFromToken(token \| { accessToken, … }, extra?)` | Mobile SDK tokens; WeChat/QQ need `{ openid }`; Apple takes the `identityToken` |
 | `await .refreshToken(rt)` | New `OAuthToken` (standard OAuth2, WeChat, QQ, DingTalk, Feishu, Alipay) |
 
-Facade: `OAuth.enabled(name)`, `OAuth.providers()` (enabled names, e.g. login buttons), `OAuth.build(driver, config, globalOptions?)` (runtime config, e.g. per tenant; skips `config/oauth.ts`). Package exports: `oauthDrivers()`, `verifyIdToken(token, { jwksUri, issuer, audience, nonce?, algorithms?, clockTolerance? (60), fetch? })`, `codeChallenge()`, `signClientSecret()`, `clearJwksCache()`, `clearDiscoveryCache()`.
+Facade: `OAuth.enabled(name)`, `OAuth.providers()` (enabled names, e.g. login buttons), `OAuth.build(driver, config, globalOptions?)` (runtime config, e.g. per tenant; skips `config/oauth.ts`). Package exports: `oauthDrivers()`, `verifyIdToken(token, { jwksUri, issuer, audience, nonce?, algorithms?, clockTolerance? (60), fetch?, timeout? (10000 ms) })` (unknown `kid` forces one JWKS refresh, at most once per 30 s per URI, concurrent refreshes shared), `codeChallenge()`, `signClientSecret()`, `clearJwksCache()`, `clearDiscoveryCache()`.
 
 **State, PKCE, nonce.** `redirect()` stores `{ state, verifier?, nonce?, redirectUri, exp }`; the callback reads it **once** (cookie deleted / session key pulled), compares `state` in constant time, sends the verifier and checks the OIDC nonce inside the verified `id_token` (`iss`, `aud`, `exp`, JWKS signature). State cookie: `HttpOnly; SameSite=Lax`; Apple's is `SameSite=None; Secure` (cross-site `form_post`). Missing/expired/tampered/reused → `InvalidStateException`.
 
@@ -676,13 +677,15 @@ const link = await SocialAccount.where('provider', profile.provider).where('prov
 let user = link ? await User.find(link.userId) : undefined
 if (!user) {
   const current = await ctx.auth.user() // "connect account": works with session / cookie-JWT guards (a redirect carries no Bearer header)
-  user = current ?? await User.create({ name: profile.name ?? profile.nickname ?? 'User', email: profile.email })
+  // merge into an existing account by email ONLY when the provider verified it
+  const byEmail = profile.email && profile.emailVerified === true ? await User.where('email', profile.email).find() : undefined
+  user = current ?? byEmail ?? await User.create({ name: profile.name ?? profile.nickname ?? 'User' })
   await SocialAccount.create({ userId: user.id, provider: profile.provider, providerId: profile.id })
 }
 return ctx.auth.jwt().login(user)
 ```
 
-(`SocialAccount` / `social_accounts` is your own model and table, not shipped by hazejs. Only trust `profile.email` from providers that verify it.)
+(`SocialAccount` / `social_accounts` is your own model and table, not shipped by hazejs. Never match `profile.email` against local users unless `profile.emailVerified === true` — e.g. a Microsoft tenant admin controls `mail`/UPN; `false` and `null` both mean unverified.)
 
 Custom provider (standard auth-code flow):
 
@@ -715,6 +718,7 @@ Non-standard flows: `class X extends OAuthProvider` (or `OidcProvider`) overridi
 | `InvalidStateException` | 400, `code: 'invalid_state'` | State missing / expired / tampered / reused (often: cookie not sent back) |
 | `OAuthException` | 400 | User denied (`access_denied`), bad/used code (`invalid_grant`, WeChat `40029`), `missing_code`, vendor error; `.provider` = name |
 | `OAuthException` | 502 | Provider unreachable (`provider_unreachable`), 5xx, bad Alipay signature |
+| `OAuthException` | 504 | Provider did not answer within `timeout` (`provider_timeout`) |
 | `NotFoundException` | 404 | `OAuth.driver(name)` unknown or disabled |
 
 Testing: `createApplication({ mode: 'test', config: { oauth: { fetch: fakeFetch, providers: { github: { clientId: 'id', clientSecret: 'secret', redirect: '/auth/github/callback' } } } } })` where `fakeFetch` answers by `new URL(String(input)).pathname` (e.g. `/login/oauth/access_token` → `Response.json({ access_token: 'test-token', token_type: 'bearer' })`, `/user` → profile JSON). Then `GET /auth/github`, read `state` from `Location`, keep `Set-Cookie`, and call `/auth/github/callback?code=x&state=…` with that cookie. Or skip the redirect flow: `OAuth.driver('github').stateless()`, or test `userFromToken()`.

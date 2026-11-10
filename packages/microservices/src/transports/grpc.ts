@@ -77,7 +77,7 @@ export function grpcTransport(config: Omit<GrpcTransportConfig, 'driver'>): Tran
   let loaded: Promise<{ grpc: typeof Grpc, methods: Method[] }> | undefined
   let client: Grpc.Client | undefined
 
-  const load = (): Promise<{ grpc: typeof Grpc, methods: Method[] }> => loaded ??= (async () => {
+  const loadOnce = async (): Promise<{ grpc: typeof Grpc, methods: Method[] }> => {
     const { grpc, loader } = await loadModules()
     const definition = await loader.load(config.protoPath, {
       keepCase: true,
@@ -109,7 +109,13 @@ export function grpcTransport(config: Omit<GrpcTransportConfig, 'driver'>): Tran
         : ''}`)
     }
     return { grpc, methods }
-  })()
+  }
+
+  const load = (): Promise<{ grpc: typeof Grpc, methods: Method[] }> => loaded ??= loadOnce().catch((error) => {
+    // 失败的加载不缓存（如 proto 文件暂时不可读、可选依赖刚装上），下次调用重试
+    loaded = undefined
+    throw error
+  })
 
   const methodFor = (methods: Method[], pattern: string): Method => {
     const method = methods.find(item => item.pattern === pattern)

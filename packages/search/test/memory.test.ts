@@ -1,7 +1,7 @@
 import type { Application } from '@hazejs/core'
 import type { MemoryEngine } from '../src'
 import { Queue, Tenancy } from '@hazejs/core'
-import { Model } from '@hazejs/orm'
+import { Db, Model } from '@hazejs/orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushSearchable, importSearchable, search, Search, searchable, syncSearchSettings, useSearchManager, withoutSyncing } from '../src'
 import { boot, sample, shutdown, sqlitePosts } from './setup'
@@ -114,6 +114,54 @@ describe('memory engine and index syncing', () => {
 
     // 加载模型时的约束；数据库中已不存在的记录被略过
     expect((await search(Post, 'search').constrain(query => query.where('views', '>', 40)).get()).map(post => post.title)).toEqual(['Full-text search'])
+  })
+
+  it('defers syncing until the transaction commits and drops it on rollback', async () => {
+    app = await boot()
+    // 回滚：索引中不留下数据库里不存在的文档
+    await expect(Db.transaction(async () => {
+      await Post.create(sample[0]!)
+      expect(memory().documents('posts')).toHaveLength(0)
+      throw new Error('rollback')
+    })).rejects.toThrow('rollback')
+    expect(await Post.count()).toBe(0)
+    expect(memory().documents('posts')).toHaveLength(0)
+
+    // 提交后才写入索引，文档为提交时的状态
+    await Db.transaction(async () => {
+      const post = await Post.create(sample[0]!)
+      post.title = 'Renamed inside the transaction'
+      await post.save()
+      expect(memory().documents('posts')).toHaveLength(0)
+    })
+    expect(memory().documents('posts').map(doc => doc.title)).toEqual(['Renamed inside the transaction'])
+
+    // 删除同样推迟；嵌套事务（保存点）回滚时只丢弃内层的同步
+    const [post] = await Post.all()
+    await Db.transaction(async () => {
+      await post!.forceDelete()
+      expect(memory().documents('posts')).toHaveLength(1)
+      await expect(Db.transaction(async () => {
+        await Post.create(sample[1]!)
+        throw new Error('inner')
+      })).rejects.toThrow('inner')
+    })
+    expect(memory().documents('posts')).toHaveLength(0)
+  })
+
+  it('imports by primary key so every record is indexed once', async () => {
+    app = await boot()
+    await withoutSyncing(async () => {
+      for (let index = 0; index < 7; index++)
+        await Post.create({ ...sample[0]!, title: `Post ${index}` })
+    })
+    const progress: number[] = []
+    expect(await importSearchable(Post, {
+      chunk: 3,
+      onProgress: imported => void progress.push(imported),
+    })).toBe(7)
+    expect(progress).toEqual([3, 6, 7])
+    expect(memory().documents('posts').map(doc => doc.id)).toEqual([1, 2, 3, 4, 5, 6, 7])
   })
 
   it('does not sync inside withoutSyncing() and can re-import / flush', async () => {

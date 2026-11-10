@@ -1,7 +1,7 @@
 import type { Application } from '../src'
 import type { EchoChannel, EchoOptions, PresenceMember } from '../src/broadcast/echo'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApplication, defineEvent, defineRoutes, defineUserProvider, Events, generateKey, issueTestCredentials, RedisManager } from '../src'
 import { Broadcast, broadcast, setBroadcastManager } from '../src/broadcast/broadcast'
 import { redisBus } from '../src/broadcast/bus'
@@ -292,7 +292,120 @@ describe.each([
   })
 })
 
+describe('echo websocket connector', () => {
+  class FakeSocket {
+    static instances: FakeSocket[] = []
+    readyState = 1
+    sent: Array<Record<string, unknown>> = []
+    closed = false
+    readonly #listeners = new Map<string, Array<(event: any) => void>>()
+
+    constructor(readonly url: string) {
+      FakeSocket.instances.push(this)
+    }
+
+    addEventListener(event: string, listener: (event: any) => void): void {
+      this.#listeners.set(event, [
+        ...this.#listeners.get(event) ?? [],
+        listener,
+      ])
+    }
+
+    emit(event: string, data?: unknown): void {
+      for (const listener of this.#listeners.get(event) ?? []) {
+        listener({
+          data: data === undefined
+            ? undefined
+            : JSON.stringify(data),
+        })
+      }
+    }
+
+    send(data: string): void {
+      this.sent.push(JSON.parse(data))
+    }
+
+    // 半开的连接：close() 之后迟迟没有 close 事件
+    close(): void {
+      this.closed = true
+      this.readyState = 3
+    }
+  }
+
+  it('sends pings, reconnects when no pong arrives and adds jitter to the backoff', async () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    FakeSocket.instances.length = 0
+    const client = createEcho({ url: 'http://demo.test', WebSocket: FakeSocket as never })
+    try {
+      const [first] = FakeSocket.instances
+      first!.emit('message', {
+        event: 'haze:connected',
+        data: { socket_id: 's1' },
+      })
+      await vi.advanceTimersByTimeAsync(25_000)
+      expect(first!.sent).toEqual([
+        { event: 'ping' },
+      ])
+      // 收到 pong：连接保持
+      first!.emit('message', { event: 'haze:pong' })
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(first!.closed).toBe(false)
+      expect(client.connector.socketId()).toBe('s1')
+
+      // 下一次 ping 没有回应：10 秒后按断线处理并重连
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(first!.sent).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(first!.closed).toBe(true)
+      expect(client.connector.socketId()).toBeUndefined()
+      // 退避 1s × 随机系数 0.5–1（random 为 0 时 500ms）
+      await vi.advanceTimersByTimeAsync(499)
+      expect(FakeSocket.instances).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(FakeSocket.instances).toHaveLength(2)
+      // 旧连接迟到的 close 事件不再触发第二次重连
+      first!.emit('close')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(FakeSocket.instances).toHaveLength(2)
+
+      // heartbeat: false 关闭心跳
+      const quiet = createEcho({ url: 'http://demo.test', WebSocket: FakeSocket as never, heartbeat: false })
+      const socket = FakeSocket.instances.at(-1)!
+      socket.emit('message', {
+        event: 'haze:connected',
+        data: { socket_id: 's2' },
+      })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(socket.sent).toEqual([])
+      quiet.disconnect()
+    }
+    finally {
+      client.disconnect()
+      random.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('broadcasting over ws only', () => {
+  it('limits the channels of one connection to maxChannels', async () => {
+    const { url } = await start({
+      broadcasting: { maxChannels: 2 },
+    })
+    const client = echo(url)
+    await Promise.all([
+      subscribed(client.channel('news')),
+      subscribed(client.channel('sports')),
+    ])
+    await expect(subscribed(client.channel('weather'))).rejects.toMatchObject({ status: 400, message: 'Too many channels' })
+    // 退订之后可以再订阅
+    client.leave('sports')
+    await sleep(50)
+    client.leave('weather')
+    await subscribed(client.channel('weather'))
+  })
+
   it('whispers to other members and skips the sender with toOthers', async () => {
     const { url, token } = await start()
     const ada = echo(url, {

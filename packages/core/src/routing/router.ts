@@ -91,6 +91,8 @@ export class Router {
   readonly #routes: Route[] = []
   readonly #mounts: Array<{ router: Router } & MountOptions> = []
   #compiled: RouteRecord[] = []
+  /** 自己的路由名 → 路径（url() 使用），加载 / 编译路由后重建 */
+  #names: Map<string, string> | undefined
   /** compile() 时记录，签名链接在请求之外读取 APP_KEY / APP_URL */
   #container: Container | undefined
 
@@ -111,6 +113,7 @@ export class Router {
       for (const route of this.#routes.slice(start))
         route.definition.module = options.module
     }
+    this.#names = undefined
     return this
   }
 
@@ -202,9 +205,17 @@ export class Router {
   }
 
   #pathOf(name: string): string | undefined {
-    const own = this.definitions().find(def => def.name === name)
-    if (own)
-      return own.path
+    if (!this.#names) {
+      this.#names = new Map()
+      for (const { definition } of this.#routes) {
+        // 重名时取先注册的（compile() 会报错）
+        if (definition.name && !this.#names.has(definition.name))
+          this.#names.set(definition.name, definition.path)
+      }
+    }
+    const own = this.#names.get(name)
+    if (own !== undefined)
+      return own
     for (const mount of this.#mounts) {
       const path = mount.router.#pathOf(name)
       if (path !== undefined)
@@ -215,6 +226,7 @@ export class Router {
 
   compile({ h3, container, middleware }: CompileOptions): void {
     this.#container = container
+    this.#names = undefined
     const names = new Map<string, RouteDefinition>()
     this.#compiled = this.definitions().map((definition) => {
       if (definition.name) {

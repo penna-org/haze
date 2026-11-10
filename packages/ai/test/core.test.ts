@@ -1,4 +1,4 @@
-import type { EmbeddingModel } from '../src'
+import type { EmbeddingModel, LanguageModel, ModelStreamPart } from '../src'
 import * as v from 'valibot'
 import { afterEach, describe, expect, it } from 'vitest'
 import { APICallError, configureAI, cosineSimilarity, createProvider, defineTool, embedMany, generateObject, generateText, jsonSchema, mockModel, NoObjectGeneratedError, NoSuchModelError, parsePartialJSON, parseSSE, setModelRegistry, streamObject, streamText, withRetry } from '../src'
@@ -361,6 +361,160 @@ describe('streamText', () => {
     expect(events).toEqual(['start', 'start-step', 'error'])
     expect(errors).toHaveLength(1)
   })
+
+  it('does not leak unhandled rejections when a tool call fails while the stream is still being read', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (error: unknown): void => void unhandled.push(error)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      let cancelled = false
+      const model: LanguageModel = {
+        kind: 'language',
+        provider: 'mock',
+        modelId: 'mock',
+        generate: async () => {
+          throw new Error('unused')
+        },
+        stream: async () => new ReadableStream<ModelStreamPart>({
+          async start(controller) {
+            controller.enqueue({
+              type: 'tool-call',
+              toolCallId: 'c1',
+              toolName: 'nope',
+              input: '{}',
+            })
+            // 工具调用已失败，流还在继续
+            await new Promise(resolve => setTimeout(resolve, 30))
+            controller.enqueue({
+              type: 'error',
+              error: new Error('upstream broke'),
+            })
+          },
+          cancel() {
+            cancelled = true
+          },
+        }),
+      }
+      const errors: unknown[] = []
+      const result = streamText({
+        model,
+        prompt: 'x',
+        tools: { weather },
+        onError: error => void errors.push(error),
+      })
+      await result.consume()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).toEqual([])
+      expect((errors[0] as Error).message).toBe('upstream broke')
+      // 出错时上游的流被取消，而不只是释放锁
+      expect(cancelled).toBe(true)
+
+      // 流正常结束时，未知工具仍然使生成失败
+      const unknownTool = streamText({
+        model: mockModel({
+          toolCalls: [
+            { toolName: 'nope', input: {} },
+          ],
+        }),
+        prompt: 'x',
+        tools: { weather },
+        onError: () => {},
+      })
+      await expect(unknownTool.text).rejects.toThrow('Model called an unknown tool "nope"')
+      expect(unhandled).toEqual([])
+    }
+    finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
+  it('aborts generation when the response body is cancelled, unless consume() was called', async () => {
+    const endless = () => {
+      const state: { signal?: AbortSignal, cancelled: boolean } = { cancelled: false }
+      const model: LanguageModel = {
+        kind: 'language',
+        provider: 'mock',
+        modelId: 'mock',
+        generate: async () => {
+          throw new Error('unused')
+        },
+        stream: async (request) => {
+          state.signal = request.signal
+          let timer: ReturnType<typeof setInterval>
+          return new ReadableStream<ModelStreamPart>({
+            start(controller) {
+              timer = setInterval(() => controller.enqueue({ type: 'text-delta', text: 'tick ' }), 5)
+            },
+            cancel() {
+              state.cancelled = true
+              clearInterval(timer)
+            },
+          })
+        },
+      }
+      return { model, state }
+    }
+    const logged: unknown[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => void logged.push(args)
+    try {
+      for (const respond of [
+        (result: ReturnType<typeof streamText>) => result.toResponse(),
+        (result: ReturnType<typeof streamText>) => result.toUIMessageStreamResponse(),
+        (result: ReturnType<typeof streamText>) => result.toTextStreamResponse(),
+      ]) {
+        const { model, state } = endless()
+        const result = streamText({ model, prompt: 'x' })
+        const reader = respond(result).body!.getReader()
+        await reader.read()
+        await reader.cancel()
+        await expect(result.text).rejects.toMatchObject({ name: 'AbortError' })
+        expect(state.signal?.aborted).toBe(true)
+        expect(state.cancelled).toBe(true)
+      }
+      // 客户端断开不作为错误打印
+      expect(logged).toEqual([])
+
+      // 还有其它消费者，或调用过 consume()：继续生成
+      const user = new AbortController()
+      const kept = endless()
+      const result = streamText({
+        model: kept.model,
+        prompt: 'x',
+        abortSignal: user.signal,
+        onError: () => {},
+      })
+      void result.consume()
+      const reader = result.toResponse().body!.getReader()
+      await reader.read()
+      await reader.cancel()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(kept.state.signal?.aborted).toBe(false)
+      user.abort()
+      await expect(result.text).rejects.toMatchObject({ name: 'AbortError' })
+
+      const shared = endless()
+      const stop = new AbortController()
+      const second = streamText({
+        model: shared.model,
+        prompt: 'x',
+        abortSignal: stop.signal,
+        onError: () => {},
+      })
+      const other = second.fullStream[Symbol.asyncIterator]()
+      await other.next()
+      const body = second.toResponse().body!.getReader()
+      await body.read()
+      await body.cancel()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(shared.state.signal?.aborted).toBe(false)
+      stop.abort()
+      await second.consume()
+    }
+    finally {
+      console.error = original
+    }
+  })
 })
 
 describe('structured output', () => {
@@ -446,6 +600,45 @@ describe('structured output', () => {
       name: 'Tea',
       steps: ['boil', 'steep'],
     })
+  })
+
+  it('throttles partial parsing for long outputs without losing the final partial', async () => {
+    const items = Array.from({ length: 2000 }, (_, i) => `item-${i}`)
+    const json = JSON.stringify({ name: 'Big', steps: items })
+    const model: LanguageModel = {
+      kind: 'language',
+      provider: 'mock',
+      modelId: 'mock',
+      structuredOutput: 'native',
+      generate: async () => {
+        throw new Error('unused')
+      },
+      stream: async () => new ReadableStream<ModelStreamPart>({
+        start(controller) {
+          for (let i = 0; i < json.length; i += 4) {
+            controller.enqueue({
+              type: 'text-delta',
+              text: json.slice(i, i + 4),
+            })
+          }
+          controller.enqueue({
+            type: 'finish',
+            finishReason: 'stop',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          })
+          controller.close()
+        },
+      }),
+    }
+    const result = streamObject({ model, schema: Recipe, prompt: 'x' })
+    const partials = []
+    for await (const partial of result.partialObjectStream)
+      partials.push(partial)
+    // 约 6500 个增量：前 1 KB 逐个解析，之后按增长量节流
+    expect(partials.length).toBeGreaterThan(50)
+    expect(partials.length).toBeLessThan(600)
+    expect(partials.at(-1)).toEqual({ name: 'Big', steps: items })
+    expect((await result.object).steps).toHaveLength(2000)
   })
 })
 

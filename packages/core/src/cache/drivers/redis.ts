@@ -139,16 +139,26 @@ export function redisStore(_name: string, config: RedisStoreConfig, redis: Redis
       const redis = await client()
       // ioredis 的 keyPrefix 不作用于 SCAN 的模式，返回的键也带着它；DEL 时会再加一次，先去掉
       const keyPrefix = redis.options?.keyPrefix ?? ''
-      let cursor = '0'
-      do {
-        const [next, keys] = await redis.scan(cursor, 'MATCH', `${keyPrefix}${prefix}*`, 'COUNT', 500) as [string, string[]]
-        cursor = next
-        if (keys.length) {
-          await redis.del(...keys.map(key => key.startsWith(keyPrefix)
-            ? key.slice(keyPrefix.length)
-            : key))
-        }
-      } while (cursor !== '0')
+      const strip = (keys: string[]): string[] => keys.map(key => key.startsWith(keyPrefix)
+        ? key.slice(keyPrefix.length)
+        : key)
+      const scan = async (node: RedisClient, remove: (keys: string[]) => Promise<unknown>): Promise<void> => {
+        let cursor = '0'
+        do {
+          const [next, keys] = await node.scan(cursor, 'MATCH', `${keyPrefix}${prefix}*`, 'COUNT', 500) as [string, string[]]
+          cursor = next
+          if (keys.length)
+            await remove(strip(keys))
+        } while (cursor !== '0')
+      }
+      // Cluster：SCAN 只扫描一个节点，逐个主节点扫描；多键 DEL 要求同一个槽，经集群客户端逐个删除
+      const masters = (redis as { nodes?: (role: 'master') => RedisClient[] }).nodes?.('master')
+      if (masters) {
+        for (const node of masters)
+          await scan(node, keys => deleteEach(redis, keys))
+        return
+      }
+      await scan(redis, keys => redis.del(...keys))
     },
     async ttl(key) {
       return ttlResult(Number(await (await client()).ttl(key)))

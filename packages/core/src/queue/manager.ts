@@ -751,12 +751,20 @@ export class QueueManager implements BatchControl {
       return (await this.findBatch(id))!
     }
     await this.batches().create(meta, jobs.length)
-    for (const { job, queued } of jobs) {
-      await this.#send(job.definition, queued.job, job.payload, {
-        delay: queued.delay,
-        queue: queued.queue,
-        connection: queued.connection,
-      }, { batch: id, skipUnique: true, throwOnFailure: false })
+    let delivered = 0
+    try {
+      for (const { job, queued } of jobs) {
+        await this.#send(job.definition, queued.job, job.payload, {
+          delay: queued.delay,
+          queue: queued.queue,
+          connection: queued.connection,
+        }, { batch: id, skipUnique: true, throwOnFailure: false })
+        delivered++
+      }
+    }
+    catch (error) {
+      await this.#failUndelivered(id, jobs.length - delivered, error)
+      throw error
     }
     // 空批次：立即完成
     if (!jobs.length)
@@ -824,14 +832,40 @@ export class QueueManager implements BatchControl {
     }))
     // 先增加总数再投递：新任务结束前 done 不可能达到总数
     await this.batches().grow(id, queued.length)
-    for (const item of queued) {
-      await this.#send(item.job.definition, item.queued.job, item.job.payload, {
-        delay: item.queued.delay,
-        queue: item.queued.queue,
-        connection: item.queued.connection,
-      }, { batch: id, skipUnique: true, throwOnFailure: false })
+    let delivered = 0
+    try {
+      for (const item of queued) {
+        await this.#send(item.job.definition, item.queued.job, item.job.payload, {
+          delay: item.queued.delay,
+          queue: item.queued.queue,
+          connection: item.queued.connection,
+        }, { batch: id, skipUnique: true, throwOnFailure: false })
+        delivered++
+      }
+    }
+    catch (error) {
+      await this.#failUndelivered(id, queued.length - delivered, error)
+      throw error
     }
     return (await this.findBatch(id))!
+  }
+
+  /**
+   * 批次的总数已经写入，但有任务没能投递（队列连接不可用等）：把没投递出去的任务记为失败，
+   * 否则 done 永远达不到 total，批次不会结束。与任务执行失败相同：触发 catch，不允许失败时取消批次
+   * （已投递的任务被跳过），全部结束后执行 finally；失败任务 ID 记为 `undelivered:<n>`（没有可重试的任务）
+   */
+  async #failUndelivered(id: string, count: number, error: unknown): Promise<void> {
+    const logger = this.app.logger.child({ batch: id })
+    logger.error(`Failed to dispatch ${count} job(s) of the batch, recording them as failed`, error)
+    for (let index = 0; index < count; index++) {
+      try {
+        await this.#recordBatch(id, `undelivered:${index + 1}`, 'failed', error, logger)
+      }
+      catch (recordError) {
+        logger.error('Failed to record an undelivered batch job', recordError)
+      }
+    }
   }
 
   /**
@@ -999,6 +1033,44 @@ export class QueueManager implements BatchControl {
   }
 
   /**
+   * 没有经过 process() 的最终失败（redis 驱动：执行任务的进程崩溃，BullMQ 判定 stalled 次数超限后直接把任务移入失败集合）：
+   * 调用任务的 failed()，并完成与最终失败相同的收尾——释放唯一锁、终止任务链、记录批次进度
+   */
+  async settleFailure(message: JobMessage, error: unknown, attempt = 1): Promise<void> {
+    await runInApp(this.app, () => tenancyOf(this.app).runForMessage(message, async () => {
+      const logger = this.app.logger.child({ job: message.job, jobId: message.id, attempt })
+      logger.error('Job failed without being processed (the worker running it may have crashed)', error)
+      const definition = this.#jobs.get(message.job)
+      if (definition?.failed) {
+        const batchId = message.batch ?? message.callbackOf
+        const batch = batchId
+          ? await this.findBatch(batchId).catch(() => undefined)
+          : undefined
+        try {
+          await definition.failed(message.payload, error, {
+            id: message.id,
+            name: message.job,
+            attempt,
+            queue: message.queue,
+            logger,
+            app: this.app,
+            signal: AbortSignal.abort(),
+            release: () => {},
+            batch: () => batch,
+          })
+        }
+        catch (hookError) {
+          logger.error('Job failed() hook threw', hookError)
+        }
+      }
+      // until: 'processing' 的锁在开始执行时释放；没有执行到那里时在这里释放（只有持有者能释放）
+      if (message.unique?.until === 'processing')
+        await this.#releaseUnique(message).catch(releaseError => logger.error('Failed to release the unique job lock', releaseError))
+      await this.#settle(message, { status: 'failed', error }, attempt, logger)
+    }))
+  }
+
+  /**
    * 一次执行结束后的收尾（仍在任务的租户与追踪上下文中，后续投递会携带它们）：
    * - released：重新投递（不消耗次数）；retry：交给驱动重试；
    * - ok / failed：释放唯一锁（until processed）、推进或终止任务链、记录批次进度
@@ -1128,16 +1200,54 @@ export class QueueManager implements BatchControl {
     this.#forgetCallbacks(state.meta.then, state.meta.catch, state.meta.finally)
   }
 
-  #consumeOptions(queues: string[], concurrency: number, resolve: () => QueueManager = () => this): Parameters<QueueDriver['consume']>[0] {
+  #consumeOptions(queues: string[], concurrency: number, resolve: () => QueueManager = () => this, signal?: AbortSignal): Parameters<QueueDriver['consume']>[0] {
+    // 连接断开时驱动会在每次重连时报告同样的错误：相同的消息一分钟内只记录一次
+    let lastError: { message: string, at: number } | undefined
     return {
       queues,
       concurrency,
       process: async (message, attempt) => {
         // 维护模式（pauseWorkers）：任务之间暂停，恢复后继续（取最新的应用，开发时热替换后同样生效）
-        const { container } = resolve().app
-        if (container.has(MaintenanceManager))
-          await container.make(MaintenanceManager).waitUntilUp()
+        const manager = resolve()
+        const { container } = manager.app
+        if (container.has(MaintenanceManager)) {
+          const maintenance = container.make(MaintenanceManager)
+          let stopped = false
+          const onAbort = (): void => {
+            stopped = true
+          }
+          signal?.addEventListener('abort', onAbort, { once: true })
+          try {
+            await maintenance.waitUntilUp(signal)
+          }
+          finally {
+            signal?.removeEventListener('abort', onAbort)
+          }
+          // worker 在等待维护结束时被停止：任务没有执行，放回队列（不消耗次数），stop() 才能返回
+          if (stopped && await maintenance.pausesScheduler().catch(() => true)) {
+            const logger = manager.app.logger.child({ job: message.job, jobId: message.id, attempt })
+            try {
+              await manager.#repush(message, attempt, 0, logger)
+              return { status: 'released', delay: 0 }
+            }
+            catch (error) {
+              logger.error('Failed to release the job while stopping the worker', error)
+              return { status: 'retry', delay: 0, error }
+            }
+          }
+        }
         return resolve().process(message, attempt)
+      },
+      lost: (message, error, attempt) => resolve().settleFailure(message, error, attempt),
+      onError: (error) => {
+        const text = error instanceof Error
+          ? error.message
+          : String(error)
+        const now = Date.now()
+        if (lastError && lastError.message === text && now - lastError.at < 60_000)
+          return
+        lastError = { message: text, at: now }
+        resolve().app.logger.error('Queue worker error', error)
       },
       backoff: (message, attempt) => backoffSeconds(resolve().#jobs.get(message.job)?.backoff, attempt),
       tries: message => resolve().#jobs.get(message.job)?.tries ?? 1,
@@ -1149,8 +1259,15 @@ export class QueueManager implements BatchControl {
     const driver = this.connection(options.connection)
     if (driver.driver === 'sync')
       throw new Error(`Queue connection "${options.connection ?? this.config.default}" uses the sync driver, which runs jobs when they are dispatched and needs no worker`)
-    const stop = await driver.consume(this.#consumeOptions(options.queues ?? ['default'], options.concurrency ?? 1, options.resolve))
-    return { stop }
+    // 停止时中止“等待维护模式结束”的任务，否则 stop() 要等到维护结束
+    const controller = new AbortController()
+    const stop = await driver.consume(this.#consumeOptions(options.queues ?? ['default'], options.concurrency ?? 1, options.resolve, controller.signal))
+    return {
+      stop: async () => {
+        controller.abort()
+        await stop()
+      },
+    }
   }
 
   failed(connection?: string): Promise<FailedJob[]> {

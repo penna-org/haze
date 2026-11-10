@@ -11,12 +11,24 @@
  */
 export interface PubSub<Events extends Record<string, unknown>> {
   publish: <K extends keyof Events & string>(topic: K, payload: Events[K]) => void
-  subscribe: <K extends keyof Events & string>(topic: K, options?: { filter?: (payload: Events[K]) => boolean | Promise<boolean> }) => AsyncIterableIterator<Events[K]>
+  subscribe: <K extends keyof Events & string>(topic: K, options?: {
+    filter?: (payload: Events[K]) => boolean | Promise<boolean>
+    /** 覆盖 createPubSub 的 maxBufferSize */
+    maxBufferSize?: number
+  }) => AsyncIterableIterator<Events[K]>
   /** 当前订阅数 */
   listenerCount: (topic?: keyof Events & string) => number
 }
 
-export function createPubSub<Events extends Record<string, unknown> = Record<string, unknown>>(): PubSub<Events> {
+export interface PubSubOptions {
+  /**
+   * 每个订阅者未被消费的事件的缓冲上限，默认 1000。消费跟不上发布（如客户端网络很慢）时，
+   * 超出部分丢弃最旧的事件，避免缓冲无限增长；Infinity 关闭上限。
+   */
+  maxBufferSize?: number
+}
+
+export function createPubSub<Events extends Record<string, unknown> = Record<string, unknown>>(settings: PubSubOptions = {}): PubSub<Events> {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
 
   return {
@@ -30,6 +42,7 @@ export function createPubSub<Events extends Record<string, unknown> = Record<str
       type T = Events[typeof topic]
       const buffer: T[] = []
       const waiting: Array<(result: IteratorResult<T>) => void> = []
+      const limit = options.maxBufferSize ?? settings.maxBufferSize ?? 1000
       let done = false
       const push = (payload: unknown): void => {
         void Promise.resolve(options.filter
@@ -40,8 +53,8 @@ export function createPubSub<Events extends Record<string, unknown> = Record<str
           const next = waiting.shift()
           if (next)
             next({ value: payload as T, done: false })
-          else
-            buffer.push(payload as T)
+          else if (limit > 0 && buffer.push(payload as T) > limit)
+            buffer.shift()
         })
       }
       let set = listeners.get(topic)

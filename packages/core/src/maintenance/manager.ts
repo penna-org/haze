@@ -18,6 +18,7 @@ import { healthPaths, resolveHealthConfig } from '../observability/health'
 import { resolveDashboardConfig } from '../observability/observability'
 import { getContextApp } from '../request'
 import { safeEqual, toBase64Url } from '../security/key'
+import { wildcardRegExp } from '../utils'
 import { jsx } from '../view/jsx'
 import { renderViewResponse, resolveView } from '../view/view'
 import { defaultMaintenanceConfig } from './config'
@@ -116,8 +117,7 @@ export async function hashSecret(secret: string): Promise<string> {
 function matchesPattern(path: string, pattern: string): boolean {
   if (!pattern.includes('*'))
     return path === pattern || path === pattern.replace(/\/+$/, '')
-  const regex = new RegExp(`^${pattern.split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
-  return regex.test(path)
+  return wildcardRegExp(pattern).test(path)
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -207,12 +207,27 @@ export class MaintenanceManager {
     return undefined
   }
 
-  /** 当前状态（进程内缓存 interval 毫秒；fresh 时直接读取存储） */
+  /**
+   * 当前状态（进程内缓存 interval 毫秒；fresh 时直接读取存储）。缓存刚过期时先返回旧状态、在后台刷新，
+   * 请求不必排队等存储读取；第一次读取，以及缓存过期超过一个 interval（长时间没有请求）时仍然等待读取结果
+   */
   async state(options: { fresh?: boolean } = {}): Promise<MaintenanceState | undefined> {
     const interval = this.config.interval
     const cached = this.#cached
-    if (!options.fresh && cached && Date.now() - cached.at < interval)
-      return cached.state
+    if (!options.fresh && cached) {
+      const age = Date.now() - cached.at
+      if (age < interval)
+        return cached.state
+      if (age < interval * 2) {
+        void this.#refresh()
+        return cached.state
+      }
+    }
+    return this.#refresh()
+  }
+
+  #refresh(): Promise<MaintenanceState | undefined> {
+    const cached = this.#cached
     // 并发请求共用同一次读取
     this.#pending ??= this.driver().get().catch((error: unknown) => {
       this.app.logger.warn('Failed to read the maintenance state', error)

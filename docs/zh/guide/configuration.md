@@ -113,7 +113,7 @@ env('APP_URL')              // string | undefined
 
 运行模式取自 `NODE_ENV`：`production` 和 `test` 原样使用，其余都视为 `development`。`haze test` 以 `test` 模式运行，所以模板中的 `.env.test`（`DATABASE_URL=:memory:`）会让测试使用内存数据库。
 
-真实的环境变量始终优先于 `.env` 文件。模板的 `.gitignore` 已忽略 `.env.local` 与 `.env.*.local`，适合存放本机专用的密钥。
+真实的环境变量始终优先于 `.env` 文件。模板的 `.gitignore` 已忽略 `.env`、`.env.local` 与 `.env.*.local`（脚手架会把 `APP_KEY` 写进 `.env`），并附带一份提交到仓库的 `.env.example` 列出所有键：克隆项目后执行 `cp .env.example .env && npx haze key:generate`。
 
 ::: tip
 开发时修改 `.env` 或 `config/` 下的任意文件，应用会像修改其他源码一样原地重载。

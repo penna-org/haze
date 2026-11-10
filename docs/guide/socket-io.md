@@ -128,7 +128,7 @@ export default defineSocketIOConfig(() => env('SOCKET_ADAPTER', '') === 'redis'
 | Option | Description |
 | --- | --- |
 | `path` | Endpoint path. Default `/socket.io/` (the client's default) |
-| `cors` | Socket.IO CORS options. Defaults to the `origin` from `config/cors.ts` with credentials; `false` disables it (same-origin) |
+| `cors` | Socket.IO CORS options. Defaults to the `origin` from `config/cors.ts` with credentials. When no origin is configured there (or it is `true` / `'*'`), any origin is allowed but **without** credentials — set an origin, or `cors: { origin, credentials: true }` here, for cross-origin cookie authentication. `false` disables it (same-origin) |
 | `adapter` | `{ driver: 'redis', connection?, url?, key? }` for multiple instances, using `@socket.io/redis-adapter` (`pnpm add @socket.io/redis-adapter ioredis`). `connection` names a [Redis connection](./redis) (default: the `default` one); an inline `url` takes precedence. `key` (default `socket.io`) prefixes the pub/sub channels; the connection's `keyPrefix` does not apply to them |
 | `options` | Passed through to the Socket.IO `Server` (`pingInterval`, `connectionStateRecovery`, …) |
 

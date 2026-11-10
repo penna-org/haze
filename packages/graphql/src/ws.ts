@@ -2,7 +2,7 @@ import type { Application, HttpContext, Peer, WebSocketHandler } from '@hazejs/c
 import type { ExecutionResult, GraphQLSchema } from 'graphql'
 import type { GraphQLHandlerOptions, SubscriptionOptions } from './execute'
 import { execute, GraphQLError, subscribe } from 'graphql'
-import { formatGraphQLError, reportErrors } from './errors'
+import { ErrorCode, formatGraphQLError, reportErrors } from './errors'
 import { contextFor, formatResult, isDebug, prepare } from './execute'
 
 /** graphql-transport-ws 协议（graphql-ws 库使用的协议） */
@@ -64,6 +64,7 @@ export function createWebSocketHandler(schema: GraphQLSchema, options: GraphQLHa
   const settings: SubscriptionOptions = typeof options.subscriptions === 'object'
     ? options.subscriptions
     : {}
+  const maxSubscriptions = settings.maxSubscriptionsPerConnection ?? 100
   const operations = new Map<string, AsyncGenerator<ExecutionResult, void, void> | undefined>()
   let initTimer: ReturnType<typeof setTimeout> | undefined
   let initReceived = false
@@ -236,6 +237,19 @@ export function createWebSocketHandler(schema: GraphQLSchema, options: GraphQLHa
         const id = message.id!
         if (operations.has(id))
           return close(peer, Close.SubscriberAlreadyExists, `Subscriber for ${id} already exists`)
+        if (operations.size >= maxSubscriptions) {
+          // 超出单连接的操作数上限：只拒绝这一条，不断开连接
+          return send(peer, {
+            id,
+            type: 'error',
+            payload: [
+              {
+                message: `Too many concurrent operations on this connection (limit ${maxSubscriptions})`,
+                extensions: { code: ErrorCode.TOO_MANY_SUBSCRIPTIONS },
+              },
+            ] as never,
+          })
+        }
         operations.set(id, undefined)
         // 不等待：订阅会一直运行，期间还要处理同一连接上的其它消息（如 complete）
         run(peer, id, message.payload!).catch((error) => {

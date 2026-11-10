@@ -100,6 +100,7 @@ export class OidcProvider<C extends OidcProviderConfig = OidcProviderConfig> ext
         nonce,
         algorithms: this.config.algorithms,
         fetch: this.options.fetch,
+        timeout: this.options.timeout,
       })
     }
     catch (error) {
@@ -150,9 +151,19 @@ export class OidcProvider<C extends OidcProviderConfig = OidcProviderConfig> ext
       name: raw.name ?? ([raw.given_name, raw.family_name].filter(Boolean).join(' ') || undefined),
       nickname: raw.preferred_username ?? raw.nickname,
       email: raw.email,
+      emailVerified: emailVerifiedClaim(raw.email_verified),
       avatar: raw.picture,
     }
   }
+}
+
+/** email_verified 声明：布尔值，个别提供方（Apple）给字符串；缺失时为 null */
+export function emailVerifiedClaim(value: unknown): boolean | null {
+  if (value === true || value === 'true')
+    return true
+  if (value === false || value === 'false')
+    return false
+  return null
 }
 
 /** Google 的配置（issuer 固定，无需填写） */

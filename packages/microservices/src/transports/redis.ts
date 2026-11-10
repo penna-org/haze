@@ -62,18 +62,46 @@ export function redisTransport(config: Omit<RedisTransportConfig, 'driver'> = {}
   const pending = new Map<string, (reply: Reply) => void>()
   let client: Promise<{ pub: RedisClient, sub: RedisClient }> | undefined
 
-  const connect = (): Promise<{ pub: RedisClient, sub: RedisClient }> => client ??= (async () => {
-    const pub = await command()
-    const sub = await dedicated()
-    sub.on('message', (channel: string, message: string) => {
-      if (channel !== replyChannel)
-        return
-      const reply = decode<Reply>(message)
-      pending.get(reply.id)?.(reply)
+  const connect = (): Promise<{ pub: RedisClient, sub: RedisClient }> => {
+    if (client)
+      return client
+    const current = (async () => {
+      const pub = await command()
+      let sub: RedisClient | undefined
+      try {
+        sub = await dedicated()
+        sub.on('message', (channel: string, message: string) => {
+          if (channel !== replyChannel)
+            return
+          // 事件回调中抛错会成为未捕获异常：无法解析的回复直接丢弃（对应的请求按超时处理）
+          let reply: Reply
+          try {
+            reply = decode<Reply>(message)
+          }
+          catch {
+            return
+          }
+          pending.get(reply?.id)?.(reply)
+        })
+        await sub.subscribe(replyChannel)
+        return { pub, sub }
+      }
+      catch (error) {
+        // 建立到一半的连接不保留
+        if (sub)
+          await closeRedisClient(sub as never).catch(() => {})
+        await release(pub).catch(() => {})
+        throw error
+      }
+    })()
+    client = current
+    // 失败的连接不缓存，下次调用重新连接
+    current.catch(() => {
+      if (client === current)
+        client = undefined
     })
-    await sub.subscribe(replyChannel)
-    return { pub, sub }
-  })()
+    return current
+  }
 
   return {
     async send(pattern, data, { timeout }) {
@@ -91,10 +119,11 @@ export function redisTransport(config: Omit<RedisTransportConfig, 'driver'> = {}
       }
       const reply = new Promise<Reply>(resolve => pending.set(id, resolve))
       const key = `${prefix}req:${pattern}`
-      await pub.lpush(key, JSON.stringify(packet))
-      // 没有消费者时列表不会无限保留
-      await pub.pexpire(key, Math.max(timeout, 60_000))
+      // lpush / pexpire 抛错时也要清掉 pending 中的条目
       try {
+        await pub.lpush(key, JSON.stringify(packet))
+        // 没有消费者时列表不会无限保留
+        await pub.pexpire(key, Math.max(timeout, 60_000))
         return unwrapReply(pattern, await withTimeout(pattern, timeout, reply))
       }
       finally {
@@ -209,8 +238,11 @@ export function redisTransport(config: Omit<RedisTransportConfig, 'driver'> = {}
     async close() {
       if (!client)
         return
-      const { pub, sub } = await client
+      const connected = await client.catch(() => undefined)
       client = undefined
+      if (!connected)
+        return
+      const { pub, sub } = connected
       await Promise.allSettled([
         release(pub),
         closeRedisClient(sub as never),

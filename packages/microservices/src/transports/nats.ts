@@ -27,6 +27,8 @@ interface NatsConnection {
   flush: () => Promise<void>
   drain: () => Promise<void>
   close: () => Promise<void>
+  /** 连接关闭（含重连耗尽）时完成 */
+  closed?: () => Promise<unknown>
 }
 
 type Connect = (options: Record<string, unknown>) => Promise<NatsConnection>
@@ -61,7 +63,19 @@ export function natsTransport(config: Omit<NatsTransportConfig, 'driver'> = {}):
   const prefix = config.prefix ?? ''
   const connectOptions = { servers: config.servers ?? 'nats://127.0.0.1:4222', ...config.options }
   let connection: Promise<NatsConnection> | undefined
-  const connect = (): Promise<NatsConnection> => connection ??= loadConnect().then(connect => connect(connectOptions))
+  const connect = (): Promise<NatsConnection> => {
+    if (connection)
+      return connection
+    const current: Promise<NatsConnection> = loadConnect().then(connect => connect(connectOptions))
+    connection = current
+    // 失败的连接不缓存（否则首次连接失败后每次调用都失败，直到重启）；连接关闭后下次调用重新连接
+    const reset = (): void => {
+      if (connection === current)
+        connection = undefined
+    }
+    current.then(nc => nc.closed?.().then(reset, reset), reset)
+    return current
+  }
 
   return {
     async send(pattern, data, { timeout }) {

@@ -483,6 +483,8 @@ export class BroadcastManager {
    */
   #webSocket(): ReturnType<typeof defineWebSocket> {
     const handles = new WeakMap<Peer, BroadcastConnection>()
+    // 每个连接已订阅（含正在授权）的频道，用于 maxChannels 限制
+    const subscriptions = new WeakMap<Peer, Set<string>>()
     const send = (peer: Peer, envelope: BroadcastEnvelope): void => {
       peer.send(JSON.stringify(envelope))
     }
@@ -516,18 +518,42 @@ export class BroadcastManager {
           return
         const channel = String(input.channel ?? '')
         switch (input.event) {
-          case 'subscribe':
-            send(peer, subscribeEnvelope(channel, await handle.subscribe({
-              channel,
-              auth: typeof input.auth === 'string'
-                ? input.auth
-                : undefined,
-              channelData: typeof input.channel_data === 'string'
-                ? input.channel_data
-                : undefined,
-            })))
+          case 'subscribe': {
+            let channels = subscriptions.get(peer)
+            if (!channels)
+              subscriptions.set(peer, channels = new Set())
+            const known = channels.has(channel)
+            // 与 SSE 相同的上限：一个连接不能无限订阅（每个订阅占用内存，在线频道还会写入成员表）
+            if (!known && channels.size >= (this.config.maxChannels ?? 100)) {
+              send(peer, subscribeEnvelope(channel, { ok: false, status: 400, message: 'Too many channels' }))
+              break
+            }
+            // 授权期间先占位，并发的订阅请求不会一起越过上限
+            channels.add(channel)
+            let result: SubscribeResult
+            try {
+              result = await handle.subscribe({
+                channel,
+                auth: typeof input.auth === 'string'
+                  ? input.auth
+                  : undefined,
+                channelData: typeof input.channel_data === 'string'
+                  ? input.channel_data
+                  : undefined,
+              })
+            }
+            catch (error) {
+              if (!known)
+                channels.delete(channel)
+              throw error
+            }
+            if (!result.ok && !known)
+              channels.delete(channel)
+            send(peer, subscribeEnvelope(channel, result))
             break
+          }
           case 'unsubscribe':
+            subscriptions.get(peer)?.delete(channel)
             await handle.unsubscribe(channel)
             break
           case 'whisper':
@@ -541,6 +567,7 @@ export class BroadcastManager {
       close: async (peer) => {
         await handles.get(peer)?.close()
         handles.delete(peer)
+        subscriptions.delete(peer)
       },
     })
   }

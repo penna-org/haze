@@ -2,7 +2,8 @@ import type { Column, Table } from 'drizzle-orm'
 import type { MongoModelQuery } from '../mongo/query'
 import type { ModelQuery } from './query'
 import type { ActiveRecord, RecordClass } from './record'
-import { eq, getTableColumns, getTableName } from 'drizzle-orm'
+import { currentTenancy } from '@hazejs/core'
+import { aliasedTable, and, eq, getTableColumns, getTableName, isNull } from 'drizzle-orm'
 import { atomically } from '../context'
 import { DatabaseError } from '../errors'
 import { QueryBuilder } from '../query/builder'
@@ -37,6 +38,8 @@ type Constraint = ((query: any) => unknown) | undefined
 
 /** SQL 模型查询上供关联使用的能力（Mongo 模型没有） */
 interface SqlRelationQuery {
+  readonly table: Table
+  alias: (name: string) => unknown
   columnOf: (key: string) => Column
   join: (table: Table, on: unknown) => SqlRelationQuery
   field: (fields: Record<string, unknown>) => SqlRelationQuery
@@ -54,14 +57,36 @@ function sqlQuery(query: unknown, label: string): SqlRelationQuery {
   return query as SqlRelationQuery
 }
 
-/** SQL 模型的表列 */
-function columnsOf(record: RecordClass | ActiveRecord): Record<string, Column> {
-  const model = (typeof record === 'function'
-    ? record
-    : record.constructor) as unknown as Parameters<typeof metaOf>[0]
-  if (!(model as { table?: unknown }).table)
-    throw new DatabaseError(`${model.name} is not a SQL model`)
-  return metaOf(model).columns
+/** has() / hasWhere() 的外层查询：表与 select 的来源（alias() 后为别名表） */
+export interface ExistsOuter {
+  table: Table
+  source: Table
+}
+
+/** 相关子查询的外层：ModelQuery 传入自己的表与来源，未传时为父模型的表 */
+function outerOf(parent: ActiveRecord, outer: ExistsOuter | undefined): ExistsOuter {
+  if (outer)
+    return outer
+  const table = metaOf(parent.constructor as unknown as Parameters<typeof metaOf>[0]).table
+  return { table, source: table }
+}
+
+/**
+ * 自关联（子查询的表与外层相同，如分类的 parent / children）：子查询使用别名，
+ * 否则相关条件中外层的列会绑定到子查询自己的表
+ */
+function aliasSelf(query: SqlRelationQuery, outer: ExistsOuter): void {
+  if (query.table === outer.table)
+    query.alias(`${getTableName(outer.source)}_rel`)
+}
+
+/** 追加到分组（键 → 数组） */
+function pushTo<K, V>(groups: Map<K, V[]>, key: K, value: V): void {
+  const list = groups.get(key)
+  if (list)
+    list.push(value)
+  else
+    groups.set(key, [value])
 }
 
 function connectionOf(record: ActiveRecord): string | undefined {
@@ -103,7 +128,7 @@ export abstract class Relation<R extends ActiveRecord, Result> implements Promis
   }
 
   /** 与父表关联的相关子查询（has / hasWhere 使用） */
-  existsQuery(): SqlRelationQuery {
+  existsQuery(_outer?: ExistsOuter): SqlRelationQuery {
     throw new DatabaseError(`${this.constructor.name} does not support has() / hasWhere()`)
   }
 
@@ -190,13 +215,8 @@ async function loadGrouped<R extends ActiveRecord>(query: RelationQuery<R>, nest
   query.with(...nested as never[])
   constraint?.(query)
   const groups = new Map<unknown, R[]>()
-  for (const child of await query.select()) {
-    const key = keyOf(groupKey(child))
-    groups.set(key, [
-      ...(groups.get(key) ?? []),
-      child,
-    ])
-  }
+  for (const child of await query.select())
+    pushTo(groups, keyOf(groupKey(child)), child)
   return groups
 }
 
@@ -233,9 +253,11 @@ abstract class HasOneOrMany<R extends ActiveRecord, Result> extends Relation<R, 
     assignAggregates(parents, alias, fn, values, parent => parent.getRaw(this.localKey))
   }
 
-  override existsQuery(): SqlRelationQuery {
+  override existsQuery(outer?: ExistsOuter): SqlRelationQuery {
     const query = sqlQuery(this.newQuery(), 'has()') as SqlRelationQuery & RelationQuery<R>
-    whereSql(query, eq(query.columnOf(this.foreignKey), columnsOf(this.parent)[this.localKey]))
+    const from = outerOf(this.parent, outer)
+    aliasSelf(query, from)
+    whereSql(query, eq(query.columnOf(this.foreignKey), getTableColumns(from.source)[this.localKey]))
     return query
   }
 
@@ -340,9 +362,11 @@ export class BelongsTo<R extends ActiveRecord> extends SingleRelation<R> {
     assignAggregates(parents, alias, fn, values, parent => parent.getRaw(this.foreignKey))
   }
 
-  override existsQuery(): SqlRelationQuery {
+  override existsQuery(outer?: ExistsOuter): SqlRelationQuery {
     const query = sqlQuery(this.newQuery(), 'has()') as SqlRelationQuery & RelationQuery<R>
-    whereSql(query, eq(query.columnOf(this.ownerKey), columnsOf(this.parent)[this.foreignKey]))
+    const from = outerOf(this.parent, outer)
+    aliasSelf(query, from)
+    whereSql(query, eq(query.columnOf(this.ownerKey), getTableColumns(from.source)[this.foreignKey]))
     return query
   }
 
@@ -425,9 +449,10 @@ export class BelongsToMany<R extends ActiveRecord> extends Relation<R, R[]> {
     assignAggregates(parents, alias, fn, values, parent => parent.getRaw(this.parentKey))
   }
 
-  override existsQuery(): SqlRelationQuery {
-    const query = this.joined()
-    whereSql(query, eq(getTableColumns(this.pivot)[this.localKey], columnsOf(this.parent)[this.parentKey]))
+  override existsQuery(outer?: ExistsOuter): SqlRelationQuery {
+    const from = outerOf(this.parent, outer)
+    const query = this.joined(from)
+    whereSql(query, eq(getTableColumns(this.pivot)[this.localKey], getTableColumns(from.source)[this.parentKey]))
     return query as unknown as SqlRelationQuery
   }
 
@@ -500,9 +525,11 @@ export class BelongsToMany<R extends ActiveRecord> extends Relation<R, R[]> {
     return atomically(run, connectionOf(this.parent))
   }
 
-  /** 关联模型的查询，已连接中间表 */
-  protected joined(): ModelQuery<any> {
+  /** 关联模型的查询，已连接中间表（outer：作为相关子查询时的外层，自关联时关联表使用别名） */
+  protected joined(outer?: ExistsOuter): ModelQuery<any> {
     const query = this.newQuery() as unknown as ModelQuery<any>
+    if (outer)
+      aliasSelf(query as unknown as SqlRelationQuery, outer)
     return query.join(this.pivot, eq(getTableColumns(this.pivot)[this.foreignKey], query.columnOf(this.relatedKey)))
   }
 
@@ -532,11 +559,7 @@ export class BelongsToMany<R extends ActiveRecord> extends Relation<R, R[]> {
       const model = (this.related as unknown as { hydrate: (row: Record<string, unknown>) => R }).hydrate(attributes)
       model.setRelation('pivot', pivot)
       models.push(model)
-      const key = keyOf(pivot[this.localKey])
-      groups.set(key, [
-        ...(groups.get(key) ?? []),
-        model,
-      ])
+      pushTo(groups, keyOf(pivot[this.localKey]), model)
     }
     if (nested.length)
       await loadRelations(models, nested)
@@ -622,9 +645,10 @@ export class HasManyThrough<R extends ActiveRecord, Result = R[]> extends Relati
     assignAggregates(parents, alias, fn, values, parent => parent.getRaw(this.localKey))
   }
 
-  override existsQuery(): SqlRelationQuery {
-    const query = this.joined()
-    whereSql(query, eq(getTableColumns(this.throughTable)[this.firstKey], columnsOf(this.parent)[this.localKey]))
+  override existsQuery(outer?: ExistsOuter): SqlRelationQuery {
+    const from = outerOf(this.parent, outer)
+    const [query, through] = this.joinThrough(from)
+    whereSql(query, eq(through[this.firstKey], getTableColumns(from.source)[this.localKey]))
     return query as unknown as SqlRelationQuery
   }
 
@@ -633,8 +657,43 @@ export class HasManyThrough<R extends ActiveRecord, Result = R[]> extends Relati
   }
 
   protected joined(): ModelQuery<any> {
+    return this.joinThrough()[0]
+  }
+
+  /**
+   * 关联模型的查询，已连接中间模型的表；返回查询与中间表的列。
+   * 连接条件带上中间模型的软删除与多租户（belongsToTenant）过滤：已软删除 / 其它租户的中间记录不再连出关联数据
+   * （中间模型的全局作用域不应用）。outer：作为相关子查询时的外层，与外层同表的关联表 / 中间表使用别名
+   */
+  protected joinThrough(outer?: ExistsOuter): [ModelQuery<any>, Record<string, Column>] {
     const query = this.newQuery() as unknown as ModelQuery<any>
-    return query.join(this.throughTable, eq(getTableColumns(this.throughTable)[this.throughKey], query.columnOf(this.secondKey)))
+    let target: Table | [Table, string] = this.throughTable
+    let columns = getTableColumns(this.throughTable)
+    if (outer) {
+      aliasSelf(query as unknown as SqlRelationQuery, outer)
+      if (this.throughTable === outer.table) {
+        const alias = `${getTableName(outer.source)}_through`
+        target = [this.throughTable, alias]
+        columns = getTableColumns(aliasedTable(this.throughTable, alias))
+      }
+    }
+    const meta = metaOf(this.through as unknown as Parameters<typeof metaOf>[0])
+    const tenant = meta.tenantColumn
+      ? currentTenancy()
+      : undefined
+    const on = and(
+      eq(columns[this.throughKey], query.columnOf(this.secondKey)),
+      meta.softDelete
+        ? isNull(columns[meta.softDelete])
+        : undefined,
+      tenant
+        ? eq(columns[meta.tenantColumn!], tenant.id)
+        : undefined,
+    )!
+    return [
+      query.join(target, on),
+      columns,
+    ]
   }
 
   protected async fetch(keys: unknown[], nested: EagerInput[], constraint: Constraint): Promise<Map<unknown, R[]>> {
@@ -651,10 +710,7 @@ export class HasManyThrough<R extends ActiveRecord, Result = R[]> extends Relati
     for (const { through__key: through, ...row } of await query.selectRows()) {
       const model = (this.related as unknown as { hydrate: (row: Record<string, unknown>) => R }).hydrate(row)
       models.push(model)
-      groups.set(keyOf(through), [
-        ...(groups.get(keyOf(through)) ?? []),
-        model,
-      ])
+      pushTo(groups, keyOf(through), model)
     }
     if (nested.length)
       await loadRelations(models, nested)
@@ -702,10 +758,12 @@ abstract class MorphOneOrMany<R extends ActiveRecord, Result> extends Relation<R
     assignAggregates(parents, alias, fn, values, parent => parent.getRaw(this.localKey))
   }
 
-  override existsQuery(): SqlRelationQuery {
+  override existsQuery(outer?: ExistsOuter): SqlRelationQuery {
     const query = sqlQuery(this.newQuery(), 'has()') as SqlRelationQuery & RelationQuery<R>
+    const from = outerOf(this.parent, outer)
+    aliasSelf(query, from)
     query.where(this.typeField as never, this.type as never)
-    whereSql(query, eq(query.columnOf(this.idField), columnsOf(this.parent)[this.localKey]))
+    whereSql(query, eq(query.columnOf(this.idField), getTableColumns(from.source)[this.localKey]))
     return query
   }
 
@@ -794,13 +852,8 @@ export class MorphTo<R extends ActiveRecord> extends SingleRelation<R> {
 
   async eagerLoad(parents: ActiveRecord[], name: string, nested: EagerInput[], constraint?: Constraint): Promise<void> {
     const byType = new Map<string, ActiveRecord[]>()
-    for (const parent of parents) {
-      const type = String(parent.getRaw(this.typeField))
-      byType.set(type, [
-        ...(byType.get(type) ?? []),
-        parent,
-      ])
-    }
+    for (const parent of parents)
+      pushTo(byType, String(parent.getRaw(this.typeField)), parent)
     const found = new Map<string, R>()
     for (const [type, group] of byType) {
       const model = this.modelFor(type)

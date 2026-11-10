@@ -5,7 +5,7 @@ import type { DatabaseSearchOptions } from './engines/database'
 import type { SearchManager } from './manager'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { currentTenancy, defineJob, Queue } from '@hazejs/core'
-import { observeModel, useDatabaseManager } from '@hazejs/orm'
+import { Db, observeModel, useDatabaseManager } from '@hazejs/orm'
 import { getTableColumns, getTableName } from 'drizzle-orm'
 import { SearchBuilder } from './builder'
 import { useSearchManager } from './manager'
@@ -244,6 +244,19 @@ export async function unsearchable(model: SearchableModel, records: Array<Model<
   await sync(model, [], records.map(record => record.getKey() as DocumentKey))
 }
 
+/**
+ * 模型事件触发的同步：模型所在连接处于事务中时推迟到事务提交后执行（`Db.afterCommit()`，回滚时丢弃），
+ * 否则回滚后索引里会留下数据库中不存在的文档；不在事务中时立即执行。
+ * 推迟执行时文档按提交时的模型状态生成，同步失败只记录日志（事务已提交）。
+ * database 引擎写的是同一个数据库，留在事务内随事务一起提交 / 回滚
+ */
+async function syncAfterCommit(model: SearchableModel, run: () => Promise<void>): Promise<void> {
+  const manager = useSearchManager()
+  if (manager.engine(engineNameOf(model, manager)).driver === 'database')
+    return run()
+  await Db.connection(model.connection ?? useDatabaseManager().defaultConnection).afterCommit(run)
+}
+
 export type SearchableClass<C extends SearchableModel> = C & {
   /** 全文搜索：`Post.search('haze').where('status', 'published').paginate(1, 20)` */
   search: (query?: string) => SearchBuilder<InstanceType<C>>
@@ -274,10 +287,10 @@ export function searchable<C extends SearchableModel>(model: C, options: Searcha
     switch (event) {
       case 'onAfterWrite':
       case 'onAfterRestore':
-        await makeSearchable(model, [record])
+        await syncAfterCommit(model, () => makeSearchable(model, [record]))
         break
       case 'onAfterDelete':
-        await unsearchable(model, [record])
+        await syncAfterCommit(model, () => unsearchable(model, [record]))
         break
     }
   })

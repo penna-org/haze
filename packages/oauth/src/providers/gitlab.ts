@@ -32,6 +32,10 @@ export class GitLabProvider extends OAuthProvider<GitLabProviderConfig> {
       name: raw.name,
       nickname: raw.username,
       email: raw.email,
+      // /api/v4/user 的 email 是主邮箱，confirmed_at 为其确认时间
+      emailVerified: raw.confirmed_at
+        ? true
+        : null,
       avatar: raw.avatar_url,
     }
   }

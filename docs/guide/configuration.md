@@ -113,7 +113,7 @@ Files are loaded from the project root (in production: the working directory of 
 
 The mode comes from `NODE_ENV`: `production` and `test` are used as-is, anything else is `development`. `haze test` runs in `test` mode, so the templates' `.env.test` (`DATABASE_URL=:memory:`) points tests at an in-memory database.
 
-Real environment variables always win over `.env` files. The templates ignore `.env.local` and `.env.*.local` in git — use them for machine-specific secrets.
+Real environment variables always win over `.env` files. The templates ignore `.env`, `.env.local` and `.env.*.local` in git (the scaffolder writes your `APP_KEY` into `.env`), and ship a committed `.env.example` listing the keys: after cloning, run `cp .env.example .env && npx haze key:generate`.
 
 ::: tip
 In dev, editing a `.env` file or anything in `config/` reloads the application in place, like any other source file.

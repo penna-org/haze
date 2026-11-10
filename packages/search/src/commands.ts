@@ -42,7 +42,8 @@ export async function importSearchable(input: ModelInput, options: ImportOptions
   const query = new Query(model) as ModelQuery<any>
   importQuery?.(query)
   let imported = 0
-  await query.chunk(options.chunk ?? manager.config.chunk ?? 500, async (records) => {
+  // 按主键分批（不用 offset）：导入期间有写入 / 删除时不会漏掉或重复记录
+  await query.chunkById(options.chunk ?? manager.config.chunk ?? 500, async (records) => {
     await makeSearchable(model, records as Array<Model<any>>)
     imported += records.length
     options.onProgress?.(imported)

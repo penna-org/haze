@@ -26,7 +26,7 @@ const total = await active().count()
 |------|------|
 | `select()` | 全部结果 |
 | `selectOrFail()` | 全部结果，为空时抛出 `ModelNotFoundException`（404） |
-| `find()` / `findOrFail()` | 第一条（不存在时为 `undefined` / 404）。模型查询可以传主键：`User.find(1)` |
+| `find()` / `findOrFail()` | 第一条（不存在时为 `undefined` / 404）。模型查询可以传主键：`User.find(1)`；主键为 `undefined` / `null` 时查不到（不会退化为取第一条） |
 | `findOrEmpty(id?)` | 仅模型查询：模型，或空模型（`model.isEmpty()`） |
 | `value('name')` | 第一行的某个字段；也可以是 `field()` 的别名：`field({ total: count() }).value('total')` |
 | `column('name')` | 每一行的某个字段：`['Ada', 'Bob']`；也可以是 `field()` 的别名 |
@@ -34,9 +34,10 @@ const total = await active().count()
 | `column('*', 'id')` | 以某列为键的整行 |
 | `count(column?)` / `sum` / `avg` / `max` / `min` | 聚合（`count('email')` 统计非空值） |
 | `exists()` | 是否有匹配的数据（`select 1 … limit 1`，不读取整行） |
-| `paginate(page, perPage)` | `{ data, total, page, perPage, lastPage }` |
+| `paginate(page, perPage)` | `{ data, total, page, perPage, lastPage }`。`page` 与 `perPage` 最小为 `1` |
 | `paginateX(perPage, { lastId, key, sort })` | 不统计总数的游标分页：`{ data, perPage, lastId, hasMore }`。`perPage` 默认 `15`，`key` 默认主键，`sort` 默认 `'desc'` |
-| `chunk(size, rows => ...)` | 分批处理，回调返回 `false` 时停止 |
+| `chunk(size, rows => ...)` | 分批处理（offset 分页），回调返回 `false` 时停止。没有 `order()` 时按主键排序 |
+| `chunkById(size, rows => ..., column?)` | 按主键分批（`where id > 上一批最后一条`），不使用 offset：回调中更新 / 删除正在遍历的数据时也不会漏行。忽略 `order()` |
 | `cursor(size)` / `lazy(size)` | 分批读取的异步迭代器（`size` 默认 `200`）：`for await (const row of query.cursor())` |
 | `toSQL()` | 生成的 SQL 与参数（ThinkPHP 的 `fetchSql`）。`toSQL('insert', values)`、`toSQL('update', values)`、`toSQL('delete', target?)` 预览写操作的语句而不执行 |
 
@@ -44,7 +45,7 @@ const total = await active().count()
 
 `paginate()` 的统计与取数据并行执行；在事务中依次执行，统计为 `0` 时不再取数据。统计查询不带 `order()`。
 
-`paginateX()` 按主键（或 `key`）翻页，数据量大时依然很快；查询上已有的 `order()` 会被替换为按 `key` 以 `sort` 方向排序。`cursor()` 在没有 `order()`、`group()` 和合并查询时同样按主键分批，否则按 offset 分批。
+`paginateX()` 按主键（或 `key`）翻页，数据量大时依然很快；查询上已有的 `order()` 会被替换为按 `key` 以 `sort` 方向排序。`cursor()` 在没有 `order()`、`group()`、`distinct()` 和合并查询时同样按主键分批（`field()` 没有选主键时会自动带上），否则按 offset 分批。
 
 ## 查询条件
 

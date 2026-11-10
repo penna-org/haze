@@ -398,8 +398,9 @@ describe.each(dialects)('porting gaps on $name', (dialect) => {
     await doc.save()
     expect(doc.revision).toBe(2)
     expect(await Db.table(docs).where('id', doc.id).value('revision')).toBe(2)
-    // 列没有默认值以外的情况保持原样：显式赋值优先
-    expect((await Document.create({ title: 'Imported', revision: 7 })).revision).toBe(7)
+    // 版本列不接受批量赋值（来自用户输入的值被忽略）；allowField 显式列出时赋值优先
+    expect((await Document.create({ title: 'Spoofed', revision: 7 })).revision).toBe(1)
+    expect((await Document.create({ title: 'Imported', revision: 7 }, ['title', 'revision'])).revision).toBe(7)
   })
 })
 
