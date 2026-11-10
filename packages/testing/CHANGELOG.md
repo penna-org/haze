@@ -1,5 +1,13 @@
 # @hazejs/testing
 
+## 1.2.0
+
+### Patch Changes
+
+- Updated dependencies [[`76cba8b`](https://github.com/penna-org/haze/commit/76cba8b5cd7d540dd556b0389a86e3cc19f07f85)]:
+  - @hazejs/core@1.2.0
+  - @hazejs/vite@1.2.0
+
 ## 1.1.0
 
 ### Patch Changes
