@@ -1,7 +1,7 @@
 {
   "name": "@hazejs/auto-import",
   "type": "module",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Auto imports for hazejs: use controllers, services, events and library APIs without import statements, with full type support",
   "license": "MIT",
   "homepage": "https://github.com/penna-org/haze/tree/main/packages/auto-import#readme",
