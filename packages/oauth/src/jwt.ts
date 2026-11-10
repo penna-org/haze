@@ -1,29 +1,50 @@
 import type { JSONWebKeySet, JWTPayload } from 'jose'
 import { createLocalJWKSet, errors, importPKCS8, jwtVerify, SignJWT } from 'jose'
+import { DEFAULT_HTTP_TIMEOUT } from './config'
 
 /** JWKS 缓存：jwks_uri → 公钥集合（10 分钟；找不到 kid 时强制刷新一次，应对密钥轮换） */
-const jwksCache = new Map<string, { keys: JSONWebKeySet, expires: number }>()
+const jwksCache = new Map<string, { keys: JSONWebKeySet, expires: number, fetchedAt: number }>()
+/** 进行中的 JWKS 请求：并发的校验共用同一次请求 */
+const jwksInflight = new Map<string, Promise<JSONWebKeySet>>()
 const JWKS_TTL = 10 * 60 * 1000
+/** 强制刷新的冷却时间：随意伪造 kid 的令牌不能让每次校验都去请求一次 JWKS */
+const JWKS_REFRESH_COOLDOWN = 30 * 1000
 
-async function loadJwks(uri: string, fetcher: typeof fetch, force: boolean): Promise<JSONWebKeySet> {
+async function loadJwks(uri: string, fetcher: typeof fetch, force: boolean, timeout: number): Promise<JSONWebKeySet> {
   const cached = jwksCache.get(uri)
-  if (cached && !force && cached.expires > Date.now())
+  const now = Date.now()
+  if (cached && cached.expires > now && (!force || now - cached.fetchedAt < JWKS_REFRESH_COOLDOWN))
     return cached.keys
-  const response = await fetcher(uri, {
-    headers: { accept: 'application/json' },
-  })
-  if (!response.ok)
-    throw new Error(`Failed to fetch JWKS from ${uri}: HTTP ${response.status}`)
-  const keys = await response.json() as JSONWebKeySet
-  if (!Array.isArray(keys?.keys))
-    throw new TypeError(`Invalid JWKS from ${uri}`)
-  jwksCache.set(uri, { keys, expires: Date.now() + JWKS_TTL })
-  return keys
+  let inflight = jwksInflight.get(uri)
+  if (!inflight) {
+    inflight = (async () => {
+      const response = await fetcher(uri, {
+        headers: { accept: 'application/json' },
+        ...(timeout > 0 && {
+          signal: AbortSignal.timeout(timeout),
+        }),
+      })
+      if (!response.ok)
+        throw new Error(`Failed to fetch JWKS from ${uri}: HTTP ${response.status}`)
+      const keys = await response.json() as JSONWebKeySet
+      if (!Array.isArray(keys?.keys))
+        throw new TypeError(`Invalid JWKS from ${uri}`)
+      jwksCache.set(uri, {
+        keys,
+        expires: Date.now() + JWKS_TTL,
+        fetchedAt: Date.now(),
+      })
+      return keys
+    })().finally(() => jwksInflight.delete(uri))
+    jwksInflight.set(uri, inflight)
+  }
+  return inflight
 }
 
 /** 清空 JWKS 缓存（测试用） */
 export function clearJwksCache(): void {
   jwksCache.clear()
+  jwksInflight.clear()
 }
 
 export interface VerifyIdTokenOptions {
@@ -40,6 +61,8 @@ export interface VerifyIdTokenOptions {
   /** 允许的时钟偏差（秒），默认 60 */
   clockTolerance?: number
   fetch?: typeof fetch
+  /** 请求 JWKS 的超时（毫秒），默认 10000；0 不限 */
+  timeout?: number
 }
 
 const DEFAULT_ALGORITHMS = [
@@ -62,7 +85,7 @@ const DEFAULT_ALGORITHMS = [
 export async function verifyIdToken(token: string, options: VerifyIdTokenOptions): Promise<JWTPayload> {
   const fetcher = options.fetch ?? globalThis.fetch
   const verify = async (force: boolean): Promise<JWTPayload> => {
-    const keys = createLocalJWKSet(await loadJwks(options.jwksUri, fetcher, force))
+    const keys = createLocalJWKSet(await loadJwks(options.jwksUri, fetcher, force, options.timeout ?? DEFAULT_HTTP_TIMEOUT))
     const { payload } = await jwtVerify(token, keys, {
       issuer: options.issuer,
       audience: options.audience,

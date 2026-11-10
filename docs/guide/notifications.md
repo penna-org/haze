@@ -90,6 +90,8 @@ export class User extends Model.define(users) {
 
 Class names are read at runtime, so keep `notifiableType` explicit (`static notifiableType = 'User'`) if your production build minifies class names.
 
+A failing delivery does not stop the others: every notifiable and channel is still attempted, each failure is logged, and `notify()` then rejects with the error (an `AggregateError` when more than one delivery failed).
+
 ## Queued notifications
 
 Set `queue` to deliver through the queue. Each channel becomes its own job (`notification:send`), so a failing Slack call is retried without sending the mail twice:

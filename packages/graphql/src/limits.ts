@@ -10,7 +10,10 @@ const isIntrospectionField = (node: FieldNode): boolean => node.name.value.start
 export function depthLimit(maxDepth: number): ValidationRule {
   return (context: ValidationContext) => ({
     OperationDefinition(operation: OperationDefinitionNode) {
-      const depth = measureDepth(operation.selectionSet, context, new Set())
+      const depth = measureDepth(operation.selectionSet, context, {
+        memo: new Map(),
+        active: new Set(),
+      })
       if (depth > maxDepth) {
         context.reportError(new GraphQLError(`Query depth ${depth} exceeds the maximum allowed depth of ${maxDepth}`, {
           nodes: [operation],
@@ -21,29 +24,43 @@ export function depthLimit(maxDepth: number): ValidationRule {
   })
 }
 
-function measureDepth(selectionSet: SelectionSetNode, context: ValidationContext, visited: Set<string>): number {
+/**
+ * 片段的计算状态：`memo` 记下每个片段已算出的结果（同一片段被多次展开时只计算一次，
+ * 否则 `fragment F0 { ...F1 ...F1 }` 这样的链会是 2^n 的开销），`active` 是正在计算中的片段（防循环引用）。
+ */
+interface FragmentState {
+  memo: Map<string, number>
+  active: Set<string>
+}
+
+function measureDepth(selectionSet: SelectionSetNode, context: ValidationContext, state: FragmentState): number {
   let max = 0
   for (const selection of selectionSet.selections) {
     if (selection.kind === 'Field') {
       if (isIntrospectionField(selection))
         continue
       const child = selection.selectionSet
-        ? measureDepth(selection.selectionSet, context, visited)
+        ? measureDepth(selection.selectionSet, context, state)
         : 0
       max = Math.max(max, 1 + child)
     }
     else if (selection.kind === 'InlineFragment') {
-      max = Math.max(max, measureDepth(selection.selectionSet, context, visited))
+      max = Math.max(max, measureDepth(selection.selectionSet, context, state))
     }
     else {
       const name = selection.name.value
       const fragment = context.getFragment(name)
       // 循环引用由内置的 NoFragmentCycles 规则报告
-      if (!fragment || visited.has(name))
+      if (!fragment || state.active.has(name))
         continue
-      visited.add(name)
-      max = Math.max(max, measureDepth(fragment.selectionSet, context, visited))
-      visited.delete(name)
+      let depth = state.memo.get(name)
+      if (depth === undefined) {
+        state.active.add(name)
+        depth = measureDepth(fragment.selectionSet, context, state)
+        state.active.delete(name)
+        state.memo.set(name, depth)
+      }
+      max = Math.max(max, depth)
     }
   }
   return max
@@ -65,7 +82,10 @@ export function complexityLimit(maxComplexity: number, variables: Record<string,
           : schema.getSubscriptionType()
       if (!root)
         return
-      const cost = measureComplexity(operation.selectionSet, root, context, variables, new Set())
+      const cost = measureComplexity(operation.selectionSet, root, context, variables, {
+        memo: new Map(),
+        active: new Set(),
+      })
       if (cost > maxComplexity) {
         context.reportError(new GraphQLError(`Query complexity ${cost} exceeds the maximum allowed complexity of ${maxComplexity}`, {
           nodes: [operation],
@@ -81,7 +101,7 @@ function measureComplexity(
   parent: GraphQLCompositeType,
   context: ValidationContext,
   variables: Record<string, unknown>,
-  visited: Set<string>,
+  state: FragmentState,
 ): number {
   let total = 0
   for (const selection of selectionSet.selections) {
@@ -95,7 +115,7 @@ function measureComplexity(
         continue
       const type = getNamedType(definition.type)
       const childComplexity = selection.selectionSet && isCompositeType(type)
-        ? measureComplexity(selection.selectionSet, type, context, variables, visited)
+        ? measureComplexity(selection.selectionSet, type, context, variables, state)
         : 0
       const complexity = (definition.extensions as { complexity?: Complexity } | undefined)?.complexity
       if (typeof complexity === 'function') {
@@ -114,19 +134,25 @@ function measureComplexity(
         ? context.getSchema().getType(selection.typeCondition.name.value)
         : parent
       if (condition && isCompositeType(condition))
-        total += measureComplexity(selection.selectionSet, condition, context, variables, visited)
+        total += measureComplexity(selection.selectionSet, condition, context, variables, state)
     }
     else {
       const name = selection.name.value
       const fragment: FragmentDefinitionNode | null | undefined = context.getFragment(name)
-      if (!fragment || visited.has(name))
+      if (!fragment || state.active.has(name))
         continue
-      const condition = context.getSchema().getType(fragment.typeCondition.name.value)
-      if (!condition || !isCompositeType(condition))
-        continue
-      visited.add(name)
-      total += measureComplexity(fragment.selectionSet, condition, context, variables, visited)
-      visited.delete(name)
+      // 片段的父类型由自身的类型条件决定，与展开的位置无关，按片段名缓存即可
+      let cost = state.memo.get(name)
+      if (cost === undefined) {
+        const condition = context.getSchema().getType(fragment.typeCondition.name.value)
+        if (!condition || !isCompositeType(condition))
+          continue
+        state.active.add(name)
+        cost = measureComplexity(fragment.selectionSet, condition, context, variables, state)
+        state.active.delete(name)
+        state.memo.set(name, cost)
+      }
+      total += cost
     }
   }
   return total

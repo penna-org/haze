@@ -51,7 +51,7 @@ export default defineBroadcastingConfig(() => ({
 | `bus` | 广播如何到达所有实例：`{ driver: 'memory' }`、`{ driver: 'redis', connection?, url?, prefix? }`（`connection` 为 [Redis 连接](./redis)名，默认 `default`；内联 `url` 优先），或者自己实现的 `BroadcastBus`。`config/websocket.ts` 的 `broadcast.driver` 为 `redis` 时默认沿用它的 Redis，否则为 `memory`。 |
 | `transports` | `{ ws?: boolean, sse?: boolean }`，默认都启用。 |
 | `heartbeat` | SSE 心跳间隔，默认 `25` 秒。 |
-| `maxChannels` | 每个 SSE 连接最多订阅的频道数，默认 100。 |
+| `maxChannels` | 每个 SSE / WebSocket 连接最多订阅的频道数，默认 100。 |
 
 内置接口如下：
 
@@ -151,7 +151,8 @@ export const echo = createEcho({
 | `authEndpoint` | 授权接口的完整地址，默认 `<path>/auth`。 |
 | `headers` | 授权请求与 SSE 请求的请求头，也可以是返回请求头的函数。 |
 | `credentials` | `fetch` 的 credentials，默认 `same-origin`；跨域携带 Cookie 时设为 `include`。 |
-| `reconnect` | 断线后自动重连（1 秒、2 秒、4 秒……最长 30 秒），默认 `true`。 |
+| `reconnect` | 断线后自动重连（1 秒、2 秒、4 秒……最长 30 秒，再乘以 0.5–1 的随机系数），默认 `true`。 |
+| `heartbeat` | `ws`：发送 ping 的间隔秒数，默认 `25`，`false` 关闭。10 秒内没有回应的连接按断线处理。 |
 | `io` | `socket.io` 传输：传入 `socket.io-client` 的 `io` 函数。 |
 | `namespace` / `ioOptions` | `socket.io` 传输：命名空间（默认 `/broadcasting`）与传给 `io()` 的选项。 |
 

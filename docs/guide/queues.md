@@ -206,7 +206,7 @@ The `database` driver treats a job reserved for longer than its connection's `re
 - put long jobs on their own connection (for example a second `database` connection with `retryAfter: '30m'` on queue `long`), so that a crash of a short job is still picked up quickly;
 - a job that already used all its tries when it is picked up again goes to the failed jobs instead of running again.
 
-The `redis` driver relies on BullMQ's stalled-job detection: the worker renews its lock while the job runs, and a job whose worker stopped renewing it is moved back to the queue. In both cases a job can run more than once after a crash, so make jobs idempotent.
+The `redis` driver relies on BullMQ's stalled-job detection: the worker renews its lock while the job runs, and a job whose worker stopped renewing it is moved back to the queue. A job that stalls more often than BullMQ allows is failed without running again: its `failed()` hook is called and its unique lock, chain and batch are settled like any other final failure. In both cases a job can run more than once after a crash, so make jobs idempotent.
 
 ### Database driver {#database-driver}
 
@@ -333,6 +333,7 @@ export default defineJob({
 The rules:
 
 - By default the first failure cancels the batch. Jobs that have not started yet are skipped and count as processed. With `allowFailures()` every job runs.
+- If the queue becomes unavailable while a batch is being dispatched (or during `batch.add()`), the call throws and the jobs that could not be queued are recorded as failed, so the batch still finishes and runs `catch` / `finally`.
 - `catch` runs once, on the first failure. `then` runs once, when every job finished and none failed or was cancelled. `finally` runs once, when every job has finished, whatever the outcome.
 - State lives in the cache store from `batches.store`. The counters use the store's atomic increments. The worker whose increment makes the finished count reach the total writes a "finished" marker with `add()`, and only the worker that wins that write runs `then` / `finally`. So the callbacks run exactly once even with many concurrent workers.
 - With more than one process, the store must be shared and atomic: use `redis`. The default `memory` store is fine for the `memory` and `sync` connections. hazejs logs a warning if the store is not atomic, as with `kv`.

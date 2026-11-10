@@ -35,7 +35,7 @@ interface Target {
 /** 启动（不监听端口的）开发服务器以读取配置；db:migrate / db:seed 也在应用的模块图中执行 */
 async function withApp<T>(root: string, run: (server: DevServer, database: DatabaseConfig, srcDir: string) => Promise<T>): Promise<T> {
   const { srcDir } = await loadHazeConfig(root)
-  const server = await createDevServer({ root, listen: false })
+  const server = await createDevServer({ root, listen: false, watch: false })
   try {
     if (!server.app)
       throw new Error('Application failed to start')

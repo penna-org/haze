@@ -24,6 +24,11 @@ export interface OAuthUser<R = Record<string, unknown>> {
   name: string | null
   nickname: string | null
   email: string | null
+  /**
+   * 第三方是否确认过该邮箱属于此用户：true 已验证；false 未验证或不可信（如 Microsoft 的 mail / UPN 由租户管理员任意设置）；
+   * null 表示第三方没有给出信号（或没有邮箱）。只有为 true 时才可以按邮箱合并到已有的本地账号。
+   */
+  emailVerified: boolean | null
   avatar: string | null
   /** 用户信息接口的原始响应（含 unionid、手机号等各家特有字段） */
   raw: R
@@ -31,7 +36,7 @@ export interface OAuthUser<R = Record<string, unknown>> {
 }
 
 /** 映射用户信息时返回的字段（provider / raw / token 由框架补齐） */
-export type MappedUser = Pick<OAuthUser, 'id'> & Partial<Pick<OAuthUser, 'name' | 'nickname' | 'email' | 'avatar'>>
+export type MappedUser = Pick<OAuthUser, 'id'> & Partial<Pick<OAuthUser, 'name' | 'nickname' | 'email' | 'emailVerified' | 'avatar'>>
 
 /** 所有驱动共有的配置 */
 export interface BaseProviderConfig {
@@ -71,4 +76,6 @@ export interface DriverOptions {
   cookie: string
   /** state 有效期（秒） */
   stateTtl: number
+  /** 请求第三方接口的超时（毫秒），默认 10000；0 不限 */
+  timeout?: number
 }

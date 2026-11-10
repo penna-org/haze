@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Application } from '../src'
 import { createHmac } from 'node:crypto'
 import { createServer } from 'node:http'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it } from 'vitest'
 import { createApplication, defineRoutes, html, Mail, MailFake, QueueManager } from '../src'
 import { setBroadcastManager } from '../src/broadcast/broadcast'
 import { defineChannels } from '../src/broadcast/channels'
@@ -383,6 +383,33 @@ describe('notifications', () => {
         ],
       },
     })
+  })
+
+  it('keeps delivering to the other notifiables and channels when one delivery fails', async () => {
+    const { store } = await boot({
+      slack: { url: `${base}/nope` },
+    })
+    const Mixed = defineNotification<{ n: number }>({
+      name: 'Mixed',
+      via: () => ['slack', 'database'],
+      toSlack: () => 'hi',
+      toDatabase: (_, { n }) => ({ n }),
+    })
+    // slack 失败后 database 仍然写入；第二个接收者同样被处理
+    const one = notify([
+      { id: 1 },
+      { id: 2 },
+    ], Mixed({ n: 1 }))
+    await expect(one).rejects.toBeInstanceOf(AggregateError)
+    const error = await one.then(() => undefined, error => error as AggregateError)
+    assert(error)
+    expect(error.errors).toHaveLength(2)
+    expect(error.errors.every(item => item instanceof NotificationDeliveryError)).toBe(true)
+    expect(await store.count(notifiableKey({ id: 1 })!, {})).toBe(1)
+    expect(await store.count(notifiableKey({ id: 2 })!, {})).toBe(1)
+    // 只有一个失败时抛出原来的错误
+    await expect(notify({ id: 3 }, Mixed({ n: 2 }))).rejects.toBeInstanceOf(NotificationDeliveryError)
+    expect(await store.count(notifiableKey({ id: 3 })!, {})).toBe(1)
   })
 
   it('surfaces vendor errors and HTTP failures', async () => {

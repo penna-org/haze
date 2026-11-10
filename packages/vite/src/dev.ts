@@ -22,6 +22,11 @@ export interface DevServerOptions {
   host?: string
   /** false 时不监听端口，只通过 `devServer.fetch()` 访问（测试 / 嵌入） */
   listen?: boolean
+  /**
+   * false 时不监听文件变化（Vite 的 `server.watch: null`）：一次性执行的命令（迁移、route:list、typegen 等）
+   * 读取应用后即退出，不需要为整个项目建立文件监听（之后修改的文件不会生效）。默认 true
+   */
+  watch?: boolean
   /** 文件变化后的防抖时间，默认 30ms */
   debounce?: number
   /** DevTools（需安装 `@hazejs/devtools`），默认读取 haze.config.ts；false 关闭 */
@@ -62,7 +67,7 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
     standalone: true,
   })
 
-  const vite = await createServer(mergeConfig(config.vite, {
+  const viteConfig = mergeConfig(config.vite, {
     root,
     configFile: false,
     appType: 'custom',
@@ -82,7 +87,11 @@ export async function createDevServer(options: DevServerOptions = {}): Promise<D
       },
     },
     plugins,
-  } satisfies InlineConfig))
+  } satisfies InlineConfig)
+  // mergeConfig 会忽略 null，合并之后再关闭文件监听（同时覆盖用户配置的 server.watch）
+  if (options.watch === false)
+    viteConfig.server = { ...viteConfig.server, watch: null }
+  const vite = await createServer(viteConfig)
 
   const host = createAppHost({ vite, api: plugins[0].api!, debounce: options.debounce })
   // 在首次加载之前创建，DevTools 能收到首次加载的结果

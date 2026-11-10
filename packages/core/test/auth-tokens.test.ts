@@ -266,6 +266,44 @@ describe('personal access tokens', () => {
     expect((await app.request(`/auth/tokens/${data.accessToken.id}`, { method: 'DELETE', headers })).status).toBe(204)
     expect((await app.request(`/auth/tokens/${data.accessToken.id}`, { method: 'DELETE', headers })).status).toBe(404)
   })
+
+  it('a token cannot mint a token with more abilities than its own', async () => {
+    const { app, rows } = await boot((r) => {
+      authRoutes(r, { tokens: true })
+    })
+    const limited = await createAccessToken(rows[0], 'limited', {
+      abilities: ['posts:read', 'comments:*'],
+    })
+    const mint = (plain: string, body: Record<string, unknown>) => app.request('/tokens', {
+      method: 'POST',
+      headers: { ...json, authorization: `Bearer ${plain}` },
+      body: JSON.stringify(body),
+    })
+    expect((await mint(limited.plainTextToken, {
+      name: 'all',
+      abilities: ['*'],
+    })).status).toBe(422)
+    expect((await mint(limited.plainTextToken, {
+      name: 'write',
+      abilities: ['posts:read', 'posts:write'],
+    })).status).toBe(422)
+    const narrowed = await mint(limited.plainTextToken, {
+      name: 'narrow',
+      abilities: ['comments:read'],
+    })
+    expect(narrowed.status).toBe(201)
+    expect(((await narrowed.json()) as any).data.accessToken.abilities).toEqual(['comments:read'])
+    // 省略 abilities：沿用当前令牌的能力，而不是 ['*']
+    const inherited = await mint(limited.plainTextToken, { name: 'same' })
+    expect(((await inherited.json()) as any).data.accessToken.abilities).toEqual(['posts:read', 'comments:*'])
+    // 全部能力的令牌不受限制
+    const full = await createAccessToken(rows[0], 'full')
+    expect(((await (await mint(full.plainTextToken, {
+      name: 'any',
+      abilities: ['admin'],
+    })).json()) as any).data.accessToken.abilities).toEqual(['admin'])
+    expect(((await (await mint(full.plainTextToken, { name: 'default' })).json()) as any).data.accessToken.abilities).toEqual(['*'])
+  })
 })
 
 describe('email verification', () => {
@@ -376,7 +414,9 @@ describe('password reset', () => {
     fake.assertNothingSent()
 
     expect((await (await post('/forgot-password', { email: 'ada@example.com' })).json() as any).data).toEqual({ status: 'sent' })
-    expect((await (await post('/forgot-password', { email: 'ada@example.com' })).json() as any).data).toEqual({ status: 'throttled' })
+    expect((await (await post('/forgot-password', { email: 'ada@example.com' })).json() as any).data).toEqual({ status: 'sent' })
+    // 间隔太短时不再发送，但响应与未注册 / 已发送相同（throttled 只会出现在已注册的邮箱上）
+    expect(await PasswordReset.sendLink('ada@example.com')).toBe('throttled')
     fake.assertSentTimes(ResetPasswordMail, 1)
     const url = new URL((fake.sent[0].payload as { url: string }).url)
     expect(url.origin + url.pathname).toBe('https://demo.test/reset')

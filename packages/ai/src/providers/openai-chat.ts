@@ -1,8 +1,8 @@
 import type { FetchFunction } from '../http'
 import type { AssistantContentPart, FinishReason, LanguageModel, Message, ModelRequest, ModelResponse, ModelStreamPart, Usage, UserContentPart } from '../types'
 import { resolveData } from '../data'
-import { UnsupportedFeatureError } from '../errors'
-import { compact, parseSSE, postJSON, postStream, safeParseJSON, toReadableStream } from '../http'
+import { APICallError, UnsupportedFeatureError } from '../errors'
+import { compact, parseSSE, postJSON, postStream, safeParseJSON, toReadableStream, truncatedStreamError } from '../http'
 
 /**
  * OpenAI Chat Completions 协议的对话模型（OpenAI 与各兼容厂商共用）。
@@ -315,12 +315,12 @@ export function createChatModel(config: ChatModelConfig): LanguageModel {
         signal: request.signal,
         fetch: config.fetch,
       })
-      return toReadableStream(chatStreamParts(stream, warnings, readReasoning))
+      return toReadableStream(chatStreamParts(stream, warnings, readReasoning, config))
     },
   }
 }
 
-async function* chatStreamParts(stream: ReadableStream<Uint8Array>, warnings: string[], readReasoning: (value: any) => string | undefined): AsyncGenerator<ModelStreamPart> {
+async function* chatStreamParts(stream: ReadableStream<Uint8Array>, warnings: string[], readReasoning: (value: any) => string | undefined, endpoint: { provider: string, url: string }): AsyncGenerator<ModelStreamPart> {
   for (const message of warnings)
     yield { type: 'warning', message }
   const calls = new Map<number, { id: string, name: string, input: string, started: boolean }>()
@@ -328,14 +328,27 @@ async function* chatStreamParts(stream: ReadableStream<Uint8Array>, warnings: st
   let usage: Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   let metadataSent = false
   let refused = false
+  // 收到 finish_reason 或 [DONE] 才算正常结束；否则是连接中途断开
+  let terminated = false
   for await (const event of parseSSE(stream)) {
-    if (event.data === '[DONE]')
+    if (event.data === '[DONE]') {
+      terminated = true
       break
+    }
     const chunk = JSON.parse(event.data)
     if (chunk.error) {
+      const status = Number(chunk.error.code ?? chunk.error.status)
       yield {
         type: 'error',
-        error: new Error(chunk.error.message ?? JSON.stringify(chunk.error)),
+        error: new APICallError({
+          message: `${endpoint.provider} stream error: ${chunk.error.message ?? JSON.stringify(chunk.error)}`,
+          provider: endpoint.provider,
+          url: endpoint.url,
+          responseBody: event.data,
+          isRetryable: Number.isInteger(status) && status >= 100
+            ? status === 408 || status === 409 || status === 429 || status >= 500
+            : /overloaded|rate_limit|server_error|timeout|unavailable/i.test(`${chunk.error.type ?? ''} ${chunk.error.code ?? ''}`),
+        }),
       }
       return
     }
@@ -384,8 +397,18 @@ async function* chatStreamParts(stream: ReadableStream<Uint8Array>, warnings: st
         yield { type: 'tool-call-delta', toolCallId: call.id, inputDelta: argumentsDelta }
       }
     }
-    if (choice.finish_reason)
+    if (choice.finish_reason) {
+      terminated = true
       finishReason = mapFinishReason(choice.finish_reason)
+    }
+  }
+  if (!terminated) {
+    // 不输出累积到一半的工具调用，也不把截断的输出当作正常结束
+    yield {
+      type: 'error',
+      error: truncatedStreamError(endpoint.provider, endpoint.url),
+    }
+    return
   }
   for (const call of calls.values()) {
     yield {

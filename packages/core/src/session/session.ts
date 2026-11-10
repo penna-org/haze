@@ -21,7 +21,10 @@ export interface SessionConfig {
   store?: string
   /** Cookie 名，默认 `haze_session` */
   cookie: string
-  /** 有效期，默认 `2h` */
+  /**
+   * 有效期，默认 `2h`。按最后一次活动滑动续期：会话有修改时重新计时；只读的请求在剩余时间不足一半时
+   * 重新下发 Cookie（服务端存储同时续期），活跃用户不会在使用中途过期，也不必每个响应都写 Cookie
+   */
   lifetime: string | number
   /** 覆盖默认 Cookie 选项（httpOnly、SameSite=Lax、生产环境 Secure） */
   cookieOptions?: CookieOptions
@@ -208,17 +211,23 @@ export async function startSession(ctx: HttpContext): Promise<Session> {
   const raw = getCookie(ctx.event, config.cookie)
 
   let session: Session | undefined
+  // 已有会话的过期时间（毫秒时间戳）；旧格式的服务端会话 Cookie 没有记录，视为需要续期
+  let expiresAt = 0
   if (raw) {
     if (store) {
-      const id = await unsignId(raw, secret)
-      const data = id && await store.get(id)
-      if (id && data)
-        session = new Session(id, data)
+      const signed = await unsignId(raw, secret)
+      const data = signed && await store.get(signed.id)
+      if (signed && data) {
+        expiresAt = signed.expiresAt
+        session = new Session(signed.id, data)
+      }
     }
     else {
       const payload = await decrypt(raw, secret)
-      if (payload && payload.exp > Date.now())
+      if (payload && payload.exp > Date.now()) {
+        expiresAt = payload.exp
         session = new Session(payload.id, payload.data)
+      }
     }
   }
   const isNew = !session
@@ -228,7 +237,9 @@ export async function startSession(ctx: HttpContext): Promise<Session> {
   ctx.onResponse(async (response) => {
     const { id, data, previousId, invalidated } = session.snapshot()
     const empty = !Object.keys(data).some(key => key !== FLASH)
-    if (!session.dirty && !isNew)
+    // 滑动续期：没有修改的会话在剩余有效期不足一半时才重新写回（而不是每个响应都写）
+    const renew = !isNew && !session.dirty && expiresAt - Date.now() < lifetime * 500
+    if (!session.dirty && !isNew && (!renew || empty))
       return
     // 新会话没有数据：不设置 Cookie
     if (isNew && empty && !invalidated)
@@ -249,7 +260,9 @@ export async function startSession(ctx: HttpContext): Promise<Session> {
     let value: string
     if (store) {
       await store.set(id, data, lifetime)
-      value = `${id}.${await sign(id, secret)}`
+      // Cookie：<id>.<过期时间>.<签名>。过期时间只用来判断何时续期，是否有效仍以存储的 TTL 为准
+      const signed = `${id}.${(Date.now() + lifetime * 1000).toString(36)}`
+      value = `${signed}.${await sign(signed, secret)}`
     }
     else {
       value = await encrypt({ id, data, exp: Date.now() + lifetime * 1000 }, secret)
@@ -262,14 +275,21 @@ export async function startSession(ctx: HttpContext): Promise<Session> {
   return session
 }
 
-async function unsignId(raw: string, secret: string): Promise<string | undefined> {
+/** 校验服务端会话的 Cookie：`<id>.<过期时间>.<签名>`，兼容旧格式 `<id>.<签名>`（没有过期时间） */
+async function unsignId(raw: string, secret: string): Promise<{ id: string, expiresAt: number } | undefined> {
   const index = raw.lastIndexOf('.')
   if (index <= 0)
     return undefined
-  const id = raw.slice(0, index)
-  return await verify(id, raw.slice(index + 1), secret)
-    ? id
-    : undefined
+  const signed = raw.slice(0, index)
+  if (!await verify(signed, raw.slice(index + 1), secret))
+    return undefined
+  const [id, exp] = signed.split('.')
+  return {
+    id,
+    expiresAt: exp
+      ? Number.parseInt(exp, 36) || 0
+      : 0,
+  }
 }
 
 interface CookiePayload {

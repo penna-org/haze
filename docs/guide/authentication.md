@@ -370,9 +370,9 @@ import { PasswordReset, validate, ValidationException } from '@hazejs/core'
 export class PasswordResetController {
   async forgot(ctx: HttpContext) {
     const { email } = await validate(ForgotPasswordSchema, await ctx.body())
-    const status = await PasswordReset.sendLink(email)
-    // Same answer whether or not the email exists
-    return { status: status === 'throttled' ? 'throttled' : 'sent' }
+    await PasswordReset.sendLink(email)
+    // Same answer whether the email is unknown, throttled or the link was sent
+    return { status: 'sent' }
   }
 
   async reset(ctx: HttpContext) {
@@ -384,7 +384,7 @@ export class PasswordResetController {
 }
 ```
 
-- `PasswordReset.sendLink(email)` returns `'sent'`, `'throttled'` or `'invalid-user'`. Don't reveal `'invalid-user'` to clients, or the endpoint can be used to find out which emails are registered.
+- `PasswordReset.sendLink(email)` returns `'sent'`, `'throttled'` or `'invalid-user'`. Don't reveal `'invalid-user'` or `'throttled'` to clients (only registered emails are ever throttled), or the endpoint can be used to find out which emails are registered. `authRoutes()` answers `{ status: 'sent' }` in all three cases.
 - `PasswordReset.reset({ email, token, password }, callback?)` returns `'reset'`, `'invalid-token'` (wrong, expired or already used) or `'invalid-user'`. By default it stores `Hash.make(password)` in the password field and saves the user. Pass a callback to do more, such as revoking API tokens:
 
 ```ts
@@ -418,7 +418,7 @@ export default defineRoutes((r) => {
 |--------|--------|
 | `verification` | `POST /email/verification-notification` (`verification.send`, needs login), `GET /email/verify/:id/:hash` (`verification.verify`) |
 | `passwordReset` | `POST /forgot-password` (`password.email`), `POST /reset-password` (`password.update`) |
-| `tokens` | `GET /tokens`, `POST /tokens`, `DELETE /tokens/:id` (`tokens.*`, need login); `{ abilities }` limits what can be requested |
+| `tokens` | `GET /tokens`, `POST /tokens`, `DELETE /tokens/:id` (`tokens.*`, need login); `{ abilities }` limits what can be requested; a request authenticated with a token cannot ask for more than that token has |
 | `auth` | Middleware for the routes that need login, default `['auth']` |
 | `throttle` | Rate limit for the other routes, default `'throttle:6,60'`; `false` disables it |
 | `minPasswordLength` | Minimum new password length, default `8` |

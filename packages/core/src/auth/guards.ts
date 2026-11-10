@@ -7,6 +7,7 @@ import type { Credentials, UserProvider } from './provider'
 import type { CreateTokenOptions, NewAccessToken, PersonalAccessToken } from './tokens'
 import { importPKCS8, importSPKI, jwtVerify, SignJWT } from 'jose'
 import { regenerateCsrfToken } from '../middleware/builtin/csrf'
+import { Hash } from '../security/hash'
 import { appKey } from '../security/key'
 import { parseDuration } from '../utils'
 import { resolveProvider } from './support'
@@ -27,6 +28,29 @@ export interface Guard<U = unknown> {
 
 /** 认证失败的原因：没有凭据，或凭据无效（过期、签名不符、已被吊销等） */
 export type GuardFailure = 'missing' | 'invalid'
+
+/** 用户不存在时用来校验的固定哈希（默认算法与参数，进程内只计算一次） */
+let dummy: Promise<string> | undefined
+function dummyHash(): Promise<string> {
+  dummy ??= Hash.make(crypto.randomUUID())
+  return dummy
+}
+
+/** 非对称算法导入的密钥：按 PEM、算法与用途缓存，不在每个请求中重新解析 */
+const importedKeys = new Map<string, Promise<WebCryptoKey>>()
+function importedKey(pem: string, algorithm: string, use: 'sign' | 'verify'): Promise<WebCryptoKey> {
+  const id = `${use}:${algorithm}:${pem}`
+  let key = importedKeys.get(id)
+  if (!key) {
+    key = (use === 'sign'
+      ? importPKCS8(pem, algorithm)
+      : importSPKI(pem, algorithm)) as Promise<WebCryptoKey>
+    importedKeys.set(id, key)
+    // 导入失败（PEM 格式错误）不缓存：改正配置后可以重试
+    key.catch(() => importedKeys.delete(id))
+  }
+  return key
+}
 
 abstract class BaseGuard<U> implements Guard<U> {
   #user: Promise<U | undefined> | undefined
@@ -53,7 +77,13 @@ abstract class BaseGuard<U> implements Guard<U> {
 
   async validate(credentials: Credentials): Promise<U | undefined> {
     const user = await this.provider.retrieveByCredentials(credentials) ?? undefined
-    return user !== undefined && await this.provider.validateCredentials(user, credentials)
+    if (user === undefined) {
+      // 用户不存在时也做一次哈希校验，使响应时间与“用户存在、密码错误”接近，避免按耗时枚举账号
+      if (typeof credentials.password === 'string')
+        await Hash.verify(await dummyHash(), credentials.password).catch(() => false)
+      return undefined
+    }
+    return await this.provider.validateCredentials(user, credentials)
       ? user
       : undefined
   }
@@ -204,9 +234,7 @@ export class JwtGuard<U = unknown> extends BaseGuard<U> {
         ? 'privateKey'
         : 'publicKey'} is required for ${algorithm}`)
     }
-    return use === 'sign'
-      ? importPKCS8(pem, algorithm)
-      : importSPKI(pem, algorithm)
+    return importedKey(pem, algorithm, use)
   }
 }
 

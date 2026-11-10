@@ -888,4 +888,48 @@ describe('google media endpoints', () => {
     expect(raw.mediaType).toBe('audio/pcm')
     expect([...raw.data]).toEqual([...pcm])
   })
+
+  it('reports truncated streams and in-stream errors as APICallError', async () => {
+    server.reply(() => ({
+      sse: [
+        {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  { text: 'Hel' },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }))
+    const truncated = streamText({
+      model: google()('gemini-2.5-flash'),
+      prompt: 'x',
+      onError: () => {},
+    })
+    const error = await truncated.finishReason.catch(error => error)
+    expect(error).toBeInstanceOf(APICallError)
+    expect(error).toMatchObject({ provider: 'google', isRetryable: true })
+    expect(error.message).toContain('stream ended before the model finished')
+
+    server.reply(() => ({
+      sse: [
+        {
+          error: { code: 503, message: 'The model is overloaded', status: 'UNAVAILABLE' },
+        },
+      ],
+    }))
+    const failed = streamText({
+      model: google()('gemini-2.5-flash'),
+      prompt: 'x',
+      onError: () => {},
+    })
+    const inStream = await failed.text.catch(error => error)
+    expect(inStream).toBeInstanceOf(APICallError)
+    expect(inStream).toMatchObject({ isRetryable: true, message: 'google stream error: The model is overloaded' })
+  })
 })

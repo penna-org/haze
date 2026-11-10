@@ -15,6 +15,13 @@ export interface ConsumeOptions {
   backoff: (message: JobMessage, attempt: number) => number
   /** 任务最多执行次数 */
   tries: (message: JobMessage) => number
+  /**
+   * 任务没有经过 process 就被队列判为最终失败（BullMQ：stalled 次数超限）：
+   * 由 QueueManager 调用 failed() 并完成收尾（唯一锁、任务链、批次）
+   */
+  lost?: (message: JobMessage, error: unknown, attempt: number) => Promise<void>
+  /** worker 的连接等错误（驱动自己不记录日志） */
+  onError?: (error: unknown) => void
 }
 
 /** 队列积压统计（各驱动按自己的能力提供） */

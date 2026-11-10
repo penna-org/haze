@@ -370,7 +370,8 @@ export class Factory<M extends ModelLike, S extends string = never, Counted exte
       const Model = this.model
       const model = new Model()
       const record = model as unknown as ActiveRecord
-      record.fill(attributes as Record<string, unknown>)
+      // 工厂的数据由开发者定义：可以设置租户列、软删除时间等受保护的字段
+      record.forceFill(attributes as Record<string, unknown>)
       for (const callback of this.#options.afterMake)
         await callback(model)
       models.push(model)

@@ -4,6 +4,7 @@ import type { MiddlewareHandler } from '../types'
 import { CsrfTokenMismatchException } from '../../exception/exceptions'
 import { mutableResponse, serializeCookie } from '../../http/cookie'
 import { safeEqual, toBase64Url } from '../../security/key'
+import { wildcardRegExp } from '../../utils'
 
 export interface CsrfConfig {
   /** 不校验的路径，支持 `*` 通配：`['/api/webhooks/*']` */
@@ -39,11 +40,6 @@ export async function csrfToken(ctx: HttpContext): Promise<string> {
 /** 更换 token（登录 / 退出时由 Session Guard 调用，防止 token 固定） */
 export function regenerateCsrfToken(session: Session): void {
   session.set(SESSION_KEY, newToken())
-}
-
-function matches(path: string, pattern: string): boolean {
-  const regex = new RegExp(`^${pattern.split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
-  return regex.test(path)
 }
 
 async function providedToken(ctx: HttpContext): Promise<string | undefined> {
@@ -93,7 +89,7 @@ export const csrf: MiddlewareHandler = async (ctx, next) => {
   if (SAFE_METHODS.has(ctx.method)
     || /^Bearer\s/i.test(ctx.header('authorization') ?? '')
     || (ctx.config.get<string>('app.mode', 'production') === 'test' && !config.testing)
-    || config.except?.some(pattern => matches(ctx.path, pattern))) {
+    || config.except?.some(pattern => wildcardRegExp(pattern).test(ctx.path))) {
     return next()
   }
   const provided = await providedToken(ctx)

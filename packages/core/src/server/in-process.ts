@@ -33,12 +33,20 @@ function needsWorker(app: Application, options: QueueRunInServer): boolean {
   return true
 }
 
+/** 停止函数；start 由 Application.serve() 在开始监听后调用（重复调用只启动一次） */
+export interface InProcessWorkers {
+  (): Promise<void>
+  start: () => void
+  stop: () => Promise<void>
+}
+
 /**
  * 进程内的定时任务与队列消费（`schedule.runInServer` / `queue.runInServer`）：
- * HTTP 服务器开始监听时启动（haze dev、haze start、node / docker 产物），应用释放时停止；
- * 测试与命令行不监听端口，不会启动。多实例部署请改用独立的 worker 进程（haze schedule:work / queue:work）
+ * HTTP 服务器开始监听时启动（haze dev、haze start、node / bun / docker 产物与可执行文件），应用释放时停止；
+ * 测试与命令行不监听端口，不会启动。多实例部署请改用独立的 worker 进程（haze schedule:work / queue:work）。
+ * 启动有两个入口：Application.serve()（任何运行时），以及 Node 服务器扩展的钩子（Vite 开发服务器不经过 serve()）
  */
-export function registerInProcessWorkers(app: Application): (() => Promise<void>) | undefined {
+export function registerInProcessWorkers(app: Application): InProcessWorkers | undefined {
   const schedule = app.config.get<boolean>('schedule.runInServer', false)
   const queue = app.config.get<boolean | QueueRunInServer>('queue.runInServer', false)
   if (!schedule && !queue)
@@ -47,6 +55,9 @@ export function registerInProcessWorkers(app: Application): (() => Promise<void>
   const controller = new AbortController()
   let started: Promise<{ loop?: Promise<void>, worker?: QueueWorker }> | undefined
   const start = (): void => {
+    // 应用已释放（如监听就绪前就关闭了）：不再启动
+    if (controller.signal.aborted)
+      return
     started ??= (async () => {
       const loop = schedule
         ? app.make(Scheduler).work(controller.signal).catch(error => app.logger.error('In-process scheduler stopped', error))
@@ -72,7 +83,7 @@ export function registerInProcessWorkers(app: Application): (() => Promise<void>
   }
   registerServerExtension(extension)
 
-  return async () => {
+  const stop = async (): Promise<void> => {
     unregisterServerExtension(extension.name, extension)
     controller.abort()
     if (!started)
@@ -81,4 +92,5 @@ export function registerInProcessWorkers(app: Application): (() => Promise<void>
     await worker?.stop()
     await loop
   }
+  return Object.assign(stop, { start, stop })
 }

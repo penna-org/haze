@@ -10,11 +10,12 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Miniflare } from 'miniflare'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { binaryFileName, buildServer, hostTarget, resolveBinaryTargets } from '../src'
 import { copyFixture } from './utils'
 
 let fixture: ReturnType<typeof copyFixture> | undefined
+const bun = which('bun')
 const children: ChildProcess[] = []
 
 afterEach(async () => {
@@ -95,6 +96,36 @@ async function expectServes(command: string, args: string[], cwd: string, env: R
   expect((await (await fetch(`http://127.0.0.1:${port}/name`)).json() as any).data.name).toBe('basic')
 }
 
+/** schedule.runInServer 的项目：日志级别调到 debug，进程内 worker 启动时会记一条日志 */
+function withInProcessWorker(): ReturnType<typeof copyFixture> {
+  const project = copyFixture('basic')
+  project.write('config/schedule.ts', `export default { runInServer: true }\n`)
+  project.write('config/logger.ts', `export default { level: 'debug' }\n`)
+  return project
+}
+
+/** 进程内 worker 随服务器启动（Bun / Deno 没有 http.Server 可挂，由 serve() 在开始监听后启动） */
+async function expectInProcessWorker(command: string, args: string[], cwd: string) {
+  const port = await freePort()
+  const child = spawn(command, args, {
+    cwd,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: 'production',
+    },
+    stdio: 'pipe',
+  })
+  let output = ''
+  child.stdout?.on('data', chunk => (output += chunk))
+  child.stderr?.on('data', chunk => (output += chunk))
+  children.push(child)
+  await poll(`http://127.0.0.1:${port}/hello`).catch((error) => {
+    throw new Error(`${error.message}\n${output}`)
+  })
+  await vi.waitFor(() => expect(output).toContain('In-process workers started (schedule)'), 5000)
+}
+
 const echoBody = { name: 'Ada' }
 
 describe('deployment presets', () => {
@@ -126,18 +157,13 @@ describe('deployment presets', () => {
     await expectServes(process.execPath, [result.entry], result.root)
   })
 
-  it('bun: runs the build with Bun', async () => {
-    const bun = which('bun')
-    if (!bun)
-      return
+  // 未安装 Bun 时标记为跳过（而不是提前 return 显示为通过）
+  it.skipIf(!bun)('bun: runs the build with Bun', async () => {
     const result = await build('bun')
-    await expectServes(bun, [result.entry], result.root)
+    await expectServes(bun!, [result.entry], result.root)
   })
 
-  it('binary: compiles a standalone executable with Bun', async () => {
-    const bun = which('bun')
-    if (!bun)
-      return
+  it.skipIf(!bun)('binary: compiles a standalone executable with Bun', async () => {
     const result = await build('binary', `export default { binary: { name: 'app' } }\n`)
     const file = binaryFileName('app', hostTarget())
     expect(result.entry).toBe(join(result.root, 'dist', file))
@@ -174,6 +200,20 @@ describe('deployment presets', () => {
     const deno = fileURLToPath(new URL('../node_modules/deno/bin.cjs', import.meta.url))
     await expectServes(process.execPath, [deno, 'run', '-A', result.entry], result.root)
   })
+
+  it('deno: schedule.runInServer starts with the server', async () => {
+    const result = await build('deno', undefined, withInProcessWorker())
+    const deno = fileURLToPath(new URL('../node_modules/deno/bin.cjs', import.meta.url))
+    await expectInProcessWorker(process.execPath, [deno, 'run', '-A', result.entry], result.root)
+  })
+
+  it.skipIf(!bun)('bun / binary: schedule.runInServer starts with the server', async () => {
+    const result = await build('bun', undefined, withInProcessWorker())
+    await expectInProcessWorker(bun!, [result.entry], result.root)
+    children.splice(0).forEach(child => child.kill('SIGTERM'))
+    const compiled = await build('binary', `export default { binary: { name: 'app' } }\n`, fixture)
+    await expectInProcessWorker(compiled.entry, [], compiled.root)
+  }, 120_000)
 
   it('docker: self-contained build context with Dockerfile', async () => {
     // 上次构建留下的文件不会进入新的构建上下文

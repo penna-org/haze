@@ -187,4 +187,26 @@ export default defineRoutes(r => r.get('/extra', () => ({ extra: true })))
     expect((await fixed).ok).toBe(true)
     expect((await getJson(dev, '/hello')).status).toBe(200)
   })
+
+  it('watch: false serves the app without watching files (one-shot commands)', async () => {
+    fixture = copyFixture('basic')
+    dev = await createDevServer({ root: fixture.root, listen: false, watch: false })
+    expect(dev.vite.config.server.watch).toBeNull()
+    const hello = async (): Promise<unknown> => (await dev!.fetch(new Request('http://localhost/hello'))).json()
+    expect(await hello()).toMatchObject({
+      data: { message: 'hello v1' },
+    })
+
+    const firstApp = dev.app
+    let reloads = 0
+    dev.onReload(() => reloads++)
+    fixture.edit('app/service/GreetService.ts', 'hello v1', 'hello v2')
+    await settle(500)
+    // 文件变化不触发重载
+    expect(reloads).toBe(0)
+    expect(dev.app).toBe(firstApp)
+    expect(await hello()).toMatchObject({
+      data: { message: 'hello v1' },
+    })
+  })
 })

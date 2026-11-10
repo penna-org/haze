@@ -1,10 +1,9 @@
-import type { ObjectId } from 'mongodb'
 import type { MongoModelQuery } from '../src/mongo'
 import { createApplication, defineRoutes } from '@hazejs/core'
 import { MongoMemoryReplSet } from 'mongodb-memory-server-core'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseManager, databaseProvider, ModelNotFoundException, refreshDatabase, setDatabaseManager, UniqueConstraintException } from '../src'
-import { Mongo, MongoModel } from '../src/mongo'
+import { Mongo, MongoModel, mongoOp, ObjectId } from '../src/mongo'
 
 interface UserDoc {
   name: string
@@ -165,8 +164,64 @@ describe('mongo query builder', () => {
     expect(await names(users().whereLike('name', 'A_a'))).toEqual(['Ada'])
     expect(await names(users().where('status', 0).orWhere(q => q.where('age', '>', 30).whereNotNull('email')))).toEqual(['Ada', 'Bob'])
     expect(await names(users().where({
-      age: { $gte: 25, $lt: 40 },
+      age: mongoOp({ $gte: 25, $lt: 40 }),
     }))).toEqual(['Ada', 'Cleo'])
+    expect(await names(users().where('age', mongoOp({ $gte: 25, $lt: 40 })))).toEqual(['Ada', 'Cleo'])
+    expect(await names(users().whereRaw({
+      $or: [
+        { name: 'Bob' },
+        {
+          age: { $gt: 30 },
+        },
+      ],
+    }))).toEqual(['Ada', 'Bob'])
+  })
+
+  it('rejects operator objects and $-prefixed fields that are not explicitly declared', async () => {
+    await seed()
+    // 请求参数中的 { $ne: null } 不能变成“匹配全部”
+    const injected = JSON.parse('{"$ne":null}') as unknown
+    expect(() => users().where('email', injected)).toThrow(/contains MongoDB operators \(\$ne\)/)
+    expect(() => users().where({ email: injected })).toThrow(/mongoOp/)
+    expect(() => users().where('age', '>', { $gt: 0 })).toThrow(/mongoOp/)
+    expect(() => users().whereIn('email', [
+      { $regex: '.*' },
+    ])).toThrow(/mongoOp/)
+    expect(() => users().where('name', [
+      { $ne: 1 },
+    ])).toThrow(/mongoOp/)
+    expect(() => users().whereBetween('age', [
+      { $gt: 0 },
+      99,
+    ])).toThrow(/mongoOp/)
+    // 字段名不能是顶层运算符
+    expect(() => users().where({ $where: 'sleep(1000)' } as never)).toThrow(/invalid field "\$where"/)
+    expect(() => users().where('$or' as never, [])).toThrow(/invalid field/)
+    expect(() => users().whereNull('$where' as never)).toThrow(/invalid field/)
+    // 没有 $ 键的普通对象仍按内嵌文档相等比较
+    expect(await names(users().where('email', { nested: true }))).toEqual([])
+  })
+
+  it('writes plain fields only when update operators are disabled', async () => {
+    await seed()
+    await expect(users().where('name', 'Ada').update({
+      $set: { status: 9 },
+    }, { operators: false })).rejects.toThrow(/cannot be used as field names/)
+    expect(await users().where('name', 'Ada').value('status')).toBe(1)
+    expect(await users().where('name', 'Ada').update({ status: 5 }, { operators: false })).toBe(1)
+    expect(await users().where('name', 'Ada').value('status')).toBe(5)
+  })
+
+  it('clamps paginate() arguments to at least 1', async () => {
+    await seed()
+    const page = await users().order('name').paginate(0, 0)
+    expect(page).toMatchObject({
+      page: 1,
+      perPage: 1,
+      total: 4,
+      lastPage: 4,
+    })
+    expect(page.data).toHaveLength(1)
   })
 
   it('orders, limits, projects and aggregates', async () => {
@@ -353,6 +408,95 @@ describe('mongo model', () => {
     const page = await User.where('status', 1).order('name').paginate(1, 2)
     expect(page.total).toBe(3)
     expect(page.data[0]).toBeInstanceOf(User)
+  })
+})
+
+describe('mongo model hardening', () => {
+  it('returns undefined for find(undefined | null) and only accepts id-like values', async () => {
+    const ada = await User.create({ name: 'Ada', status: 1 })
+    expect(await User.find(undefined)).toBeUndefined()
+    expect(await User.find(null)).toBeUndefined()
+    expect(await User.query().find(undefined)).toBeUndefined()
+    await expect(User.findOrFail(undefined)).rejects.toBeInstanceOf(ModelNotFoundException)
+    // 不传参数仍然取第一条
+    expect((await User.query().find())?.name).toBe('Ada')
+    expect((await User.query().findOrFail()).name).toBe('Ada')
+    expect((await User.find(ada.id))?.name).toBe('Ada')
+    expect((await User.find(ada.id!.toHexString()))?.name).toBe('Ada')
+    await expect(User.find({ $ne: null })).rejects.toThrow(/expects a string, number or ObjectId, got object/)
+    await expect(User.find([ada.id])).rejects.toThrow(/got array/)
+  })
+
+  it('protects _id and the soft-delete field from mass assignment and rejects operator / dotted keys', async () => {
+    const ada = await User.create({ name: 'Ada', status: 1 })
+    const bob = await User.create({ name: 'Bob', status: 1 })
+
+    // 已存在文档的 _id 与软删除字段被忽略：不会把更新指向另一条文档
+    await ada.save({
+      _id: bob.id,
+      name: 'Ada 2',
+      deletedAt: new Date(),
+    } as never)
+    expect(ada.id!.equals(bob.id!)).toBe(false)
+    expect((await User.findOrFail(ada.id)).name).toBe('Ada 2')
+    expect((await User.findOrFail(bob.id)).name).toBe('Bob')
+    expect(ada.trashed()).toBe(false)
+
+    // 运算符 / 路径形式的键直接拒绝
+    expect(() => ada.fill({
+      $set: { status: 9 },
+    })).toThrow(/cannot mass-assign "\$set"/)
+    expect(() => ada.fill({ 'profile.admin': true })).toThrow(/cannot mass-assign "profile\.admin"/)
+    await expect(User.create({
+      name: 'Eve',
+      $inc: { status: 1 },
+    } as never)).rejects.toThrow(/cannot mass-assign/)
+    expect(() => ada.forceFill({
+      $unset: { name: '' },
+    })).toThrow(/cannot mass-assign/)
+
+    // 新建时可以指定 _id；forceFill / 直接赋值不受保护字段限制
+    const fixed = new ObjectId()
+    expect((await User.create({ _id: fixed, name: 'Fixed', status: 1 } as never)).id!.equals(fixed)).toBe(true)
+    const when = new Date()
+    ada.forceFill({ deletedAt: when })
+    expect(ada.trashed()).toBe(true)
+  })
+
+  it('honours static fillable / guarded and detects in-place changes of embedded documents', async () => {
+    class Account extends MongoModel.define<{ name: string, role?: string, meta?: { tags: string[], city?: string } }>('accounts') {
+      static override fillable = ['name', 'meta', 'role']
+      static override guarded = ['role']
+    }
+    const account = await Account.create({
+      name: 'Ada',
+      role: 'admin',
+      meta: {
+        tags: ['a'],
+      },
+      extra: 1,
+    } as never)
+    expect(account.getData()).not.toHaveProperty('role')
+    expect(account.getData()).not.toHaveProperty('extra')
+
+    const loaded = await Account.findOrFail(account.id)
+    expect(loaded.isDirty()).toBe(false)
+    loaded.meta!.tags.push('b')
+    loaded.meta!.city = 'Paris'
+    expect(loaded.isDirty('meta')).toBe(true)
+    await loaded.save()
+    expect(loaded.isDirty()).toBe(false)
+    expect((await Account.findOrFail(account.id)).meta).toEqual({
+      tags: ['a', 'b'],
+      city: 'Paris',
+    })
+  })
+
+  it('never sends attribute names as update operators on save', async () => {
+    const ada = await User.create({ name: 'Ada', status: 1 })
+    ;(ada as unknown as Record<string, unknown>).$inc = { status: 5 }
+    await expect(ada.save()).rejects.toThrow(/cannot be used as field names/)
+    expect((await User.findOrFail(ada.id)).status).toBe(1)
   })
 })
 

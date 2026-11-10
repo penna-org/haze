@@ -3,6 +3,7 @@ import type { HttpContext } from '../http/context'
 import type { TranslationKey, TranslationParams } from '../i18n/manager'
 import type { RawHtml } from '../mail/layout'
 import type { Component, ViewChild, ViewNode } from './jsx'
+import { markBuffered } from '../http/response'
 import { useI18n } from '../i18n/manager'
 import { escapeHtml, rawHtml } from '../mail/layout'
 import { getContextApp, getRequestStore } from '../request'
@@ -19,9 +20,16 @@ export type ViewInput = ViewNode | Component<any> | string
 
 const VIEW_PATH_RE = /\/app\/view\/(.+)\.[cm]?[jt]sx?$/
 
+const loaderCache = new WeakMap<Application, Map<string, () => Promise<unknown>>>()
+
 /** 视图名 → 模块加载函数（键为 app/view 下的相对路径，不含扩展名） */
 export function viewLoaders(app: Application): Map<string, () => Promise<unknown>> {
-  const loaders = new Map<string, () => Promise<unknown>>()
+  // 视图模块在应用创建时确定：每个应用只整理一次
+  let loaders = loaderCache.get(app)
+  if (loaders)
+    return loaders
+  loaders = new Map<string, () => Promise<unknown>>()
+  loaderCache.set(app, loaders)
   for (const [path, entry] of Object.entries(app.viewModules())) {
     const name = VIEW_PATH_RE.exec(path)?.[1]
     if (!name)
@@ -78,10 +86,10 @@ export async function renderViewResponse(node: ViewChild, ctx: HttpContext | und
   const headers = new Headers(init.headers)
   if (!headers.has('content-type'))
     headers.set('content-type', 'text/html; charset=utf-8')
-  return new Response(html, {
+  return markBuffered(new Response(html, {
     status: init.status ?? ctx?.event.res.status ?? 200,
     headers,
-  })
+  }))
 }
 
 /** ctx.view() 的实现：`ctx.view(<Home />)`、`ctx.view(Home, props)`、`ctx.view('Home', props)` */

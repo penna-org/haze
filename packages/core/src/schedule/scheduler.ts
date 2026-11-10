@@ -102,9 +102,28 @@ export class Scheduler {
     return run
   }
 
+  /**
+   * 单个任务的隔离：条件函数、加锁（缓存不可用）、释放锁中的异常都变成 failed 的 TaskRun 并记录日志，
+   * 不向外抛——一个任务出错不影响同一分钟的其它任务，也不会中断 work() 的循环
+   */
   async #runTask(task: ScheduledTask, date: Date): Promise<TaskRun> {
     const started = performance.now()
     const logger = this.app.logger.child({ task: task.name })
+    try {
+      return await this.#execute(task, date, started, logger)
+    }
+    catch (error) {
+      logger.error('Scheduled task could not be started', error)
+      return {
+        name: task.name,
+        status: 'failed',
+        error,
+        duration: performance.now() - started,
+      }
+    }
+  }
+
+  async #execute(task: ScheduledTask, date: Date, started: number, logger: Application['logger']): Promise<TaskRun> {
     if (!(await task.passesFilters())) {
       return {
         name: task.name,
@@ -158,7 +177,8 @@ export class Scheduler {
       }
     }
     finally {
-      await overlap?.release()
+      // 释放失败（缓存不可用）不改变任务的结果：锁到 overlapTtl 自动过期
+      await Promise.resolve(overlap?.release()).catch(releaseError => logger.error('Could not release the overlap lock of the scheduled task', releaseError))
     }
   }
 
@@ -178,20 +198,37 @@ export class Scheduler {
     return Promise.all(due.map(task => this.runTask(task, date)))
   }
 
-  /** 常驻：每分钟整点执行到期任务，直到 signal 中止 */
+  /**
+   * 常驻：每分钟整点执行到期任务，直到 signal 中止。
+   * 不等待任务完成——耗时超过一分钟的任务不会推迟后面分钟的任务（同一任务不想重叠用 withoutOverlapping()）；
+   * signal 中止后等待还在执行的任务结束再返回
+   */
   async work(signal?: AbortSignal): Promise<void> {
+    const running = new Set<Promise<unknown>>()
     while (!signal?.aborted) {
       const now = Date.now()
       const next = Math.floor(now / 60_000) * 60_000 + 60_000
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, next - now)
-        signal?.addEventListener('abort', () => {
+        const onTimer = (): void => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        }
+        const timer = setTimeout(onTimer, next - now)
+        function onAbort(): void {
           clearTimeout(timer)
           resolve()
-        }, { once: true })
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
       })
-      if (!signal?.aborted)
-        await this.runDue(new Date(next))
+      if (signal?.aborted)
+        break
+      // 这一分钟出错（任务定义抛错、维护模式状态读不到）只记录日志，循环继续
+      const run = Promise.resolve()
+        .then(() => this.runDue(new Date(next)))
+        .catch(error => this.app.logger.error('Scheduler could not run the due tasks', error))
+        .finally(() => running.delete(run))
+      running.add(run)
     }
+    await Promise.all(running)
   }
 }

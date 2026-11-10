@@ -1,5 +1,6 @@
 import type { BinaryTarget, FinalizeContext, PresetContext } from './types'
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -220,11 +221,21 @@ async function nativeAddon(pkg: string, version: string, from: string, root: str
   if (existsSync(file))
     return file
   const registry = (process.env.npm_config_registry || 'https://registry.npmjs.org/').replace(/\/?$/, '/')
+  // 先取该版本的元数据：下载的压缩包必须与 registry 记录的 dist.integrity 一致，才会解包并嵌入二进制
+  const metaUrl = `${registry}${pkg.replace('/', '%2f')}/${version}`
+  const meta = await fetch(metaUrl, {
+    headers: { accept: 'application/json' },
+  })
+  if (!meta.ok)
+    throw new Error(`Failed to fetch the metadata of ${pkg}@${version} (${meta.status} ${metaUrl})`)
+  const { dist } = await meta.json() as { dist?: { integrity?: string } }
   const url = `${registry}${pkg}/-/${pkg.split('/').pop()}-${version}.tgz`
   const response = await fetch(url)
   if (!response.ok)
     throw new Error(`Failed to download ${pkg}@${version} (${response.status} ${url})`)
-  for (const [path, content] of untar(gunzipSync(new Uint8Array(await response.arrayBuffer())))) {
+  const tarball = new Uint8Array(await response.arrayBuffer())
+  verifyIntegrity(tarball, dist?.integrity, `${pkg}@${version}`)
+  for (const [path, content] of untar(gunzipSync(tarball))) {
     // npm 包的文件都在 package/ 下
     const target = join(dir, path.replace(/^package\//, ''))
     if (!target.startsWith(dir))
@@ -235,6 +246,20 @@ async function nativeAddon(pkg: string, version: string, from: string, root: str
   if (!existsSync(file))
     throw new Error(`${pkg}@${version} does not contain index.node`)
   return file
+}
+
+/**
+ * 校验下载内容与 npm 的 SRI（`dist.integrity`，如 `sha512-<base64>`）一致：
+ * 只接受 sha512，缺失或不一致时抛错（构建失败），不嵌入未经校验的原生模块
+ */
+export function verifyIntegrity(data: Uint8Array, integrity: string | undefined, label: string): void {
+  const expected = integrity?.split(/\s+/).find(item => item.startsWith('sha512-'))
+  if (!expected)
+    throw new Error(`Cannot verify ${label}: the registry metadata has no sha512 integrity`)
+  const actual = `sha512-${createHash('sha512').update(data).digest('base64')}`
+  // SRI 可带 `?选项` 后缀
+  if (expected.split('?')[0] !== actual)
+    throw new Error(`Integrity check failed for ${label}: expected ${expected}, got ${actual}`)
 }
 
 /** 读取 tar（ustar）中的普通文件 */

@@ -6,7 +6,7 @@ export { mongoTransaction, resolveMongo } from './context'
 export type { MongoSession } from './context'
 export { hydrateMongoModel, metaOfMongo, MongoModel } from './model'
 export type { DefinedMongoModel, DocOf, MongoModelClass, MongoModelMeta, MongoModelSettings } from './model'
-export { MongoModelQuery, MongoQuery, toObjectId } from './query'
+export { MongoModelQuery, mongoOp, MongoOperators, MongoQuery, toObjectId } from './query'
 export type { MongoQueryOptions, MongoWhere } from './query'
 export { ObjectId } from 'mongodb'
 

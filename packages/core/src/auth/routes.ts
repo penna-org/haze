@@ -4,6 +4,7 @@ import type { MiddlewareRef } from '../middleware/types'
 import type { RouteBuilder } from '../routing/builder'
 import { NotFoundException, ValidationException } from '../exception/exceptions'
 import { PasswordReset } from './passwords'
+import { abilityMatches } from './tokens'
 import { hasVerifiedEmail, sendEmailVerification, verifyEmail } from './verification'
 
 export interface AuthRoutesOptions {
@@ -55,6 +56,14 @@ function required(value: unknown): string | undefined {
     : '必填'
 }
 
+/** 省略 abilities 时从当前令牌继承的能力：配置了可申请的能力列表时取两者的交集 */
+function inherited(current: string[], allowed: string[] | undefined): string[] {
+  if (!allowed)
+    return [...current]
+  const narrowed = allowed.filter(item => abilityMatches(current, item))
+  return narrowed.concat(current.filter(item => abilityMatches(allowed, item) && !narrowed.includes(item)))
+}
+
 /**
  * 注册常用的认证接口（快速开始用；需要定制时参考文档自己写控制器）：
  *
@@ -91,13 +100,9 @@ export function authRoutes(r: RouteBuilder, options: AuthRoutesOptions = {}): vo
   if (options.passwordReset) {
     r.post('/forgot-password', async (ctx) => {
       const values = await input(ctx, { email })
-      // 无论邮箱是否注册都返回同样的提示，避免枚举账号
-      const status = await PasswordReset.sendLink(values.email)
-      return {
-        status: status === 'throttled'
-          ? 'throttled'
-          : 'sent',
-      }
+      // 邮箱未注册、间隔太短（throttled 只会出现在已注册的邮箱上）、已发送都返回同样的提示，避免枚举账号
+      await PasswordReset.sendLink(values.email)
+      return { status: 'sent' }
     }).middleware(...throttle).name('password.email')
 
     r.post('/reset-password', async (ctx) => {
@@ -136,7 +141,18 @@ export function authRoutes(r: RouteBuilder, options: AuthRoutesOptions = {}): vo
           { target: 'body', path: 'abilities', message: `只能申请这些能力：${allowed.join(', ')}` },
         ])
       }
-      const issued = await ctx.auth.token().createToken((await ctx.auth.user())!, values.name, { abilities: abilities ?? allowed })
+      // 用个人访问令牌认证时，新令牌的能力不能超出当前令牌（['posts:read'] 的令牌不能签发 ['*']）；
+      // 省略 abilities 时沿用当前令牌的能力。Session / JWT 登录的用户不受此限制
+      const current = await ctx.auth.currentAccessToken()
+      if (current && abilities?.some(item => !abilityMatches(current.abilities, item))) {
+        throw new ValidationException([
+          { target: 'body', path: 'abilities', message: '不能申请当前令牌不具备的能力' },
+        ])
+      }
+      const granted = abilities ?? (current
+        ? inherited(current.abilities, allowed)
+        : allowed)
+      const issued = await ctx.auth.token().createToken((await ctx.auth.user())!, values.name, { abilities: granted })
       const { token: _hash, ...accessToken } = issued.accessToken
       return ctx.created({ token: issued.plainTextToken, accessToken })
     }).middleware(...auth).name('tokens.store')

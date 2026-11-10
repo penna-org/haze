@@ -138,8 +138,8 @@ await withoutSyncing(async () => {
 })
 ```
 
-::: warning 事务
-同步在写入之后立即进行，即使处于事务中。事务回滚后，索引中仍有该文档。在事务中写入时，可以用 `withoutSyncing` 包裹并在之后导入，或开启 `queue` 让任务稍后执行。
+::: tip 事务
+模型在所属连接的 `Db.transaction()` 中写入时，同步（或投递同步任务）会推迟到最外层事务提交之后，回滚时丢弃，所以回滚的写入不会留在索引中。文档按提交时的模型状态生成；提交后同步失败只记录日志，不会抛出。database 引擎写的是同一个数据库，仍在事务内执行。
 :::
 
 ## 搜索
@@ -325,7 +325,7 @@ it('indexes published posts', async () => {
 
 ## 限制
 
-- 同步与事务无关（见上文），查询构造器的批量更新不会同步。
+- 查询构造器的批量更新不会同步。同步跟随 `Db.transaction()`（见上文），不包括 `Mongo.transaction()` 与 D1 的 batch。
 - database 引擎只搜索一张表。需要跨关联搜索时，配合外部引擎的 `toSearchable()`，或使用 SQLite FTS5 的 `engine` 模式。
 - MySQL 全文搜索遵循 InnoDB 的规则：短于 `innodb_ft_min_token_size`（3）的词与停用词会被忽略。
 - 没有声明 `sortable` 时，Typesense 只能对数字字段排序，Elasticsearch 不能对 `text` 字段排序。

@@ -207,23 +207,29 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M>, M>
 
   // ---------------------------------------------------------------- 读取与写入
 
-  /** 按主键查询；不传主键时取第一条 */
-  override async find(id?: unknown): Promise<M | undefined> {
-    if (id === undefined)
+  /**
+   * 按主键查询；不传参数时取第一条。
+   * 传入的主键为 undefined / null 时返回 undefined（`find(ctx.query('id'))` 缺少参数时不会取到第一条）
+   */
+  override async find(...args: [id?: unknown]): Promise<M | undefined> {
+    if (!args.length)
       return super.find()
+    const [id] = args
+    if (id === undefined || id === null)
+      return undefined
     return this.clone().where(this.primaryKey() as never, id as never).limit(1).select().then(rows => rows[0])
   }
 
-  override async findOrFail(id?: unknown): Promise<M> {
-    const model = await this.find(id)
+  override async findOrFail(...args: [id?: unknown]): Promise<M> {
+    const model = await this.find(...args)
     if (!model)
-      throw new ModelNotFoundException(this.model.name, id)
+      throw new ModelNotFoundException(this.model.name, args[0])
     return model
   }
 
   /** 查询不到时返回空模型（`model.isEmpty()` 为 true） */
-  async findOrEmpty(id?: unknown): Promise<M> {
-    return (await this.find(id)) ?? this.blank() as unknown as M
+  async findOrEmpty(...args: [id?: unknown]): Promise<M> {
+    return (await this.find(...args)) ?? this.blank() as unknown as M
   }
 
   override paginate(page = 1, perPage = 15): Promise<Paginated<M>> {
@@ -304,7 +310,8 @@ export class ModelQuery<M extends ModelLike> extends QueryBuilder<TableOf<M>, M>
   /** 关联的相关子查询（与当前表的行关联） */
   protected relationExists(name: string, condition?: unknown): QueryBuilder<Table, any> {
     // 子查询只用于判断存在 / 计数：去掉关联定义上的排序与分页
-    const query = (relationOf(this.blank(), name).existsQuery() as unknown as QueryBuilder<Table, any>).removeOption('order').removeOption('limit')
+    // 传入外层查询的表与来源：自关联（关联表与当前表相同）时子查询使用别名，相关条件才会指向外层的行
+    const query = (relationOf(this.blank(), name).existsQuery({ table: this.table, source: this.source }) as unknown as QueryBuilder<Table, any>).removeOption('order').removeOption('limit')
     if (typeof condition === 'function' && !(condition as { getSQL?: unknown }).getSQL)
       (condition as (query: unknown) => unknown)(query)
     else if (condition !== undefined)

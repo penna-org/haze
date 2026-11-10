@@ -14,22 +14,42 @@ export interface TypesenseConfig {
 /** Typesense 每页最多返回的数量 */
 const MAX_PER_PAGE = 250
 
-/** 过滤值：字符串用反引号包裹（可含逗号、空格等），其余原样 */
+/**
+ * 过滤值：字符串用反引号包裹（可含逗号、空格、括号、`||` 等），其余原样。
+ * Typesense 的反引号字面量没有转义语法（反斜杠不是转义符，实测 30.2），值中的反引号会提前结束字面量、
+ * 让后面的内容被当作过滤表达式执行，因此替换为空格（默认分词本来就不保留它）
+ */
 function literal(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean')
     return String(value)
-  return `\`${String(value ?? '').replace(/`/g, '\\`')}\``
+  return `\`${String(value ?? '').replace(/`/g, ' ')}\``
+}
+
+/** 过滤条件中的字段名：只允许字母、数字、下划线、点与连字符（字段名直接拼入 filter_by，不能带运算符 / 括号） */
+function fieldName(field: string): string {
+  if (!/^[\w.-]+$/.test(field))
+    throw new SearchEngineError(`Typesense: invalid filter field "${field}"`)
+  return field
 }
 
 export function typesenseFilter(filter: SearchFilter): string {
+  const field = fieldName(filter.field)
   switch (filter.type) {
     case 'eq':
-      return `${filter.field}:=${literal(filter.value)}`
+      return `${field}:=${literal(filter.value)}`
     case 'in':
-      return `${filter.field}:=[${filter.values.map(literal).join(',')}]`
+      return `${field}:=[${filter.values.map(literal).join(',')}]`
     case 'notIn':
-      return `${filter.field}:!=[${filter.values.map(literal).join(',')}]`
+      return `${field}:!=[${filter.values.map(literal).join(',')}]`
   }
+}
+
+/**
+ * 多个条件以 AND 连接，每个条件加括号，各条件互不影响（Typesense 对 `&&` / `||` 从左到右求值，没有优先级）。
+ * 真正挡住注入的是 literal() 不让值跳出反引号，括号只是第二道防线
+ */
+export function typesenseFilters(filters: SearchFilter[]): string {
+  return filters.map(filter => `(${typesenseFilter(filter)})`).join(' && ')
 }
 
 /**
@@ -114,7 +134,7 @@ export class TypesenseEngine implements SearchEngine {
       q: query.query.trim() || '*',
       query_by: queryBy,
       filter_by: query.filters.length
-        ? query.filters.map(typesenseFilter).join(' && ')
+        ? typesenseFilters(query.filters)
         : undefined,
       sort_by: query.sort.length
         ? query.sort.map(({ field, direction }) => `${field}:${direction}`).join(',')

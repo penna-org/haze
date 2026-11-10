@@ -2,7 +2,7 @@ import type { Application, ApplicationOptions, MaintenanceState, ViewChild } fro
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApplication, defineJob, defineListener, defineRoutes, defineSchedule, Maintenance, MaintenanceManager, MaintenanceModeDisabled, MaintenanceModeEnabled, memoryStore, Queue, runMaintenanceCommand, Scheduler } from '../src'
 
 const apps: Application[] = []
@@ -289,11 +289,14 @@ describe('maintenance mode', () => {
       retry: 60,
     })
     expect((await app.request('/')).status).toBe(200)
+    // 缓存刚过期：这次请求仍拿到旧状态并触发后台刷新，随后的请求看到新状态
     await sleep(250)
-    expect((await app.request('/')).status).toBe(503)
+    expect((await app.request('/')).status).toBe(200)
+    await vi.waitFor(async () => expect((await app.request('/')).status).toBe(503))
     await manager.driver().forget()
     expect((await app.request('/')).status).toBe(503)
-    await sleep(250)
+    // 过期超过一个 interval（长时间没有请求）：等待读取，不再返回旧状态
+    await sleep(450)
     expect((await app.request('/')).status).toBe(200)
   })
 

@@ -51,7 +51,7 @@ export default defineBroadcastingConfig(() => ({
 | `bus` | How broadcasts reach every instance: `{ driver: 'memory' }` or `{ driver: 'redis', connection?, url?, prefix? }` (`connection` names a [Redis connection](./redis), default: the `default` one; an inline `url` takes precedence), or your own `BroadcastBus`. Defaults to the Redis settings of `config/websocket.ts` when `broadcast.driver` is `redis`, otherwise `memory`. |
 | `transports` | `{ ws?: boolean, sse?: boolean }`. Both default to `true`. |
 | `heartbeat` | SSE keep-alive interval, `25` seconds by default. |
-| `maxChannels` | Maximum channels per SSE connection. Defaults to 100. |
+| `maxChannels` | Maximum channels per SSE or WebSocket connection. Defaults to 100. |
 
 The endpoints are:
 
@@ -151,7 +151,8 @@ export const echo = createEcho({
 | `authEndpoint` | Full URL of the auth endpoint, `<path>/auth` by default. |
 | `headers` | Headers for the auth and SSE requests, or a function returning them. |
 | `credentials` | `fetch` credentials, `same-origin` by default. Use `include` for cross-origin cookies. |
-| `reconnect` | Reconnect after the connection drops (1 s, 2 s, 4 s … up to 30 s). Defaults to `true`. |
+| `reconnect` | Reconnect after the connection drops (1 s, 2 s, 4 s … up to 30 s, each multiplied by a random factor between 0.5 and 1). Defaults to `true`. |
+| `heartbeat` | For `ws`: seconds between pings, `25` by default; `false` turns it off. A connection that does not answer within 10 s is treated as dropped. |
 | `io` | For `socket.io`: the `io` function from `socket.io-client`. |
 | `namespace` / `ioOptions` | For `socket.io`: the namespace (default `/broadcasting`) and options passed to `io()`. |
 

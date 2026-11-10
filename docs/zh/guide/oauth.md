@@ -88,6 +88,7 @@ export default defineOAuthConfig(() => ({
 | `stateStore` | `'cookie'` | 跳转到回调之间 state 的保存位置：加密 Cookie，或 `'session'` |
 | `cookie` | `'haze_oauth'` | Cookie 名前缀，实际为 `<前缀>_<提供方>` |
 | `stateTtl` | `'10m'` | 用户完成登录的时限 |
+| `timeout` | `10000` | 每次调用平台接口（令牌、用户资料、discovery、JWKS）的超时毫秒数；`0` 不限。超时抛出 `OAuthException` 504 `provider_timeout` |
 | `fetch` | 全局 `fetch` | 调用平台接口的 HTTP 函数（代理、测试） |
 
 ## 路由与控制器
@@ -106,6 +107,7 @@ r.post('/auth/:provider/callback', [OAuthController, 'callback'])
 // app/controller/OAuthController.ts
 import type { HttpContext } from '@hazejs/core'
 import { OAuth } from '@hazejs/oauth'
+import { SocialAccount } from '~/app/model/SocialAccount'
 import { User } from '~/app/model/User'
 
 export class OAuthController {
@@ -117,15 +119,25 @@ export class OAuthController {
     const provider = ctx.param('provider')!
     const profile = await OAuth.driver(provider).user(ctx)
 
-    // 关联到本地用户，再用 Guard 登录
-    const user = await User.where('email', profile.email).find()
-      ?? await User.create({ name: profile.name ?? profile.nickname ?? '用户', email: profile.email! })
+    // 按 (provider, id) 关联。只有第三方确认邮箱属于该用户时，才按邮箱合并到已有的本地账号
+    const link = await SocialAccount.where('provider', profile.provider).where('providerId', profile.id).find()
+    let user = link ? await User.find(link.userId) : undefined
+    if (!user) {
+      if (profile.email && profile.emailVerified === true)
+        user = await User.where('email', profile.email).find()
+      user ??= await User.create({ name: profile.name ?? profile.nickname ?? '用户' })
+      await SocialAccount.create({ userId: user.id, provider: profile.provider, providerId: profile.id })
+    }
     return ctx.auth.jwt().login(user)
   }
 }
 ```
 
-实际项目中，建议把 `(provider, id)` 存到单独的表（如 `social_accounts`）中关联用户，而不是按邮箱匹配：微信、QQ、企业微信不返回邮箱，Apple 可能返回中转邮箱，第三方给的邮箱也不应无条件信任。
+`SocialAccount`（表 `social_accounts`：`userId`、`provider`、`providerId`）是你自己的模型。微信、QQ、企业微信不返回邮箱，`(provider, id)` 才是唯一稳定的关联键。
+
+::: warning 不要按未验证的邮箱合并账号
+拿 `profile.email` 去匹配用户表，意味着任何能让第三方报出受害者邮箱的人都可以登录受害者的账号。例如 Microsoft Entra 的租户管理员可以把 `mail` / `userPrincipalName` 设为任意值。只有 `profile.emailVerified === true` 时才按邮箱合并；`false` 与 `null`（第三方没有给出信号）都按未验证处理，用这样的资料创建用户时，也不要把该邮箱存为已验证的登录邮箱。
+:::
 
 单页应用如果想拿到授权地址而不是 302 跳转，可以以 JSON 返回。state Cookie 设置在同一个响应上，因此要在浏览器中带凭据请求：
 
@@ -144,6 +156,7 @@ async url(ctx: HttpContext) {
 | `provider` | 提供方名称（`config/oauth.ts` 中的键） |
 | `id` | 平台的用户 ID，统一为字符串 |
 | `name` / `nickname` / `email` / `avatar` | 统一后的资料字段，平台没有返回时为 `null` |
+| `emailVerified` | 平台确认邮箱属于该用户时为 `true`：OIDC / Google / Apple 的 `email_verified`、GitHub `/user/emails` 中已验证的条目、GitLab 的 `confirmed_at`、Discord 的 `verified`。已知未验证或不可信时为 `false`（Microsoft、Apple 表单中提交的邮箱）。平台没有给出信号或没有邮箱时为 `null` |
 | `raw` | 平台返回的原始资料（unionid、手机号、租户等） |
 | `token` | `{ accessToken, refreshToken?, expiresIn?, idToken?, tokenType?, scope?, raw }` |
 
@@ -306,7 +319,7 @@ const Gitea = defineOAuthProvider<{ clientId: string, clientSecret: string, redi
     user: `${config.baseUrl}/api/v1/user`,
   }),
   scopes: ['read:user'],
-  mapUser: raw => ({ id: raw.id, name: raw.full_name, nickname: raw.login, email: raw.email, avatar: raw.avatar_url }),
+  mapUser: raw => ({ id: raw.id, name: raw.full_name, nickname: raw.login, email: raw.email, avatar: raw.avatar_url }), // 平台给出验证状态时可返回 emailVerified: true | false
 })
 
 export default defineProvider({
@@ -316,7 +329,7 @@ export default defineProvider({
 })
 ```
 
-之后在 `config/oauth.ts` 中写 `driver: 'gitea'`，也可以不注册，直接写 `driver: Gitea`。流程不标准的平台，继承 `OAuthProvider`（或 `OidcProvider`）并覆盖 `authorizeParams()`、`exchangeCode()`、`fetchUser()`、`mapUser()`；`registerOAuthProvider()` 也接受这个类。`OAuth.build(driver, config, options?)` 可以在运行时用一份配置构造驱动，例如每个租户各自的 client；它不读取 `config/oauth.ts`，需要的全局选项（`stateStore`、`cookie`、`stateTtl`、`fetch`）通过第三个参数传入。
+之后在 `config/oauth.ts` 中写 `driver: 'gitea'`，也可以不注册，直接写 `driver: Gitea`。流程不标准的平台，继承 `OAuthProvider`（或 `OidcProvider`）并覆盖 `authorizeParams()`、`exchangeCode()`、`fetchUser()`、`mapUser()`；`registerOAuthProvider()` 也接受这个类。`OAuth.build(driver, config, options?)` 可以在运行时用一份配置构造驱动，例如每个租户各自的 client；它不读取 `config/oauth.ts`，需要的全局选项（`stateStore`、`cookie`、`stateTtl`、`timeout`、`fetch`）通过第三个参数传入。
 
 ## 错误
 

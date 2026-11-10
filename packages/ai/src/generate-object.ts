@@ -211,6 +211,11 @@ function quiet<T>(promise: Promise<T>): Promise<T> {
   return promise
 }
 
+/** streamObject 解析部分对象的节流：短文本每个增量都解析；更长时至少新增这么多字符（且不少于总长的 1/32），或距上次解析超过这么多毫秒 */
+const PARTIAL_EAGER_LENGTH = 1024
+const PARTIAL_MIN_GROWTH = 64
+const PARTIAL_INTERVAL = 100
+
 export interface StreamObjectResult<T> {
   /** 逐步完善的对象（未经校验），可多次迭代 */
   readonly partialObjectStream: AsyncIterable<Partial<T>>
@@ -248,40 +253,64 @@ export function streamObject<S extends SchemaInput>(options: GenerateObjectOptio
     let usage: Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
     let finishReason: FinishReason = 'other'
     let lastSnapshot = ''
-    const reader = stream.getReader()
-    while (true) {
-      const { value: part, done: finished } = await reader.read() as { value: ModelStreamPart, done: boolean }
-      if (finished)
-        break
-      if (part.type === 'error')
-        throw part.error
-      if (part.type === 'finish') {
-        usage = part.usage
-        finishReason = part.finishReason === 'tool-calls'
-          ? 'stop'
-          : part.finishReason
-        continue
-      }
-      const delta = mode === 'tool'
-        ? part.type === 'tool-call-delta'
-          ? part.inputDelta
-          : ''
-        : part.type === 'text-delta'
-          ? part.text
-          : ''
-      if (mode === 'tool' && part.type === 'tool-call' && !text)
-        text = part.input
-      if (!delta)
-        continue
-      text += delta
+    let parsedLength = 0
+    let parsedAt = Date.now()
+    const emitPartial = (): void => {
+      parsedLength = text.length
+      parsedAt = Date.now()
       const partial = parsePartialJSON(text)
+      if (partial === undefined)
+        return
       const snapshot = JSON.stringify(partial)
-      if (partial !== undefined && snapshot !== lastSnapshot) {
+      if (snapshot !== lastSnapshot) {
         lastSnapshot = snapshot
         partials.push(partial as Partial<T>)
         wake()
       }
     }
+    const reader = stream.getReader()
+    try {
+      while (true) {
+        const { value: part, done: finished } = await reader.read() as { value: ModelStreamPart, done: boolean }
+        if (finished)
+          break
+        if (part.type === 'error')
+          throw part.error
+        if (part.type === 'finish') {
+          usage = part.usage
+          finishReason = part.finishReason === 'tool-calls'
+            ? 'stop'
+            : part.finishReason
+          continue
+        }
+        const delta = mode === 'tool'
+          ? part.type === 'tool-call-delta'
+            ? part.inputDelta
+            : ''
+          : part.type === 'text-delta'
+            ? part.text
+            : ''
+        if (mode === 'tool' && part.type === 'tool-call' && !text)
+          text = part.input
+        if (!delta)
+          continue
+        text += delta
+        // 每个增量都重新解析全部文本是 O(n²)：文本较长后，累积到一定的新字符（随长度增长）或间隔一段时间才解析，结束时总会再解析一次
+        const grown = text.length - parsedLength
+        if (text.length <= PARTIAL_EAGER_LENGTH || grown >= Math.max(PARTIAL_MIN_GROWTH, text.length >> 5) || Date.now() - parsedAt >= PARTIAL_INTERVAL)
+          emitPartial()
+      }
+    }
+    catch (error) {
+      // 出错时取消读取，关闭上游的响应体
+      await reader.cancel(error).catch(() => {})
+      throw error
+    }
+    finally {
+      reader.releaseLock()
+    }
+    if (text.length !== parsedLength)
+      emitPartial()
     if (finishReason === 'length')
       throw new NoObjectGeneratedError('Output was cut off by maxOutputTokens before the object was complete', { text })
     resolveFinal({ object: await parseObject<T>(text, schema), usage, finishReason })

@@ -112,6 +112,8 @@ export class ChatController {
 | `toUIMessageStreamResponse()` | Vercel AI SDK UI message stream — use with `@ai-sdk/vue` / `@ai-sdk/react` `useChat` |
 | `toTextStreamResponse()` | Plain text chunks |
 
+When the client disconnects (the response body is cancelled) and nothing else is reading the result, generation is aborted: the model request and running tools receive an abort signal, and `onFinish` is not called. To finish the generation regardless — for example to save the reply in `onFinish` — call `result.consume()` before returning the response.
+
 ```ts
 const result = AI.streamText({ prompt: 'Write a haiku' })
 for await (const chunk of result.textStream)

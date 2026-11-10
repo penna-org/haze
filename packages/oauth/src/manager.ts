@@ -2,7 +2,7 @@ import type { BuiltinProviderConfigs, OAuthConfig } from './config'
 import type { OAuthProvider } from './provider'
 import type { BaseProviderConfig, DriverOptions, OAuthDriverFactory } from './types'
 import { NotFoundException, config as readConfig } from '@hazejs/core'
-import { parseTtl } from './config'
+import { DEFAULT_HTTP_TIMEOUT, parseTtl } from './config'
 import { AlipayProvider } from './providers/alipay'
 import { AppleProvider } from './providers/apple'
 import { DingTalkProvider } from './providers/dingtalk'
@@ -76,6 +76,7 @@ function driverOptions(config: OAuthConfig): DriverOptions {
     stateStore: config.stateStore ?? 'cookie',
     cookie: config.cookie ?? 'haze_oauth',
     stateTtl: parseTtl(config.stateTtl ?? '10m'),
+    timeout: config.timeout ?? DEFAULT_HTTP_TIMEOUT,
   }
 }
 

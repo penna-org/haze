@@ -153,7 +153,79 @@ describe('running scheduled tasks', () => {
         },
       },
     })
-    await expect(app.make(Scheduler).runDue()).rejects.toThrow('atomic cache store')
+    // 加锁失败不向外抛（否则中断 work() 的循环）：变成 failed 的结果
+    const [run] = await app.make(Scheduler).runDue()
+    expect(run).toMatchObject({ name: 'report', status: 'failed' })
+    expect((run.error as Error).message).toContain('atomic cache store')
+  })
+
+  it('isolates a throwing filter from the other due tasks', async () => {
+    const scheduler = (await boot([
+      defineSchedule((s) => {
+        s.call('bad-filter', () => void log.push('bad-filter')).everyMinute().when(() => {
+          throw new Error('filter failed')
+        })
+        s.call('fine', () => void log.push('fine')).everyMinute()
+      }),
+    ])).make(Scheduler)
+    const runs = await scheduler.runDue()
+    expect(runs.map(run => [run.name, run.status])).toEqual([
+      ['bad-filter', 'failed'],
+      ['fine', 'ok'],
+    ])
+    expect(log).toEqual(['fine'])
+  })
+
+  it('work() does not wait for a long task before the next minute, survives errors and drains on abort', async () => {
+    vi.useFakeTimers({
+      now: new Date('2026-10-27T09:00:30Z'),
+    })
+    try {
+      let finish!: () => void
+      const scheduler = (await boot([
+        defineSchedule((s) => {
+          // 09:01 开始、执行超过一分钟的任务
+          s.call('long', () => new Promise<void>((resolve) => {
+            log.push('long:start')
+            finish = () => {
+              log.push('long:end')
+              resolve()
+            }
+          })).dailyAt('09:01')
+          s.call('later', () => void log.push('later')).dailyAt('09:02')
+        }),
+      ])).make(Scheduler)
+      // 09:03 这一分钟读取到期任务时抛错：循环继续
+      const due = scheduler.runDue.bind(scheduler)
+      vi.spyOn(scheduler, 'runDue').mockImplementation((date) => {
+        if (date?.toISOString() === '2026-10-27T09:03:00.000Z')
+          throw new Error('boom')
+        return due(date)
+      })
+      const controller = new AbortController()
+      const add = vi.spyOn(controller.signal, 'addEventListener')
+      const remove = vi.spyOn(controller.signal, 'removeEventListener')
+      let done = false
+      const working = scheduler.work(controller.signal).then(() => void (done = true))
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(log).toEqual(['long:start'])
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(log).toEqual(['long:start', 'later'])
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(scheduler.runDue).toHaveBeenCalledTimes(4)
+      // 定时器触发后移除 abort 监听：只剩当前这一分钟的
+      expect(add.mock.calls.length - remove.mock.calls.length).toBe(1)
+      controller.abort()
+      await vi.advanceTimersByTimeAsync(10)
+      // 等待还在执行的任务
+      expect(done).toBe(false)
+      finish()
+      await working
+      expect(log).toEqual(['long:start', 'later', 'long:end'])
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it('work() runs on minute boundaries until aborted', async () => {

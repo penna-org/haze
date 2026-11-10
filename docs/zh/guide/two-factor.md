@@ -5,7 +5,7 @@ hazejs 提供两种加强登录安全的方式：
 - **TOTP**（RFC 6238）：认证器 App（Google Authenticator、1Password、Authy 等）生成的六位验证码，附带恢复码。框架内置，没有额外依赖。
 - **通行密钥**（WebAuthn）：用 Touch ID、Windows Hello、手机或安全密钥登录。基于可选依赖 [`@simplewebauthn/server`](https://simplewebauthn.dev)。
 
-两者都通过小巧的存储接口保存数据。正式项目使用 `@hazejs/orm` 的数据库存储，表结构由 `haze make:auth-tables` 生成（见 [API 令牌](./api-tokens#数据表)）；默认的内存存储用于测试。
+两者都通过小巧的存储接口保存数据。正式项目使用 `@hazejs/orm` 的数据库存储，表结构由 `haze make:auth-tables` 生成（见 [API 令牌](./api-tokens#数据表)）；默认的内存存储用于测试。生产环境使用内存的两步验证存储时会记录一次警告：多实例部署下，用户在一个实例上启用的两步验证在其它实例上查不到，登录时会跳过第二步。
 
 ## TOTP
 

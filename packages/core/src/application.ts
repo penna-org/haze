@@ -12,10 +12,11 @@ import type { ModuleInput, ModulesConfig, ResolvedModule } from './modules'
 import type { ProviderInput, ServiceProvider } from './provider'
 import type { RouteModule, RouteRegistrar } from './routing/builder'
 import type { RouteMeta } from './routing/route'
+import type { InProcessWorkers } from './server/in-process'
 import type { Constructor, MaybePromise, ModuleRecord } from './utils'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { H3, mockEvent, serve, toResponse } from 'h3'
+import { H3, HTTPResponse, mockEvent, serve, toResponse } from 'h3'
 import { assertNoConflicts, groupAppModules, matchApp, normalizeAppConfig } from './apps'
 import { Gate } from './auth/gate'
 import { setBroadcastManager } from './broadcast/broadcast'
@@ -33,7 +34,7 @@ import { HttpManager, setHttpManager } from './http-client/manager'
 import { getHttpContext, HttpContext, setHttpContext } from './http/context'
 import { mutableResponse } from './http/cookie'
 import { ResponseFormatter } from './http/formatter'
-import { isRaw } from './http/response'
+import { isBufferedResponse, isRaw } from './http/response'
 import { createStaticMiddleware } from './http/static'
 import { I18nManager, setI18nManager } from './i18n/manager'
 import { introspectApplication } from './introspection'
@@ -55,7 +56,7 @@ import { Scheduler } from './schedule/scheduler'
 import { registerInProcessWorkers } from './server/in-process'
 import { setStorageManager, StorageManager } from './storage/manager'
 import { tenancyMiddleware } from './tenancy/manager'
-import { isClass, isModuleRecord, normalizeModules, parseDuration, toJsonSafe } from './utils'
+import { isClass, isModuleRecord, normalizeModules, parseDuration, stringifyJson } from './utils'
 import { isViewNode } from './view/jsx'
 import { renderViewResponse } from './view/view'
 import { webSocketConfig, webSocketPlugin } from './websocket/server'
@@ -127,6 +128,7 @@ export interface DisposeOptions {
 type ServeOptions = NonNullable<Parameters<typeof serve>[1]>
 
 const kNotFound = Symbol.for('h3.notFound')
+const JSON_HEADERS = { 'content-type': 'application/json;charset=UTF-8' }
 
 let currentApp: Application | undefined
 
@@ -152,8 +154,10 @@ export class Application {
   #middleware: MiddlewareRegistry | undefined
   #h3: H3 | undefined
   #booted = false
+  /** 进行中（或已失败）的启动：并发调用 boot() 共用同一次启动 */
+  #booting: Promise<this> | undefined
   readonly #bootedCallbacks: Array<(app: Application) => unknown> = []
-  #stopWorkers: (() => Promise<void>) | undefined
+  #workers: InProcessWorkers | undefined
 
   constructor(options: ApplicationOptions = {}) {
     this.#options = options
@@ -197,9 +201,20 @@ export class Application {
     return this.container.make(key)
   }
 
-  async boot(): Promise<this> {
+  boot(): Promise<this> {
     if (this.#booted)
-      return this
+      return Promise.resolve(this)
+    // 并发调用共用同一次启动；启动失败后应用处于不完整状态，再次调用得到同一个错误
+    return this.#booting ??= this.#boot().catch(async (error: unknown) => {
+      // 中途失败：释放已经启动的部分（提供者、连接、日志通道；不动跨热更新保留的资源），
+      // 并把请求之外使用的全局管理器恢复为之前的应用（开发时热更新失败后旧版本继续服务）
+      await this.#release(false).catch(() => {})
+      setGlobalManagers(currentApp)
+      throw error
+    })
+  }
+
+  async #boot(): Promise<this> {
     const options = this.#options
 
     // 1. 环境变量
@@ -321,7 +336,7 @@ export class Application {
     this.#h3 = this.#createH3()
     // 进程内的定时任务与队列消费（runInServer）：服务器开始监听时启动
     if (this.mode !== 'test')
-      this.#stopWorkers = registerInProcessWorkers(this)
+      this.#workers = registerInProcessWorkers(this)
     this.#booted = true
     // 记录最近启动的应用，供请求之外的 useApp() / config() 使用
     // eslint-disable-next-line ts/no-this-alias
@@ -351,6 +366,9 @@ export class Application {
         ...(options.plugins ?? []),
       ],
     })
+    // 进程内的定时任务与队列消费：开始监听后启动。Node 上服务器扩展的钩子也会触发（Vite 开发服务器只走那条路），
+    // Bun / Deno 没有 http.Server 可挂，由这里统一启动；重复调用只启动一次
+    void Promise.resolve(server.ready()).then(() => this.#workers?.start(), () => {})
     let stopping: Promise<void> | undefined
     const shutdown = (): Promise<void> => stopping ??= (async () => {
       // 停止监听，等待在途请求；WebSocket、SSE 与 keep-alive 的长连接不会自己结束：超过 shutdownTimeout 后强制断开
@@ -364,8 +382,11 @@ export class Application {
         }),
       ])
       clearTimeout(timer)
-      await this.dispose({ reason: 'shutdown' })
-      process.exit(0)
+      // 释放过程中的错误已逐项记录：仍然退出进程（以非 0 状态码），不会因为某个提供者的 shutdown 抛错而挂住
+      const failed = await this.dispose({ reason: 'shutdown' }).then(() => false, () => true)
+      process.exit(failed
+        ? 1
+        : 0)
     })()
     process.once('SIGINT', shutdown)
     process.once('SIGTERM', shutdown)
@@ -473,24 +494,53 @@ export class Application {
     return ctx
   }
 
+  /**
+   * 释放应用。每一步互相隔离：某个提供者的 shutdown() 抛错不会跳过其余提供者、连接与日志通道的释放；
+   * 错误逐项记录，全部完成后再抛出（多个时为 AggregateError）
+   */
   async dispose(options: DisposeOptions = {}): Promise<void> {
-    // 先停止进程内的定时任务与队列消费（等待进行中的任务结束），再关闭提供者（数据库连接等）
-    await this.#stopWorkers?.()
-    this.#stopWorkers = undefined
-    for (const provider of [...this.#providers].reverse())
-      await provider.shutdown?.(this)
-    // 队列连接（BullMQ 的 Queue / Worker）随应用关闭
-    if (this.container.has(QueueManager))
-      await this.container.make(QueueManager).close().catch(error => this.logger.error('Failed to close queue connections', error))
-    if (this.container.has(MailManager))
-      await this.container.make(MailManager).close().catch(error => this.logger.error('Failed to close mail transports', error))
-    await this.container.dispose()
-    // 写出并关闭 http / file 日志通道
-    await this.logger.close()
-    if (options.reason !== 'hmr')
-      await disposePersistent()
-    if (currentApp === this)
-      currentApp = undefined
+    await this.#release(options.reason !== 'hmr')
+  }
+
+  async #release(persistent: boolean): Promise<void> {
+    const errors: unknown[] = []
+    const step = async (label: string, run: () => unknown): Promise<void> => {
+      try {
+        await run()
+      }
+      catch (error) {
+        errors.push(error)
+        this.logger.error(`Failed to ${label}`, error)
+      }
+    }
+    try {
+      // 先停止进程内的定时任务与队列消费（等待进行中的任务结束），再关闭提供者（数据库连接等）
+      const workers = this.#workers
+      this.#workers = undefined
+      await step('stop in-process workers', () => workers?.stop())
+      for (const [index, provider] of [
+        ...this.#providers.entries(),
+      ].reverse())
+        await step(`shut down provider "${this.#providerInfo[index]?.name ?? 'anonymous'}"`, () => provider.shutdown?.(this))
+      // 队列连接（BullMQ 的 Queue / Worker）随应用关闭
+      if (this.container.has(QueueManager))
+        await step('close queue connections', () => this.container.make(QueueManager).close())
+      if (this.container.has(MailManager))
+        await step('close mail transports', () => this.container.make(MailManager).close())
+      await step('dispose the container', () => this.container.dispose())
+      if (persistent)
+        await step('dispose persistent resources', () => disposePersistent())
+      if (currentApp === this)
+        currentApp = undefined
+    }
+    finally {
+      // 最后写出并关闭 http / file 日志通道（上面各步的错误也经它记录）
+      await step('close the logger', () => this.logger.close())
+    }
+    if (errors.length === 1)
+      throw errors[0]
+    if (errors.length)
+      throw new AggregateError(errors, 'Application.dispose() failed')
   }
 
   async #runInterceptors(result: unknown, event: H3Event, ctx: HttpContext): Promise<Response> {
@@ -584,17 +634,28 @@ export class Application {
       return new HttpContext(event, container, { requestId, logger, config: this.config })
     }
 
+    // JSON 响应体在这里序列化（h3 对同样的值也是 JSON.stringify，响应头与缩进保持一致）：
+    // 直接序列化，遇到 BigInt（雪花 ID 等）才带 replacer 重试并输出为字符串，避免每个响应先深度遍历一遍
+    const debug = this.config.get('app.debug')
+    const toJson = (value: unknown): unknown => {
+      if (typeof value === 'bigint')
+        return value.toString()
+      if (!isJsonObject(value))
+        return value
+      return new HTTPResponse(stringifyJson(value, debug
+        ? 2
+        : undefined), { headers: JSON_HEADERS })
+    }
     // 出站：处理器 / 中间件返回的数据交给 ResponseFormatter 统一格式
     const formatOutbound = (result: unknown, event: H3Event, ctx: HttpContext): unknown => {
-      // BigInt（雪花 ID 等）输出为字符串，避免 JSON 序列化报错与前端精度丢失
       if (isRaw(result))
-        return toJsonSafe(result.value)
+        return toJson(result.value)
       const meta = event.context.matchedRoute?.meta as RouteMeta | undefined
       if (meta?.envelope === false)
-        return toJsonSafe(result)
+        return toJson(result)
       const formatter = ctx.make(ResponseFormatter)
       return formatter.shouldFormat(result, ctx)
-        ? toJsonSafe(formatter.success(result, ctx))
+        ? toJson(formatter.success(result, ctx))
         : result
     }
 
@@ -602,9 +663,28 @@ export class Application {
       debug: this.config.get('app.debug'),
       silent: true,
       // 兜底：请求作用域建立之前的错误（如非法 URL）或异常处理器自身出错
-      onError: (error, event) => {
-        const ctx = getHttpContext(event) ?? createContext(event, this.container.createChild())
-        return handleError(error, ctx)
+      onError: async (error, event) => {
+        const previous = getHttpContext(event)
+        // 请求容器已随请求作用域释放（或还没建立）：在新的子容器中渲染，沿用原来的请求 ID / 日志器 / 应用配置
+        const container = this.container.createChild()
+        const ctx = previous
+          ? new HttpContext(event, container, { requestId: previous.requestId, logger: previous.logger, config: previous.config })
+          : createContext(event, container)
+        if (previous)
+          ctx.appName = previous.appName
+        container.instance(HttpContext, ctx)
+        try {
+          return await handleError(error, ctx)
+        }
+        catch (fallbackError) {
+          // 异常处理器自身出错：两个错误都记录下来，响应交给 h3 的默认错误输出
+          ctx.logger.error(`[${ctx.method}] ${ctx.path}`, error)
+          ctx.logger.error('ExceptionHandler failed to handle the error above', fallbackError)
+          return undefined
+        }
+        finally {
+          await container.dispose()
+        }
       },
       // 访问日志在响应生成之后记录，状态码包含异常渲染后的结果
       onResponse: (response, event) => {
@@ -632,14 +712,34 @@ export class Application {
       container.instance(HttpContext, ctx)
       setHttpContext(event, ctx)
       const store = { app: this, event, ctx, container }
+      const release = (): Promise<void> => container.dispose().catch(error => this.logger.error('Failed to dispose the request container', error))
+      let deferred = false
       try {
-        const result = await runInRequest(store, () => next())
-        return this.#interceptors.length || ctx.responseHooks.length
-          ? await runInRequest(store, () => this.#runInterceptors(result, event, ctx))
-          : result
+        let result = await runInRequest(store, () => next())
+        // 流式响应（SSE、AI 流等）：处理器返回后响应体仍在产生，请求容器推迟到流结束 / 被取消时释放
+        const streaming = isStreamingResult(result) && event.req.method !== 'HEAD'
+        if (this.#interceptors.length || ctx.responseHooks.length) {
+          try {
+            result = await runInRequest(store, () => this.#runInterceptors(result, event, ctx))
+          }
+          catch (error) {
+            // 出站阶段（拦截器、ctx.onResponse：会话写回等）出错：同样交给异常处理器上报并渲染（此时请求容器还在）。
+            // 之前转换 Response 时已取走预设的响应头，这里补回请求 ID
+            if (requestIdHeader)
+              event.res.headers.set(requestIdHeader, ctx.requestId)
+            return await runInRequest(store, () => handleError(error, ctx))
+          }
+        }
+        if (streaming) {
+          const held = deferRelease(result, release)
+          deferred = held !== undefined
+          return held ?? result
+        }
+        return result
       }
       finally {
-        await container.dispose()
+        if (!deferred)
+          await container.dispose()
       }
     })
 
@@ -856,6 +956,98 @@ interface SubApp extends AppMatcher {
   router: Router
   handler?: ExceptionHandler
   formatter?: ResponseFormatter
+}
+
+/**
+ * 请求之外使用的全局管理器（门面的回退）指向 app；启动失败时恢复为之前的应用（没有时清空）
+ */
+function setGlobalManagers(app: Application | undefined): void {
+  const make = <T>(key: InjectionKey<T>): T | undefined => app?.container.has(key)
+    ? app.container.make(key)
+    : undefined
+  setRedisManager(make(RedisManager))
+  setCacheManager(make(CacheManager))
+  setStorageManager(make(StorageManager))
+  setHttpManager(make(HttpManager))
+  setQueueManager(make(QueueManager), QueueManager)
+  setI18nManager(make(I18nManager))
+  setMailManager(make(MailManager))
+  setEventManager(make(EventManager), EventManager)
+  setBroadcastManager(make(BroadcastManager), BroadcastManager)
+  setNotificationManager(make(NotificationManager), NotificationManager)
+  setMaintenanceManager(make(MaintenanceManager))
+}
+
+/**
+ * 处理器返回的是否为流式响应：ReadableStream，或带响应体但没有 Content-Length 的 Response
+ * （视图等一次性生成的响应已标记，WebSocket 升级的 426 响应除外）。JSON 等非 Response 的结果不会走到这里
+ */
+function isStreamingResult(result: unknown): boolean {
+  if (result instanceof Response) {
+    return result.body !== null
+      && !isBufferedResponse(result)
+      && !result.headers.has('content-length')
+      && !('crossws' in result)
+  }
+  return result instanceof ReadableStream
+}
+
+/** 包一层响应体：读完、出错或被取消（客户端断开）时调用 release。没有响应体时返回 undefined */
+function deferRelease(result: unknown, release: () => Promise<void>): Response | ReadableStream | undefined {
+  const source = result instanceof Response
+    ? result.body
+    : result as ReadableStream<Uint8Array>
+  if (!source)
+    return undefined
+  const reader = source.getReader()
+  let released = false
+  const done = (): void => {
+    if (!released) {
+      released = true
+      void release()
+    }
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          controller.close()
+          done()
+        }
+        else {
+          controller.enqueue(chunk.value)
+        }
+      }
+      catch (error) {
+        controller.error(error)
+        done()
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        done()
+      }
+    },
+  })
+  return result instanceof Response
+    ? new Response(body, { status: result.status, statusText: result.statusText, headers: result.headers })
+    : body
+}
+
+/** h3 会按 JSON 序列化的对象：数组、普通对象与实现了 toJSON() 的对象（流、Response、Blob 等交给 h3 处理） */
+function isJsonObject(value: unknown): value is object {
+  if (typeof value !== 'object' || value === null)
+    return false
+  if (typeof (value as { toJSON?: unknown }).toJSON === 'function' || Array.isArray(value))
+    return true
+  if (typeof (value as { pipe?: unknown }).pipe === 'function' || typeof (value as { pipeTo?: unknown }).pipeTo === 'function')
+    return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
 }
 
 const REQUEST_ID_RE = /^[\w.:-]{1,128}$/

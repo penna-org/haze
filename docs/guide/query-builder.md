@@ -26,7 +26,7 @@ const total = await active().count()
 |--------|---------|
 | `select()` | All rows |
 | `selectOrFail()` | All rows; throws `ModelNotFoundException` (404) when empty |
-| `find()` / `findOrFail()` | The first row (`undefined` / 404 when missing). Model queries accept a primary key: `User.find(1)` |
+| `find()` / `findOrFail()` | The first row (`undefined` / 404 when missing). Model queries accept a primary key: `User.find(1)`; a key that is `undefined` / `null` finds nothing (it does not fall back to the first row) |
 | `findOrEmpty(id?)` | Model queries only: the model, or an empty model (`model.isEmpty()`) |
 | `value('name')` | One column of the first row. Also a `field()` alias: `field({ total: count() }).value('total')` |
 | `column('name')` | One column of every row: `['Ada', 'Bob']`. Also a `field()` alias |
@@ -34,9 +34,10 @@ const total = await active().count()
 | `column('*', 'id')` | Whole rows keyed by a column |
 | `count(column?)` / `sum` / `avg` / `max` / `min` | Aggregates (`count('email')` counts non-null values) |
 | `exists()` | Whether any row matches (`select 1 … limit 1`, no row is read) |
-| `paginate(page, perPage)` | `{ data, total, page, perPage, lastPage }` |
+| `paginate(page, perPage)` | `{ data, total, page, perPage, lastPage }`. `page` and `perPage` are clamped to at least `1` |
 | `paginateX(perPage, { lastId, key, sort })` | Cursor pagination without counting: `{ data, perPage, lastId, hasMore }`. `perPage` defaults to `15`, `key` to the primary key, `sort` to `'desc'` |
-| `chunk(size, rows => ...)` | Process rows in batches; return `false` to stop |
+| `chunk(size, rows => ...)` | Process rows in batches (offset paging); return `false` to stop. Ordered by the primary key when the query has no `order()` |
+| `chunkById(size, rows => ..., column?)` | Batches by primary key (`where id > last`), without offsets: safe when the callback updates or deletes the rows it walks. Ignores `order()` |
 | `cursor(size)` / `lazy(size)` | Async iterator that fetches in batches (`size` defaults to `200`): `for await (const row of query.cursor())` |
 | `toSQL()` | The generated SQL and parameters (ThinkPHP's `fetchSql`). `toSQL('insert', values)`, `toSQL('update', values)` and `toSQL('delete', target?)` preview the write statements without running them |
 
@@ -44,7 +45,7 @@ const total = await active().count()
 
 `paginate()` runs the count and the page query in parallel. Inside a transaction it runs them one after the other and skips the page query when the count is `0`. The count never includes `order()`.
 
-`paginateX()` pages by the primary key (or `key`), so it stays fast on large tables. It replaces any `order()` on the query with `key` in the `sort` direction. `cursor()` also batches by the primary key when the query has no `order()`, `group()` or union; otherwise it falls back to offsets.
+`paginateX()` pages by the primary key (or `key`), so it stays fast on large tables. It replaces any `order()` on the query with `key` in the `sort` direction. `cursor()` also batches by the primary key when the query has no `order()`, `group()`, `distinct()` or union (the primary key is added to the selection when `field()` left it out); otherwise it falls back to offsets.
 
 ## Where clauses
 

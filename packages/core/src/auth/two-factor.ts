@@ -1,12 +1,15 @@
+import type { Application } from '../application'
 import type { CacheRepository } from '../cache/repository'
 import type { Config } from '../config/config'
 import type { HttpContext } from '../http/context'
 import type { SessionGuard } from './guards'
 import type { Credentials } from './provider'
 import type { ResolvedProvider } from './support'
+import { useApp } from '../application'
 import { CacheManager } from '../cache/manager'
 import { ConflictException } from '../exception/exceptions'
 import { definePersistent } from '../persistent'
+import { getRequestStore } from '../request'
 import { Encrypter } from '../security/crypt'
 import { safeEqual } from '../security/key'
 import { parseDuration } from '../utils'
@@ -185,11 +188,14 @@ export interface TwoFactorStore {
   delete: (userType: string, userId: string) => Promise<void>
 }
 
+/** 进程内的存储（多实例部署时各实例互不可见） */
+const memoryStores = new WeakSet<TwoFactorStore>()
+
 /** 进程内存储（测试 / 单实例）；name 区分互不共享的存储 */
 export function memoryTwoFactorStore(name = 'default'): TwoFactorStore {
   const rows = definePersistent(`auth:two-factor:${name}`, () => new Map<string, TwoFactorRecord>())
   const key = (type: string, id: string): string => `${type}:${id}`
-  return {
+  const store: TwoFactorStore = {
     async get(type, id) {
       const row = rows.get(key(type, id))
       return row && {
@@ -207,6 +213,43 @@ export function memoryTwoFactorStore(name = 'default'): TwoFactorStore {
       rows.delete(key(type, id))
     },
   }
+  memoryStores.add(store)
+  return store
+}
+
+/** 已提示过“生产环境使用进程内存储”的应用 */
+const warnedApps = new WeakSet<object>()
+
+/**
+ * 生产环境没有配置持久化的 store 时提示一次：进程内存储在多实例部署下，用户在一个实例上启用的两步验证
+ * 在其它实例上查不到（enabled() 为 false），登录时会被悄悄跳过；重启后也会丢失
+ */
+function warnMemoryStore(store: TwoFactorStore): void {
+  if (!memoryStores.has(store))
+    return
+  let app: Application
+  try {
+    app = useApp()
+  }
+  catch {
+    return
+  }
+  if (app.mode !== 'production' || warnedApps.has(app))
+    return
+  warnedApps.add(app)
+  app.logger.warn('Auth: two-factor secrets are kept in the in-process memory store. With more than one instance, two-factor authentication enabled on one instance is not seen by the others and is silently skipped at login, and all secrets are lost on restart. Set twoFactor.store in config/auth.ts (e.g. databaseTwoFactorStore from @hazejs/orm)')
+}
+
+/** 进程内按用户串行：并发的校验逐个执行，同一时间步的验证码 / 同一个恢复码不会被两个请求同时消费 */
+const queues = new Map<string, Promise<unknown>>()
+function serialize<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const run = (queues.get(key) ?? Promise.resolve()).then(fn, fn)
+  const tail = run.catch(() => {}).finally(() => {
+    if (queues.get(key) === tail)
+      queues.delete(key)
+  })
+  queues.set(key, tail)
+  return run
 }
 
 export interface TwoFactorConfig extends Pick<TotpOptions, 'digits' | 'period' | 'algorithm'> {
@@ -271,6 +314,34 @@ export class TwoFactorAuthenticator<U = unknown> {
     this.#config = auth.twoFactor ?? {}
     this.#users = resolveProvider<U>(auth, this.#config.provider)
     this.#store = this.#config.store ?? memoryTwoFactorStore()
+    warnMemoryStore(this.#store)
+  }
+
+  /**
+   * 读取记录、校验、写回这一段按用户串行（进程内）；配置了 cacheStore 且为原子存储时再加一把缓存锁，
+   * 多实例之间也互斥。自定义的 store 没有比较并交换的接口，未配置 cacheStore 时跨实例的并发仍可能重复消费
+   */
+  #exclusive<T>(user: U, fn: () => Promise<T>): Promise<T> {
+    const ref = this.#users.ref(user)
+    const key = `${ref.type}:${ref.id}`
+    return serialize(key, async () => {
+      const cache = this.#config.cacheStore === undefined
+        ? undefined
+        : this.#lockStore()
+      if (!cache?.store.atomic)
+        return fn()
+      return cache.lock(`two-factor:lock:${key}`, 10).run(fn, 5)
+    })
+  }
+
+  #lockStore(): CacheRepository | undefined {
+    try {
+      return (getRequestStore()?.ctx ?? useApp()).make(CacheManager).store(this.#config.cacheStore)
+    }
+    catch {
+      // 不在应用上下文中（直接用配置构造）：只有进程内的串行
+      return undefined
+    }
   }
 
   get #encrypter(): Encrypter {
@@ -376,7 +447,11 @@ export class TwoFactorAuthenticator<U = unknown> {
   }
 
   /** 校验验证码（只对已启用的用户有效）；同一时间步的验证码只能使用一次 */
-  async verify(user: U, code: string): Promise<boolean> {
+  verify(user: U, code: string): Promise<boolean> {
+    return this.#exclusive(user, () => this.#verify(user, code))
+  }
+
+  async #verify(user: U, code: string): Promise<boolean> {
     const record = await this.#record(user)
     if (!record?.confirmedAt)
       return false
@@ -393,7 +468,11 @@ export class TwoFactorAuthenticator<U = unknown> {
   }
 
   /** 使用恢复码（用后作废） */
-  async useRecoveryCode(user: U, code: string): Promise<boolean> {
+  useRecoveryCode(user: U, code: string): Promise<boolean> {
+    return this.#exclusive(user, () => this.#useRecoveryCode(user, code))
+  }
+
+  async #useRecoveryCode(user: U, code: string): Promise<boolean> {
     const record = await this.#record(user)
     if (!record?.confirmedAt)
       return false

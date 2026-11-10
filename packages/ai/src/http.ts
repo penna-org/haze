@@ -228,8 +228,20 @@ export async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenera
       yield last
   }
   finally {
+    // 提前退出（消费者取消、解析抛错）时关闭上游的响应体；已读完时是空操作
+    await reader.cancel().catch(() => {})
     reader.releaseLock()
   }
+}
+
+/** 流在收到结束标记之前就结束了（连接中途断开、代理超时等）：可重试的 APICallError */
+export function truncatedStreamError(provider: string, url: string): APICallError {
+  return new APICallError({
+    message: `${provider}: the response stream ended before the model finished (connection closed mid-stream)`,
+    provider,
+    url,
+    isRetryable: true,
+  })
 }
 
 /** 逐行解析 NDJSON（Ollama 原生接口、Gemini 等） */
@@ -253,6 +265,8 @@ export async function* parseNDJSON<T = unknown>(stream: ReadableStream<Uint8Arra
       yield JSON.parse(buffer) as T
   }
   finally {
+    // 提前退出（消费者取消、解析抛错）时关闭上游的响应体；已读完时是空操作
+    await reader.cancel().catch(() => {})
     reader.releaseLock()
   }
 }

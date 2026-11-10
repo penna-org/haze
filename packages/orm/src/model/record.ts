@@ -63,6 +63,14 @@ export abstract class ActiveRecord<TRow extends object = any> {
   static visible: readonly string[] = []
   /** 序列化时追加的虚拟字段（需定义 getXxxAttr） */
   static append: readonly string[] = []
+  /**
+   * 允许批量赋值（fill() / create(data) / save(data)）的字段白名单；undefined 表示不限制。
+   * 主键（已存在的记录）、租户列、软删除列与乐观锁版本列即使列在这里也不接受批量赋值：
+   * 用 `allowField([...])` 显式列出、`forceFill()` 或直接给属性赋值
+   */
+  static fillable: readonly string[] | undefined = undefined
+  /** 拒绝批量赋值的字段黑名单（在 fillable 之后判断） */
+  static guarded: readonly string[] = []
 
   protected $attributes: Record<string, unknown> = {}
   protected $original: Record<string, unknown> = {}
@@ -76,6 +84,8 @@ export abstract class ActiveRecord<TRow extends object = any> {
   protected $withAttr: Record<string, AttrTransform> = {}
   /** 关联绑定到当前记录的字段：关联名 → { 输出字段: 关联字段 } */
   protected $bindings: Record<string, Record<string, string>> = {}
+  /** forceFill() 进行中：跳过批量赋值保护 */
+  protected $unguarded = false
 
   /** 主键字段名（子类实现） */
   static primaryKeyName(): string | undefined {
@@ -86,7 +96,7 @@ export abstract class ActiveRecord<TRow extends object = any> {
   static hydrate<M extends ActiveRecord>(this: new () => M, row: Record<string, unknown>): M {
     const record = new this()
     record.$attributes = { ...row }
-    record.$original = { ...row }
+    record.$original = snapshotRow(row)
     record.$exists = true
     return record
   }
@@ -140,17 +150,34 @@ export abstract class ActiveRecord<TRow extends object = any> {
   /** 写入属性但不视为修改（关联统计等查询附带的数据） */
   syncAttr(key: string, value: unknown): this {
     this.$attributes[key] = value
-    this.$original[key] = value
+    this.$original[key] = snapshot(value)
     return this
   }
 
-  /** 批量赋值（SQL 模型忽略表中不存在的列） */
+  /**
+   * 批量赋值（SQL 模型忽略表中不存在的列）。数据通常来自用户输入，以下字段会被忽略：
+   * - 不在 `static fillable` 中（设置了白名单时）或在 `static guarded` 中的字段
+   * - 受保护的字段：已存在记录的主键、租户列、软删除列、乐观锁版本列
+   *
+   * `allowField([...])` 显式列出的字段不受上述限制；可信数据用 `forceFill()`
+   */
   fill(data: Record<string, unknown>): this {
     for (const [key, value] of Object.entries(data)) {
       if (this.acceptsAttribute(key))
         this.setAttr(key, value)
     }
     return this
+  }
+
+  /** 批量赋值可信数据：跳过 fillable / guarded 与受保护字段的限制（不要传入用户输入） */
+  forceFill(data: Record<string, unknown>): this {
+    this.$unguarded = true
+    try {
+      return this.fill(data)
+    }
+    finally {
+      this.$unguarded = false
+    }
   }
 
   isDirty(key?: string): boolean {
@@ -343,8 +370,21 @@ export abstract class ActiveRecord<TRow extends object = any> {
   // ---------------------------------------------------------------- 供子类使用
 
   /** 是否接受批量赋值的字段 */
-  protected acceptsAttribute(_key: string): boolean {
-    return true
+  protected acceptsAttribute(key: string): boolean {
+    return this.$unguarded || this.isFillable(key)
+  }
+
+  /** static fillable / guarded 与受保护字段的判断 */
+  protected isFillable(key: string): boolean {
+    const record = this.constructor as typeof ActiveRecord
+    if (record.fillable && !record.fillable.includes(key))
+      return false
+    return !record.guarded.includes(key) && !this.protectedAttributes().includes(key)
+  }
+
+  /** 默认拒绝批量赋值的字段（子类实现：主键、租户列、软删除列、乐观锁版本列） */
+  protected protectedAttributes(): string[] {
+    return []
   }
 
   /** 执行事件方法与 observeModel() 注册的观察者；before 事件返回 false 时取消操作（返回 false） */
@@ -364,7 +404,7 @@ export abstract class ActiveRecord<TRow extends object = any> {
 
   /** 写入成功后同步原始值 */
   protected syncOriginal(): void {
-    this.$original = { ...this.$attributes }
+    this.$original = snapshotRow(this.$attributes)
   }
 }
 
@@ -403,9 +443,50 @@ function serializeValue(value: unknown, options: SerializeOptions): unknown {
     : value.toJSON()
 }
 
+function isPlain(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object')
+    return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === null || proto === Object.prototype
+}
+
+/**
+ * 原始值的快照：JSON 列 / 内嵌文档（普通对象与数组）深拷贝，原地修改（`user.meta.a = 2`）才能被脏检查发现；
+ * Date 复制，ObjectId、Buffer 等其它对象保持引用
+ */
+function snapshot(value: unknown): unknown {
+  if (value === null || typeof value !== 'object')
+    return value
+  if (Array.isArray(value))
+    return value.map(snapshot)
+  if (value instanceof Date)
+    return new Date(value.getTime())
+  if (isPlain(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      snapshot(item),
+    ]))
+  }
+  return value
+}
+
+function snapshotRow(row: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = {}
+  for (const key of Object.keys(row))
+    copy[key] = snapshot(row[key])
+  return copy
+}
+
+/** 普通对象与数组按值比较（JSON 列），其余按引用 / 值对象比较 */
 function sameValue(a: unknown, b: unknown): boolean {
   if (a instanceof Date && b instanceof Date)
     return a.getTime() === b.getTime()
+  if (Array.isArray(a) && Array.isArray(b))
+    return a.length === b.length && a.every((item, index) => sameValue(item, b[index]))
+  if (isPlain(a) && isPlain(b)) {
+    const keys = Object.keys(a)
+    return keys.length === Object.keys(b).length && keys.every(key => key in b && sameValue(a[key], b[key]))
+  }
   // ObjectId 等值对象
   if (a && b && typeof a === 'object' && typeof (a as { equals?: unknown }).equals === 'function')
     return (a as { equals: (other: unknown) => boolean }).equals(b)

@@ -169,7 +169,9 @@ r.group({ prefix: '/api/auth', as: 'auth.' }, (r) => {
 | `POST` | `/tokens` | `tokens.store` | `{ name, abilities? }` → `201 { token, accessToken }` |
 | `DELETE` | `/tokens/:id` | `tokens.destroy` | `204`, or `404` if the token is not the user's |
 
-`tokens: { abilities }` limits which abilities clients may request (others get a `422`); when the body has no `abilities`, the token gets that whole list. `tokens: true` allows any ability. See [Authentication](./authentication#ready-made-routes) for the other options.
+`tokens: { abilities }` limits which abilities clients may request (others get a `422`); when the body has no `abilities`, the token gets that whole list. `tokens: true` allows any ability.
+
+When the request itself is authenticated with a personal access token, the new token can only get abilities the current token has (a `['posts:read']` token asking for `['*']` gets a `422`), and a body without `abilities` inherits the current token's abilities. Requests authenticated with a session or a JWT are not restricted this way. See [Authentication](./authentication#ready-made-routes) for the other options.
 
 The api, vue and react templates implement the same endpoints by hand in `app/controller/TokenController.ts` (`GET/POST /api/auth/tokens`, `DELETE /api/auth/tokens/:id`), and `GET /api/auth/me` accepts both a JWT and a token (`auth:api,token`).
 

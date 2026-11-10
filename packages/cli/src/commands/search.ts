@@ -41,7 +41,7 @@ function modelFiles(srcDir: string, name?: string): string[] {
 async function withSearch(rootArgValue: string, model: string | undefined, run: (search: SearchModule, server: DevServer) => Promise<void>): Promise<void> {
   const root = resolveRoot(rootArgValue)
   const { srcDir } = await loadHazeConfig(root)
-  const server = await createDevServer({ root, listen: false })
+  const server = await createDevServer({ root, listen: false, watch: false })
   try {
     if (!server.app)
       throw new Error('Application failed to start')

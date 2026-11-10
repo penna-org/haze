@@ -9,7 +9,10 @@ const kNamespace = Symbol.for('hazejs.socket.namespace')
 export interface SocketIOConfig {
   /** 路径，默认 `/socket.io/`（与 socket.io-client 的默认值一致） */
   path?: string
-  /** CORS，默认沿用 config/cors.ts 的 origin；false 关闭（同源） */
+  /**
+   * CORS：默认沿用 config/cors.ts 的 origin（明确配置了来源时允许携带凭据）；
+   * 未配置来源时允许任意来源但不带 credentials。false 关闭（同源）
+   */
   cors?: ServerOptions['cors'] | false
   /** 多实例：官方 @socket.io/redis-adapter（需要 ioredis） */
   adapter?: SocketIORedisAdapterConfig
@@ -140,13 +143,23 @@ function isWorkers(): boolean {
   return typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers'
 }
 
+/**
+ * 未配置 socketio.cors 时的默认值：config/cors.ts 明确配置了来源（不是 true / '*'）时沿用并允许携带凭据；
+ * 否则反射任意来源但不带 credentials（任意来源 + 凭据等于允许任何站点带着用户的 Cookie 连接）。
+ */
+function defaultCors(origin: unknown): NonNullable<ServerOptions['cors']> {
+  if (origin === undefined || origin === null || origin === true || origin === '*')
+    return { origin: true }
+  return { origin: origin as never, credentials: true }
+}
+
 async function createServer(app: Application, current: State): Promise<Server> {
   const config = app.config.get<SocketIOConfig>('socketio', {})
   const { Server } = await import('socket.io')
   const path = config.path ?? '/socket.io/'
   const cors = config.cors === false
     ? undefined
-    : config.cors ?? { origin: app.config.get<unknown>('cors.origin', undefined) as never ?? true, credentials: true }
+    : config.cors ?? defaultCors(app.config.get<unknown>('cors.origin', undefined))
   const io = new Server({
     path,
     serveClient: false,
@@ -279,34 +292,62 @@ function wireBroadcasting(namespace: Namespace, current: State): void {
     const input = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null
       ? value as Record<string, unknown>
       : {}
+    // 监听器是 async 的：其中的失败（Redis / 数据库抖动）不捕获就是 unhandledRejection，这里记录日志并回一个错误消息
+    const failed = (event: string, channel: string, error: unknown, ack: unknown): void => {
+      current.app?.logger.error(`socket.io broadcasting ${event} failed`, error)
+      const envelope = {
+        event: 'haze:subscription_error',
+        channel,
+        data: { status: 500, message: 'Internal server error' },
+      }
+      if (typeof ack === 'function')
+        ack(envelope)
+      else if (event === 'subscribe')
+        socket.emit('broadcast', envelope)
+    }
     socket.on('subscribe', async (raw: unknown, ack?: (envelope: unknown) => void) => {
       const { channel, auth, channel_data } = input(raw)
       const name = String(channel ?? '')
-      const result = await handle.subscribe({
-        channel: name,
-        auth: typeof auth === 'string'
-          ? auth
-          : undefined,
-        channelData: typeof channel_data === 'string'
-          ? channel_data
-          : undefined,
-      })
-      if (result.ok)
-        await socket.join(name)
-      const envelope = subscribeEnvelope(name, result)
-      if (typeof ack === 'function')
-        ack(envelope)
-      else
-        socket.emit('broadcast', envelope)
+      try {
+        const result = await handle.subscribe({
+          channel: name,
+          auth: typeof auth === 'string'
+            ? auth
+            : undefined,
+          channelData: typeof channel_data === 'string'
+            ? channel_data
+            : undefined,
+        })
+        if (result.ok)
+          await socket.join(name)
+        const envelope = subscribeEnvelope(name, result)
+        if (typeof ack === 'function')
+          ack(envelope)
+        else
+          socket.emit('broadcast', envelope)
+      }
+      catch (error) {
+        failed('subscribe', name, error, ack)
+      }
     })
-    socket.on('unsubscribe', async (raw: unknown) => {
+    socket.on('unsubscribe', async (raw: unknown, ack?: unknown) => {
       const name = String(input(raw).channel ?? '')
-      await handle.unsubscribe(name)
-      await socket.leave(name)
+      try {
+        await handle.unsubscribe(name)
+        await socket.leave(name)
+      }
+      catch (error) {
+        failed('unsubscribe', name, error, ack)
+      }
     })
-    socket.on('whisper', async (raw: unknown) => {
+    socket.on('whisper', async (raw: unknown, ack?: unknown) => {
       const { channel, name, data } = input(raw)
-      await handle.whisper(String(channel ?? ''), String(name ?? ''), data)
+      try {
+        await handle.whisper(String(channel ?? ''), String(name ?? ''), data)
+      }
+      catch (error) {
+        failed('whisper', String(channel ?? ''), error, ack)
+      }
     })
     socket.on('disconnect', () => {
       handle.close().catch(error => current.app?.logger.error('socket.io broadcasting disconnect failed', error))
@@ -363,24 +404,32 @@ export function authenticate(options: SocketAuthenticateOptions = {}): SocketMid
       return next(new Error('socket.io is not configured'))
     const extra = options.headers?.((socket.handshake.auth ?? {}) as Record<string, unknown>) ?? {}
     const ctx = app.contextFor(handshakeRequest(socket, extra))
-    const guard = ctx.auth.guard(options.guard)
     let user: unknown
+    let failure: string | undefined
     try {
-      user = await guard.user()
-    }
-    catch (error) {
-      if (!options.optional) {
-        const { status, code, message } = error as { status?: number, code?: unknown, message?: string }
-        return next(Object.assign(new Error(message || 'unauthorized'), {
-          data: { status: status ?? 401, code: code ?? 'unauthenticated' },
-        }))
+      const guard = ctx.auth.guard(options.guard)
+      try {
+        user = await guard.user()
       }
+      catch (error) {
+        if (!options.optional) {
+          const { status, code, message } = error as { status?: number, code?: unknown, message?: string }
+          return next(Object.assign(new Error(message || 'unauthorized'), {
+            data: { status: status ?? 401, code: code ?? 'unauthenticated' },
+          }))
+        }
+      }
+      failure = guard.failure
+    }
+    finally {
+      // 握手用的请求级容器只为识别用户而建，识别完即释放（否则每次握手泄漏一个子容器）
+      await ctx.container.dispose().catch(() => {})
     }
     if (user === undefined && !options.optional) {
       return next(Object.assign(new Error('unauthorized'), {
         data: {
           status: 401,
-          code: guard.failure === 'invalid'
+          code: failure === 'invalid'
             ? 'token_invalid'
             : 'unauthenticated',
         },

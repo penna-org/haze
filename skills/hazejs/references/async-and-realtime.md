@@ -644,7 +644,7 @@ const io = inject(SocketIOServer) // underlying Server (also SocketIO.server)
 import { defineSocketIOConfig } from '@hazejs/socket.io'
 export default defineSocketIOConfig({
   adapter: { driver: 'redis', connection: 'default', key: 'my-app' }, // pnpm add @socket.io/redis-adapter ioredis
-  // path: '/socket.io/', cors (defaults from config/cors.ts; false = same-origin), options, broadcasting
+  // path: '/socket.io/', cors (defaults to config/cors.ts origin + credentials; no origin configured → any origin WITHOUT credentials; false = same-origin), options, broadcasting
 })
 ```
 

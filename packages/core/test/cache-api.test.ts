@@ -206,3 +206,46 @@ describe('cache API wiring', () => {
     expect(await custom.get('k')).toEqual([1, 2])
   })
 })
+
+describe('cache remember() single flight', () => {
+  it('runs the callback once for concurrent misses and shares the result', async () => {
+    await bootCache(memoryDriver)
+    let calls = 0
+    const load = async (): Promise<number> => {
+      calls++
+      await sleep(20)
+      return 42
+    }
+    expect(await Promise.all(Array.from({ length: 10 }, () => Cache.remember('answer', '1m', load)))).toEqual(Array.from({ length: 10 }).fill(42))
+    expect(calls).toBe(1)
+    // 之后命中缓存
+    expect(await Cache.remember('answer', '1m', load)).toBe(42)
+    expect(calls).toBe(1)
+
+    // 标签缓存与 rememberForever 同样只执行一次；不同的键互不影响
+    calls = 0
+    await Promise.all([
+      Cache.tag('t').remember('answer', '1m', load),
+      Cache.tag('t').remember('answer', '1m', load),
+      Cache.rememberForever('forever', load),
+      Cache.rememberForever('forever', load),
+    ])
+    expect(calls).toBe(2)
+  })
+
+  it('propagates the error to every waiter without caching it', async () => {
+    await bootCache(memoryDriver)
+    let calls = 0
+    const fail = async (): Promise<number> => {
+      calls++
+      await sleep(10)
+      throw new Error('load failed')
+    }
+    const results = await Promise.allSettled(Array.from({ length: 3 }, () => Cache.remember('broken', '1m', fail)))
+    expect(results.map(result => result.status)).toEqual(['rejected', 'rejected', 'rejected'])
+    expect(calls).toBe(1)
+    expect(await Cache.has('broken')).toBe(false)
+    // 下一次调用重新执行
+    expect(await Cache.remember('broken', '1m', async () => 7)).toBe(7)
+  })
+})

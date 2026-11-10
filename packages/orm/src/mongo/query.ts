@@ -30,6 +30,34 @@ export function toObjectId(value: unknown): unknown {
     : value
 }
 
+/** mongoOp() 的包装：显式声明条件的值是查询运算符（类实例，无法由 JSON 输入伪造） */
+export class MongoOperators {
+  constructor(readonly operators: Document) {}
+}
+
+/**
+ * 在条件的值中使用 MongoDB 查询运算符：`where('tags', mongoOp({ $all: ['a'] }))`。
+ *
+ * where() 的值常来自请求参数（`where('email', ctx.input('email'))`），带 `$` 键的普通对象会被当作运算符
+ * （`{ $ne: null }` 匹配全部文档），因此默认拒绝，必须用 mongoOp() 显式声明。不要把用户输入传给 mongoOp()
+ */
+export function mongoOp(operators: Document): MongoOperators {
+  return new MongoOperators(operators)
+}
+
+/** 条件中的字段名不能以 `$` 开头（`$where` / `$or` 等顶层运算符只能通过 whereRaw() 使用） */
+function fieldName(field: string): string {
+  if (typeof field !== 'string' || field.startsWith('$'))
+    throw new DatabaseError(`where(): invalid field "${String(field)}" (field names cannot start with "$"; use whereRaw() for raw MongoDB filters)`)
+  return field
+}
+
+/** find(id) 接受的主键：字符串、数字、BigInt 或 ObjectId 这类值对象（请求参数中的对象 / 数组不接受） */
+function isDocumentId(value: unknown): boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint'
+    || (typeof value === 'object' && value !== null && typeof (value as { toHexString?: unknown }).toHexString === 'function')
+}
+
 /** SQL LIKE 模式 → 正则：% 任意长度，_ 单个字符 */
 function likeToRegex(pattern: string): RegExp {
   const source = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')
@@ -43,7 +71,8 @@ function likeToRegex(pattern: string): RegExp {
  * await Mongo.collection<UserDoc>('users').where('status', 1).order('createdAt', 'desc').paginate(1, 20)
  * ```
  *
- * Mongo 特有能力：`aggregate(pipeline)`、`where({ tags: { $all: ['a'] } })` 直接使用查询运算符。
+ * Mongo 特有能力：`aggregate(pipeline)`；查询运算符需显式声明：`where('tags', mongoOp({ $all: ['a'] }))`，
+ * 或用 `whereRaw({ ... })` 传入完整的过滤器。
  */
 export class MongoQuery<T = Document, R = WithId<T>> {
   readonly collectionName: string
@@ -82,7 +111,7 @@ export class MongoQuery<T = Document, R = WithId<T>> {
 
   whereIn(field: Field<T>, values: readonly unknown[]): this {
     return this.pushCondition('and', {
-      [field]: {
+      [fieldName(field)]: {
         $in: this.normalizeList(field, values),
       },
     })
@@ -90,7 +119,7 @@ export class MongoQuery<T = Document, R = WithId<T>> {
 
   whereNotIn(field: Field<T>, values: readonly unknown[]): this {
     return this.pushCondition('and', {
-      [field]: {
+      [fieldName(field)]: {
         $nin: this.normalizeList(field, values),
       },
     })
@@ -98,38 +127,27 @@ export class MongoQuery<T = Document, R = WithId<T>> {
 
   /** 字段为 null 或不存在 */
   whereNull(field: Field<T>): this {
-    return this.pushCondition('and', { [field]: null })
+    return this.pushCondition('and', { [fieldName(field)]: null })
   }
 
   whereNotNull(field: Field<T>): this {
     return this.pushCondition('and', {
-      [field]: { $ne: null },
+      [fieldName(field)]: { $ne: null },
     })
   }
 
   whereBetween(field: Field<T>, range: [unknown, unknown]): this {
-    return this.pushCondition('and', {
-      [field]: { $gte: range[0], $lte: range[1] },
-    })
+    return this.pushCondition('and', this.compare(field, 'between', range))
   }
 
   whereNotBetween(field: Field<T>, range: [unknown, unknown]): this {
-    return this.pushCondition('and', {
-      $or: [
-        {
-          [field]: { $lt: range[0] },
-        },
-        {
-          [field]: { $gt: range[1] },
-        },
-      ],
-    })
+    return this.pushCondition('and', this.compare(field, 'not between', range))
   }
 
   /** SQL 风格的 LIKE 模式（% 与 _），区分大小写 */
   whereLike(field: Field<T>, pattern: string): this {
     return this.pushCondition('and', {
-      [field]: {
+      [fieldName(field)]: {
         $regex: likeToRegex(pattern),
       },
     })
@@ -137,10 +155,22 @@ export class MongoQuery<T = Document, R = WithId<T>> {
 
   whereNotLike(field: Field<T>, pattern: string): this {
     return this.pushCondition('and', {
-      [field]: {
+      [fieldName(field)]: {
         $not: likeToRegex(pattern),
       },
     })
+  }
+
+  /**
+   * 原生过滤器（MongoDB 的 Filter，原样使用）：`whereRaw({ $or: [{ a: 1 }, { 'b.c': { $exists: true } }] })`。
+   * 不做任何检查，不要拼入用户输入
+   */
+  whereRaw(filter: Filter<Document>): this {
+    return this.pushCondition('and', filter as Document)
+  }
+
+  orWhereRaw(filter: Filter<Document>): this {
+    return this.pushCondition('or', filter as Document)
   }
 
   when<V>(value: V, callback: (query: this, value: NonNullable<V>) => unknown): this {
@@ -273,15 +303,21 @@ export class MongoQuery<T = Document, R = WithId<T>> {
   }
 
   async paginate(page = 1, perPage = 15): Promise<Paginated<R>> {
-    const current = Math.max(1, Math.floor(page))
+    // page / perPage 常来自请求参数：至少为 1
+    const current = Number.isFinite(page)
+      ? Math.max(1, Math.floor(page))
+      : 1
+    const size = Number.isFinite(perPage)
+      ? Math.max(1, Math.floor(perPage))
+      : 15
     const total = await this.count()
-    const data = await this.clone().page(current, perPage).select()
+    const data = await this.clone().page(current, size).select()
     return {
       data,
       total,
       page: current,
-      perPage,
-      lastPage: Math.max(1, Math.ceil(total / perPage)),
+      perPage: size,
+      lastPage: Math.max(1, Math.ceil(total / size)),
     }
   }
 
@@ -325,10 +361,17 @@ export class MongoQuery<T = Document, R = WithId<T>> {
     return inserted._id as ObjectId
   }
 
-  /** 按条件更新（普通字段使用 $set，也可直接传 $inc / $push 等运算符），返回匹配数量 */
-  async update(values: Partial<T> | Document, options: { all?: boolean } = {}): Promise<number> {
+  /**
+   * 按条件更新（普通字段使用 $set，也可直接传 $inc / $push 等运算符），返回匹配数量。
+   * values 来自用户输入时传 `{ operators: false }`：只作为字段写入（$set），出现 `$` 开头的键时抛出 DatabaseError
+   * （模型的 save() 即如此）
+   */
+  async update(values: Partial<T> | Document, options: { all?: boolean, operators?: boolean } = {}): Promise<number> {
     const filter = this.writableFilter('update', options)
-    const update = Object.keys(values).some(key => key.startsWith('$'))
+    const operators = Object.keys(values).filter(key => key.startsWith('$'))
+    if (operators.length && options.operators === false)
+      throw new DatabaseError(`update(): "${operators.join('", "')}" cannot be used as field names (update operators are disabled for this call)`)
+    const update = operators.length
       ? values
       : { $set: values }
     const mongo = await this.session()
@@ -410,6 +453,7 @@ export class MongoQuery<T = Document, R = WithId<T>> {
           : undefined
       }
       if (isPlainObject(condition)) {
+        // 对象形式的键是字段名：$or / $where 等顶层运算符用回调分组或 whereRaw()
         const entries = Object.entries(condition).map(([field, value]) => this.compare(field, '=', value))
         return entries.length > 1
           ? { $and: entries }
@@ -423,6 +467,7 @@ export class MongoQuery<T = Document, R = WithId<T>> {
   }
 
   protected compare(field: string, operator: Operator, raw: unknown): Document {
+    fieldName(field)
     const value = this.normalize(field, raw)
     switch (operator) {
       case '=':
@@ -433,7 +478,7 @@ export class MongoQuery<T = Document, R = WithId<T>> {
             },
           }
         }
-        // { $gt: 1 } 等运算符对象原样使用
+        // mongoOp({ $gt: 1 }) 声明的运算符对象原样使用
         return { [field]: value }
       case '!=':
       case '<>':
@@ -476,25 +521,39 @@ export class MongoQuery<T = Document, R = WithId<T>> {
           $nin: this.normalizeList(field, raw as unknown[]),
         },
       }
-      case 'between': return {
-        [field]: { $gte: (raw as unknown[])[0], $lte: (raw as unknown[])[1] },
+      case 'between': {
+        const [from, to] = this.normalizeList(field, raw as unknown[])
+        return {
+          [field]: { $gte: from, $lte: to },
+        }
       }
-      case 'not between': return {
-        $or: [
-          {
-            [field]: { $lt: (raw as unknown[])[0] },
-          },
-          {
-            [field]: { $gt: (raw as unknown[])[1] },
-          },
-        ],
+      case 'not between': {
+        const [from, to] = this.normalizeList(field, raw as unknown[])
+        return {
+          $or: [
+            {
+              [field]: { $lt: from },
+            },
+            {
+              [field]: { $gt: to },
+            },
+          ],
+        }
       }
       default:
         throw new Error(`Unsupported operator "${String(operator)}"`)
     }
   }
 
+  /** 条件的值：mongoOp() 声明的运算符原样使用；带 `$` 键的普通对象（可能来自请求参数）拒绝 */
   protected normalize(field: string, value: unknown): unknown {
+    if (value instanceof MongoOperators)
+      return value.operators
+    if (isPlainObject(value)) {
+      const operators = Object.keys(value).filter(key => key.startsWith('$'))
+      if (operators.length)
+        throw new DatabaseError(`where(): the value of "${field}" contains MongoDB operators (${operators.join(', ')}). Wrap it with mongoOp({ ... }) if that is intended; never pass request input as a condition object`)
+    }
     return field === '_id'
       ? toObjectId(value)
       : value
@@ -566,18 +625,29 @@ export class MongoModelQuery<M extends MongoModelLike> extends MongoQuery<DocOf<
     return this
   }
 
-  /** 按 _id 查询（字符串自动转为 ObjectId）；不传时取第一条 */
-  override async find(id?: unknown): Promise<M | undefined> {
-    if (id === undefined)
+  /**
+   * 按 _id 查询（字符串自动转为 ObjectId）；不传参数时取第一条。
+   * 传入的 _id 为 undefined / null 时返回 undefined；只接受字符串、数字与 ObjectId，其它类型（对象、数组）抛出 DatabaseError
+   */
+  override async find(...args: [id?: unknown]): Promise<M | undefined> {
+    if (!args.length)
       return super.find()
+    const [id] = args
+    if (id === undefined || id === null)
+      return undefined
+    if (!isDocumentId(id)) {
+      throw new DatabaseError(`${this.model.name}.find() expects a string, number or ObjectId, got ${Array.isArray(id)
+        ? 'array'
+        : typeof id}`)
+    }
     const [first] = await this.clone().where('_id' as never, id).limit(1).select()
     return first
   }
 
-  override async findOrFail(id?: unknown): Promise<M> {
-    const model = await this.find(id)
+  override async findOrFail(...args: [id?: unknown]): Promise<M> {
+    const model = await this.find(...args)
     if (!model)
-      throw new ModelNotFoundException(this.model.name, id)
+      throw new ModelNotFoundException(this.model.name, args[0])
     return model
   }
 

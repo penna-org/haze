@@ -206,7 +206,7 @@ export default defineQueueConfig(() => ({
 - 把长任务放到单独的连接（例如第二个 `database` 连接，`retryAfter: '30m'`，队列 `long`），短任务崩溃后仍能很快被重新领取；
 - 重新领取时已经用完执行次数的任务进入失败任务，不再执行。
 
-`redis` 驱动依靠 BullMQ 的 stalled 检测：任务执行期间 worker 持续续期锁，停止续期的任务被移回队列。两种情况下任务都可能在崩溃后执行不止一次，请让任务幂等。
+`redis` 驱动依靠 BullMQ 的 stalled 检测：任务执行期间 worker 持续续期锁，停止续期的任务被移回队列。stalled 次数超过 BullMQ 上限的任务不再执行，直接判为失败：调用它的 `failed()`，并像其它最终失败一样处理唯一锁、任务链与批次。两种情况下任务都可能在崩溃后执行不止一次，请让任务幂等。
 
 ### 数据库驱动 {#database-driver}
 
@@ -333,6 +333,7 @@ export default defineJob({
 规则：
 
 - 默认第一个失败即取消批次，尚未开始的任务被跳过（计入 processed）。使用 `allowFailures()` 时每个任务都会执行。
+- 投递批次（或 `batch.add()`）的过程中队列不可用时，调用会抛出错误，没能进入队列的任务记为失败，批次仍然会结束并执行 `catch` / `finally`。
 - `catch` 在第一个任务失败时执行一次；`then` 在全部任务结束、没有失败也没有取消时执行一次；`finally` 在全部任务结束时执行一次，不论结果如何。
 - 状态保存在 `batches.store` 的缓存存储中，计数使用存储的原子自增。让已结束计数达到总数的那个 worker 用 `add()` 写入“已完成”标记，只有写入成功的 worker 执行 `then` / `finally`，因此即使有很多 worker 并发，回调也只执行一次。
 - 有多个进程时，存储必须是共享且支持原子操作的，请使用 `redis`；`memory` 与 `sync` 连接用默认的 `memory` 存储即可。存储不支持原子操作时（例如 `kv`）会记一条警告。

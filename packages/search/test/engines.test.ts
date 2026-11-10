@@ -4,6 +4,7 @@ import process from 'node:process'
 import { Model } from '@hazejs/orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ElasticsearchEngine, flushSearchable, importSearchable, MeilisearchEngine, search, searchable, SearchEngineError, syncSearchSettings, TypesenseEngine, useSearchManager } from '../src'
+import { typesenseFilter, typesenseFilters } from '../src/engines/typesense'
 import { boot, sample, shutdown, sqlitePosts } from './setup'
 
 interface Recorded {
@@ -260,7 +261,7 @@ describe('typesense request shapes', () => {
     expect(Object.fromEntries(requests[3]!.url.searchParams)).toEqual({
       q: 'haze search',
       query_by: 'title,body',
-      filter_by: 'status:=`published` && views:=[1,2] && author:!=[`a "quoted" name`]',
+      filter_by: '(status:=`published`) && (views:=[1,2]) && (author:!=[`a "quoted" name`])',
       sort_by: 'views:desc',
       page: '2',
       per_page: '10',
@@ -279,6 +280,33 @@ describe('typesense request shapes', () => {
     await expect(engine.update(index, [
       { key: 1, data: {} },
     ])).rejects.toThrow(/Bad JSON/)
+  })
+})
+
+describe('typesense filters', () => {
+  it('keeps values inside their backtick literal and parenthesises every condition', () => {
+    // Typesense 的反引号字面量没有转义语法：值里的反引号被去掉，其余内容留在字面量内
+    expect(typesenseFilters([
+      { type: 'eq', field: 'tenantId', value: 't1' },
+      { type: 'eq', field: 'status', value: 'a`) || (tenantId:=`t2' },
+    ])).toBe('(tenantId:=`t1`) && (status:=`a ) || (tenantId:= t2`)')
+    expect(typesenseFilters([
+      {
+        type: 'in',
+        field: 'views',
+        values: [1, 2],
+      },
+    ])).toBe('(views:=[1,2])')
+  })
+
+  it('rejects field names that carry operators or parentheses', () => {
+    expect(() => typesenseFilter({ type: 'eq', field: 'status:=`a`) || (id', value: 1 })).toThrow(/invalid filter field/)
+    expect(() => typesenseFilter({
+      type: 'in',
+      field: 'a || b',
+      values: [1],
+    })).toThrow(/invalid filter field/)
+    expect(typesenseFilter({ type: 'eq', field: 'author.name-en', value: 'x' })).toBe('author.name-en:=`x`')
   })
 })
 
@@ -496,6 +524,8 @@ describe.runIf(services.length).each(services)('$name (real service)', (service)
     expect(await titles(search(Post, 'search').where('status', 'published').where('views', 30))).toEqual(['Search engines compared'])
     expect(await titles(search(Post, '').whereIn('status', ['draft']))).toEqual(['Queues and jobs'])
     expect(await titles(search(Post, '').whereNotIn('status', ['draft']))).toHaveLength(3)
+    // 过滤值不能跳出字面量、把后面的内容变成过滤表达式（Typesense 的反引号没有转义语法）
+    expect(await titles(search(Post, '').where('views', 30).where('status', 'x`) || (views:>0) || (status:=`x'))).toEqual([])
     expect(await search(Post, '').orderBy('views', 'desc').keys()).toEqual([
       posts[1]!.id,
       posts[3]!.id,

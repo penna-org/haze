@@ -17,6 +17,8 @@ export interface SubscriptionOptions {
    * `payload` 中的 `authorization` / `token` 会作为 Authorization 请求头，ctx.auth 即可识别用户。
    */
   onConnect?: (ctx: HttpContext, payload: Record<string, unknown> | undefined) => MaybePromise<boolean | Record<string, unknown> | void>
+  /** 单个连接上同时进行的操作（订阅）数上限，默认 100；超出的 subscribe 以 error 消息拒绝 */
+  maxSubscriptionsPerConnection?: number
 }
 
 export interface GraphQLHandlerOptions {
@@ -115,6 +117,78 @@ export function effective(options: GraphQLHandlerOptions, ctx: HttpContext): { i
   }
 }
 
+interface Validated {
+  document: DocumentNode
+  errors: readonly GraphQLError[]
+}
+
+/** 每组（schema, options）缓存的文档数，以及参与缓存的查询长度上限（过长的查询每次重新解析，避免缓存占用过多内存） */
+const DOCUMENT_CACHE_SIZE = 500
+const DOCUMENT_CACHE_MAX_QUERY_LENGTH = 20_000
+
+/**
+ * 解析 + 静态校验结果的缓存：按 schema 与 options 对象分开（HMR 换了 schema、或多个端点各自的 schema 互不混用），
+ * 内层是按查询字符串的 LRU。依赖变量的复杂度检查不在其中，每次请求单独执行。
+ */
+const documentCache = new WeakMap<GraphQLSchema, WeakMap<GraphQLHandlerOptions, Map<string, Validated>>>()
+/** 每个 options 对象的静态校验规则（不必每次请求重建数组），按是否允许内省分两份 */
+const staticRules = new WeakMap<GraphQLHandlerOptions, Map<string, ValidationRule[]>>()
+
+function rulesFor(options: GraphQLHandlerOptions, introspection: boolean): { key: string, rules: ValidationRule[] } {
+  const depth = options.maxDepth === false
+    ? false
+    : options.maxDepth ?? 15
+  // maxDepth 进入键：options 对象被原地修改时不会用到旧规则
+  const key = `${introspection ? 1 : 0}:${depth}`
+  let byKey = staticRules.get(options)
+  if (!byKey)
+    staticRules.set(options, byKey = new Map())
+  let rules = byKey.get(key)
+  if (!rules) {
+    rules = [
+      ...specifiedRules,
+      ...(options.validationRules ?? []),
+    ]
+    if (depth !== false)
+      rules.push(depthLimit(depth))
+    if (!introspection)
+      rules.push(NoSchemaIntrospectionCustomRule)
+    byKey.set(key, rules)
+  }
+  return { key, rules }
+}
+
+/** 解析并做静态校验（带缓存）；解析失败时抛出 GraphQLError */
+function parseAndValidate(schema: GraphQLSchema, query: string, options: GraphQLHandlerOptions, introspection: boolean): Validated {
+  const { key, rules } = rulesFor(options, introspection)
+  const cacheable = query.length <= DOCUMENT_CACHE_MAX_QUERY_LENGTH
+  let byOptions = documentCache.get(schema)
+  if (!byOptions)
+    documentCache.set(schema, byOptions = new WeakMap())
+  let cache = byOptions.get(options)
+  if (!cache)
+    byOptions.set(options, cache = new Map())
+  const cacheKey = `${key}:${query}`
+  const hit = cache.get(cacheKey)
+  if (hit) {
+    // LRU：命中的移到最后
+    cache.delete(cacheKey)
+    cache.set(cacheKey, hit)
+    return hit
+  }
+  const document = parse(query)
+  const entry: Validated = {
+    document,
+    errors: validate(schema, document, rules),
+  }
+  if (cacheable) {
+    cache.set(cacheKey, entry)
+    if (cache.size > DOCUMENT_CACHE_SIZE)
+      cache.delete(cache.keys().next().value!)
+  }
+  return entry
+}
+
 /** 解析参数、解析文档、校验，确定要执行的操作 */
 export function prepare(schema: GraphQLSchema, params: GraphQLParams, options: GraphQLHandlerOptions, ctx: HttpContext): Prepared | RequestFailure {
   const { query, operationName, variables } = params
@@ -126,8 +200,9 @@ export function prepare(schema: GraphQLSchema, params: GraphQLParams, options: G
     return failure(400, 'variables must be an object', ErrorCode.BAD_REQUEST)
 
   let document: DocumentNode
+  let errors: readonly GraphQLError[]
   try {
-    document = parse(query)
+    ({ document, errors } = parseAndValidate(schema, query, options, effective(options, ctx).introspection))
   }
   catch (error) {
     return {
@@ -141,18 +216,12 @@ export function prepare(schema: GraphQLSchema, params: GraphQLParams, options: G
       ],
     }
   }
-
-  const rules: ValidationRule[] = [
-    ...specifiedRules,
-    ...(options.validationRules ?? []),
-  ]
-  if (options.maxDepth !== false)
-    rules.push(depthLimit(options.maxDepth ?? 15))
-  if (options.maxComplexity)
-    rules.push(complexityLimit(options.maxComplexity, (variables ?? {}) as Record<string, unknown>))
-  if (!effective(options, ctx).introspection)
-    rules.push(NoSchemaIntrospectionCustomRule)
-  const errors = validate(schema, document, rules)
+  // 复杂度依赖本次请求的变量，不能缓存；仅在静态校验通过后计算
+  if (!errors.length && options.maxComplexity) {
+    errors = validate(schema, document, [
+      complexityLimit(options.maxComplexity, (variables ?? {}) as Record<string, unknown>),
+    ])
+  }
   if (errors.length) {
     return {
       kind: 'request-error',

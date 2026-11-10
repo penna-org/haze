@@ -88,6 +88,7 @@ Global options:
 | `stateStore` | `'cookie'` | Where the state lives between redirect and callback: an encrypted cookie, or `'session'` |
 | `cookie` | `'haze_oauth'` | Cookie name prefix; the actual cookie is `<prefix>_<provider>` |
 | `stateTtl` | `'10m'` | How long the user has to finish signing in |
+| `timeout` | `10000` | Timeout in milliseconds for each call to the provider (token, profile, discovery, JWKS); `0` disables it. A timeout raises `OAuthException` 504 `provider_timeout` |
 | `fetch` | global `fetch` | HTTP client used for every provider call (proxies, tests) |
 
 ## Routes and controller
@@ -106,6 +107,7 @@ r.post('/auth/:provider/callback', [OAuthController, 'callback'])
 // app/controller/OAuthController.ts
 import type { HttpContext } from '@hazejs/core'
 import { OAuth } from '@hazejs/oauth'
+import { SocialAccount } from '~/app/model/SocialAccount'
 import { User } from '~/app/model/User'
 
 export class OAuthController {
@@ -117,15 +119,26 @@ export class OAuthController {
     const provider = ctx.param('provider')!
     const profile = await OAuth.driver(provider).user(ctx)
 
-    // Link the account to a local user, then log in with your guard
-    const user = await User.where('email', profile.email).find()
-      ?? await User.create({ name: profile.name ?? profile.nickname ?? 'User', email: profile.email! })
+    // Link by (provider, id). Merge into an existing local account by email
+    // only when the provider confirms the address belongs to this user.
+    const link = await SocialAccount.where('provider', profile.provider).where('providerId', profile.id).find()
+    let user = link ? await User.find(link.userId) : undefined
+    if (!user) {
+      if (profile.email && profile.emailVerified === true)
+        user = await User.where('email', profile.email).find()
+      user ??= await User.create({ name: profile.name ?? profile.nickname ?? 'User' })
+      await SocialAccount.create({ userId: user.id, provider: profile.provider, providerId: profile.id })
+    }
     return ctx.auth.jwt().login(user)
   }
 }
 ```
 
-In practice you usually store `(provider, id)` in a separate table (`social_accounts`) instead of matching by email: several providers (WeChat, QQ, Apple's private relay, WeCom) never return an email, or return one you shouldn't trust blindly.
+`SocialAccount` (table `social_accounts`: `userId`, `provider`, `providerId`) is your own model. Several providers (WeChat, QQ, WeCom) never return an email, so `(provider, id)` is the only stable key.
+
+::: warning Never merge accounts on an unverified email
+Matching `profile.email` against your users table lets anyone who can make a provider report a victim's address sign in as the victim. A Microsoft Entra tenant admin, for example, can set `mail` / `userPrincipalName` to any value. Only merge by email when `profile.emailVerified === true`; treat `false` and `null` (the provider gives no signal) as unverified, and when you create a user from such a profile, do not store the address as a verified login email.
+:::
 
 For a single-page app that wants the URL instead of a 302, return it as JSON. The state cookie is set on the same response, so call it from the browser with credentials:
 
@@ -144,6 +157,7 @@ async url(ctx: HttpContext) {
 | `provider` | Provider name (the key in `config/oauth.ts`) |
 | `id` | The provider's user ID, always a string |
 | `name` / `nickname` / `email` / `avatar` | Normalized profile fields, `null` when the provider doesn't return them |
+| `emailVerified` | `true` when the provider confirms the email belongs to the user: OIDC / Google / Apple `email_verified`, a verified entry of GitHub's `/user/emails`, GitLab `confirmed_at`, Discord `verified`. `false` when it is known to be unverified or cannot be trusted (Microsoft, Apple's form-posted email). `null` when the provider gives no signal or there is no email |
 | `raw` | The provider's original profile (unionid, phone, tenant, …) |
 | `token` | `{ accessToken, refreshToken?, expiresIn?, idToken?, tokenType?, scope?, raw }` |
 
@@ -306,7 +320,7 @@ const Gitea = defineOAuthProvider<{ clientId: string, clientSecret: string, redi
     user: `${config.baseUrl}/api/v1/user`,
   }),
   scopes: ['read:user'],
-  mapUser: raw => ({ id: raw.id, name: raw.full_name, nickname: raw.login, email: raw.email, avatar: raw.avatar_url }),
+  mapUser: raw => ({ id: raw.id, name: raw.full_name, nickname: raw.login, email: raw.email, avatar: raw.avatar_url }), // optional emailVerified: true | false when the provider tells you
 })
 
 export default defineProvider({
@@ -316,7 +330,7 @@ export default defineProvider({
 })
 ```
 
-Then use `driver: 'gitea'` in `config/oauth.ts`, or pass `driver: Gitea` directly without registering. For non-standard flows, extend `OAuthProvider` (or `OidcProvider`) and override `authorizeParams()`, `exchangeCode()`, `fetchUser()` and `mapUser()`; `registerOAuthProvider()` also accepts the class. `OAuth.build(driver, config, options?)` creates a driver from a config object at runtime, for example per tenant; it skips `config/oauth.ts`, so pass the global options it needs (`stateStore`, `cookie`, `stateTtl`, `fetch`) as the third argument.
+Then use `driver: 'gitea'` in `config/oauth.ts`, or pass `driver: Gitea` directly without registering. For non-standard flows, extend `OAuthProvider` (or `OidcProvider`) and override `authorizeParams()`, `exchangeCode()`, `fetchUser()` and `mapUser()`; `registerOAuthProvider()` also accepts the class. `OAuth.build(driver, config, options?)` creates a driver from a config object at runtime, for example per tenant; it skips `config/oauth.ts`, so pass the global options it needs (`stateStore`, `cookie`, `stateTtl`, `timeout`, `fetch`) as the third argument.
 
 ## Errors
 

@@ -130,6 +130,8 @@ export default defineJob({
 
 在 `config/schedule.ts` 中设置 `runInServer: true`，可以在 Web 进程中执行到期的任务，适合开发与单实例部署：HTTP 服务器开始监听时启动，应用释放时停止，测试与命令行不会启动。多实例部署请关闭它，另外运行一个 `schedule:work` 进程（或配合共享存储使用 `onOneServer()`）。
 
+常驻的循环（`schedule:work`、`runInServer`）每分钟启动到期的任务，不等待上一分钟的任务结束，执行五分钟的任务不会推迟其它任务；同一个任务不能同时执行两次时加上 `withoutOverlapping()`。任务失败（包括 `when()` 条件抛错、锁的存储不可用）只记录日志并计为失败，不影响其它任务；退出时循环会等待执行中的任务结束。
+
 | 环境 | 运行方式 |
 | --- | --- |
 | 开发 | `npx haze schedule:work`（模板中的 `pnpm schedule`），代码修改后自动生效 |

@@ -117,8 +117,11 @@ export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRe
       const { Worker } = await loadBullMQ()
       // 本次失败的重试等待（中间件可能覆盖了任务的 backoff），backoffStrategy 优先使用
       const delays = new Map<string, number>()
+      // 进入过处理函数的任务对象（BullMQ 的 failed 事件收到的是同一个对象）
+      const processed = new WeakSet<object>()
       for (const queueName of options.queues) {
         const worker = new Worker(queueName, async (job) => {
+          processed.add(job)
           const message = job.data as JobMessage
           const result = await options.process(message, (message.attempts ?? 0) + job.attemptsMade + 1)
           // 抛出后由 BullMQ 按 attempts / backoffStrategy 重试或移入失败集合；released 时新消息已投递，原任务按完成处理
@@ -143,7 +146,18 @@ export function redisQueue(config: RedisQueueConfig, redis: RedisManager = useRe
             },
           },
         } as never)
-        worker.on('error', () => {})
+        // 必须监听 error（否则连接错误成为未捕获异常）；交给 QueueManager 记录日志
+        worker.on('error', error => options.onError?.(error))
+        // 没有经过上面的处理函数就失败的任务：执行它的进程崩溃，BullMQ 判定 stalled 次数超限后直接移入失败集合。
+        // 经过处理函数的失败（processed 中）已由 options.process 完成收尾，这里不重复
+        worker.on('failed', (job, error) => {
+          if (!job || processed.has(job))
+            return
+          const message = job.data as JobMessage
+          void Promise.resolve()
+            .then(() => options.lost?.(message, error, Math.max(1, (message.attempts ?? 0) + job.attemptsMade)))
+            .catch(lostError => options.onError?.(lostError))
+        })
         workers.push(worker)
       }
       await Promise.all(workers.map(worker => worker.waitUntilReady()))

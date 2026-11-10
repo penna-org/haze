@@ -3,7 +3,7 @@ import type { AuthorizeContext, UserContext } from '../provider'
 import type { MappedUser, OAuthToken, OAuthUser } from '../types'
 import type { OidcProviderConfig } from './oidc'
 import { signClientSecret } from '../jwt'
-import { OidcProvider } from './oidc'
+import { emailVerifiedClaim, OidcProvider } from './oidc'
 
 export interface AppleProviderConfig extends Omit<OidcProviderConfig, 'issuer' | 'userinfo'> {
   /** Services ID（网页登录）或 Bundle ID（App 内登录），即 client_id */
@@ -124,6 +124,10 @@ export class AppleProvider extends OidcProvider<AppleProviderConfig & { issuer: 
       id: raw.sub,
       name,
       email: raw.email ?? raw.user?.email,
+      // 只有 id_token 中的邮箱带 email_verified；表单里的 user.email 由浏览器提交，不可信
+      emailVerified: raw.email
+        ? emailVerifiedClaim(raw.email_verified)
+        : false,
     }
   }
 }

@@ -660,8 +660,10 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * 不在事务中时统计与取数据并行；在事务中时依次执行，total 为 0 时不再取数据
    */
   async paginate(page = 1, perPage = 15): Promise<Paginated<R>> {
-    const current = Math.max(1, Math.floor(page))
-    const query = this.clone().page(current, perPage)
+    // page / perPage 常来自请求参数：至少为 1（perPage 为 0 / 负数会得到 limit 0 与 lastPage Infinity）
+    const current = positiveInt(page, 1)
+    const size = positiveInt(perPage, 15)
+    const query = this.clone().page(current, size)
     let total: number
     let data: R[]
     if (inTransaction(this.connectionName)) {
@@ -680,8 +682,8 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
       data,
       total,
       page: current,
-      perPage,
-      lastPage: Math.max(1, Math.ceil(total / perPage)),
+      perPage: size,
+      lastPage: Math.max(1, Math.ceil(total / size)),
     }
   }
 
@@ -694,6 +696,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
    * ```
    */
   async paginateX(perPage = 15, options: PaginateXOptions = {}): Promise<CursorPaginated<R>> {
+    perPage = positiveInt(perPage, 15)
     const key = options.key ?? this.requirePrimaryKey()
     const sort = options.sort ?? 'desc'
     const query = this.clone()
@@ -716,11 +719,33 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
     }
   }
 
-  /** 分批处理大量数据，回调返回 false 时停止 */
+  /**
+   * 分批处理大量数据（offset 分页），回调返回 false 时停止。
+   * 未指定排序且有主键时按主键排序（没有 ORDER BY 的分页顺序不确定，可能漏行或重复）；
+   * 回调中会修改 / 删除正在遍历的数据时用 chunkById()
+   */
   async chunk(size: number, callback: (rows: R[], page: number) => unknown): Promise<void> {
+    const query = this.orderedForPaging()
+    size = positiveInt(size, 1)
     for (let page = 1; ; page++) {
-      const rows = await this.clone().page(page, size).select()
+      const rows = await query.clone().page(page, size).select()
       if (!rows.length || (await callback(rows, page)) === false || rows.length < size)
+        return
+    }
+  }
+
+  /**
+   * 按主键（或指定的列）分批：每批 `where id > 上一批最后一条`，不使用 offset，
+   * 遍历期间的写入 / 删除不会造成漏行或重复；已设置的排序会被忽略。回调返回 false 时停止
+   */
+  async chunkById(size: number, callback: (rows: R[], page: number) => unknown, column?: ColumnKey<T>): Promise<void> {
+    const key = column ?? this.requirePrimaryKey()
+    const query = await this.keysetQuery(key)
+    if (!query)
+      throw new DatabaseError(`chunkById() needs "${key}" in the result and cannot be combined with group() / union() / distinct(); use chunk() instead`)
+    let page = 0
+    for await (const rows of query.keysetPages(positiveInt(size, 1), key)) {
+      if ((await callback(rows, ++page)) === false)
         return
     }
   }
@@ -728,25 +753,22 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
   /**
    * 逐条遍历（内部分批读取，内存占用恒定）：`for await (const user of User.query().cursor()) {}`
    *
-   * 未指定排序且有主键时按主键分批（不受遍历期间的写入影响），否则按 offset 分批。
+   * 未指定排序且有主键时按主键分批（不受遍历期间的写入影响；field() 没有选主键时会自动带上），否则按 offset 分批。
    */
   async* cursor(size = 200): AsyncGenerator<R, void, undefined> {
+    size = positiveInt(size, 200)
     const key = primaryKeyOf(this.table)
-    if (key && !this.orders.length && !this.unions.length && !this.groups.length) {
-      let last: unknown
-      while (true) {
-        const query = this.clone().order(key, 'asc').limit(size)
-        if (last !== undefined)
-          query.where(key as never, '>', last)
-        const rows = await query.select()
+    const keyset = key && !this.orders.length
+      ? await this.keysetQuery(key)
+      : undefined
+    if (keyset) {
+      for await (const rows of keyset.keysetPages(size, key!))
         yield* rows
-        if (rows.length < size)
-          return
-        last = (rows.at(-1) as Record<string, unknown>)[key]
-      }
+      return
     }
+    const query = this.orderedForPaging()
     for (let page = 1; ; page++) {
-      const rows = await this.clone().page(page, size).select()
+      const rows = await query.clone().page(page, size).select()
       yield* rows
       if (rows.length < size)
         return
@@ -1104,7 +1126,7 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
       return await query
     const options = this.cacheOptions
     const repository = useCacheManager().store(options.store)
-    const key = options.key ?? `orm:${ctx.name ?? ''}:${hash(JSON.stringify(query.toSQL()))}`
+    const key = options.key ?? `orm:${ctx.name ?? ''}:${queryHash(JSON.stringify(query.toSQL()))}`
     const cached = await repository.get<Array<Record<string, unknown>>>(key)
     if (cached !== undefined)
       return this.revive(cached)
@@ -1132,6 +1154,59 @@ export class QueryBuilder<T extends Table, R = Row<T>> extends Conditions<T> imp
       }
     }
     return rows
+  }
+
+  /** offset 分批用的查询：未指定排序且有主键时按主键排序（分组 / 合并 / 去重时不加） */
+  protected orderedForPaging(): this {
+    const query = this.clone()
+    const key = primaryKeyOf(this.table)
+    if (key && !this.orders.length && !this.unions.length && !this.groups.length && !this.distinctValue)
+      query.order(key, 'asc')
+    return query
+  }
+
+  /**
+   * 键集分批用的查询：结果中必须带有游标列（field() 没有选时自动加上）。
+   * 分组 / 合并 / 去重，或结果中取不到该列（同名别名指向其它表达式、join 后按表名分组的结果）时返回 undefined
+   */
+  protected async keysetQuery(key: string): Promise<this | undefined> {
+    if (this.unions.length || this.groups.length || this.distinctValue)
+      return undefined
+    const query = this.clone()
+    if (query.excluded?.includes(key))
+      query.excluded = query.excluded.filter(item => item !== key)
+    if (query.fields.length) {
+      const existing = query.fields.find(field => field.key === key)
+      if (!existing)
+        query.field(key as never)
+      else if (existing.build(await this.context()) !== this.columnOf(key))
+        return undefined
+    }
+    else if (!query.excluded && query.joins.length && !query.defaultSelection()) {
+      return undefined
+    }
+    return query
+  }
+
+  /** 按键集分批读取：每批 `where key > 上一批最后一条`，按 key 升序（忽略已设置的排序） */
+  protected async* keysetPages(size: number, key: string): AsyncGenerator<R[], void, undefined> {
+    let last: unknown
+    while (true) {
+      const query = this.clone()
+      query.orders = []
+      query.order(key, 'asc').limit(size)
+      if (last !== undefined)
+        query.where(key as never, '>', last)
+      const rows = await query.select()
+      if (rows.length)
+        yield rows
+      if (rows.length < size)
+        return
+      last = (rows.at(-1) as Record<string, unknown>)[key]
+      // 取不到游标值时不能继续：否则每次都读到第一批，永远不会结束
+      if (last === undefined || last === null)
+        throw new DatabaseError(`cursor() / chunkById(): rows have no "${key}" value to continue from`)
+    }
   }
 
   /** 子类（ModelQuery）追加的全局条件，例如软删除 */
@@ -1344,14 +1419,29 @@ export function andAll(...conditions: Array<SQL | undefined>): SQL | undefined {
     : defined[0]
 }
 
-/** 缓存键用的字符串摘要（FNV-1a，不依赖 node:crypto，Edge 可用） */
-function hash(value: string): string {
-  let result = 0x811C9DC5
+/**
+ * 缓存键用的字符串摘要：64 位（两路不同种子的 32 位混合后交叉扰动，即 cyrb53 的做法取满 64 位）加上长度。
+ * 32 位摘要在几万条不同的 SQL 后就可能碰撞，碰撞会让查询读到另一条查询的缓存。不依赖 node:crypto，Edge 可用
+ */
+export function queryHash(value: string): string {
+  let h1 = 0xDEADBEEF
+  let h2 = 0x41C6CE57
   for (let index = 0; index < value.length; index++) {
-    result ^= value.charCodeAt(index)
-    result = Math.imul(result, 0x01000193)
+    const code = value.charCodeAt(index)
+    h1 = Math.imul(h1 ^ code, 0x9E3779B1)
+    h2 = Math.imul(h2 ^ code, 0x5F356495)
   }
-  return (result >>> 0).toString(36) + value.length.toString(36)
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 0x85EBCA6B) ^ Math.imul(h2 ^ (h2 >>> 13), 0xC2B2AE35)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 0x85EBCA6B) ^ Math.imul(h1 ^ (h1 >>> 13), 0xC2B2AE35)
+  const part = (half: number): string => (half >>> 0).toString(36).padStart(7, '0')
+  return `${part(h2)}${part(h1)}${value.length.toString(36)}`
+}
+
+/** 分页参数：至少为 1 的整数，非有限数值时取默认值 */
+function positiveInt(value: number, fallback: number): number {
+  return Number.isFinite(value)
+    ? Math.max(1, Math.floor(value))
+    : fallback
 }
 
 /** drizzle 的 for() 配置：检查方言是否支持锁模式与选项 */

@@ -29,6 +29,8 @@ const recent = await user.posts().query().order('id', 'desc').limit(5).select()
 
 `hasManyThrough` and `hasOneThrough` take two more optional keys: the key on this model that the through model's column points to, and the key on the through model that the related model's column points to, both defaulting to the primary key (`this.hasManyThrough(Post, User, 'countryId', 'userId', 'code', 'uuid')`).
 
+Through relations skip intermediate records that are soft-deleted, and, for a through model with `belongsToTenant`, those of other tenants. Global scopes of the through model are not applied.
+
 `belongsToMany`, `hasManyThrough` and `hasOneThrough` are available on SQL models; the others work on MongoDB models too.
 
 Relations can carry their own conditions, applied to every query of that relation:

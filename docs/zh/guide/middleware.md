@@ -10,7 +10,7 @@
 |------|------|------|
 | `cors` | 跨域响应头与预检请求，需放在 global | `config/cors.ts`（`defineCorsConfig`） |
 | `secureHeaders` | nosniff、frame-options、referrer-policy 等安全头，生产环境 https 下加 HSTS | `config/secureHeaders.ts` |
-| `compress` | br / gzip / deflate 压缩响应 | `config/compress.ts` |
+| `compress` | br / gzip / deflate 压缩响应。Brotli 默认 quality 4（适合动态响应的速度），可用 `level: { br, gzip, deflate }` 调整 | `config/compress.ts` |
 | `throttle:max,seconds` / `throttle:name` | 限流（默认按用户或 IP），返回 `RateLimit-*` 头，超限返回 429 | `config/throttle.ts` |
 | `bodyLimit:size` | 调整单个路由的请求体上限，如 `bodyLimit:10mb`（默认 `app.bodyLimit`，1mb） | — |
 | `session` | 启动会话（`ctx.session`） | `config/session.ts` |

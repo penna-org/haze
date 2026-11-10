@@ -112,6 +112,8 @@ export class ChatController {
 | `toUIMessageStreamResponse()` | Vercel AI SDK 的 UI Message Stream，配合 `@ai-sdk/vue` / `@ai-sdk/react` 的 `useChat` |
 | `toTextStreamResponse()` | 纯文本流 |
 
+客户端断开（响应体被取消）且没有其它地方在读取结果时，生成会被中止：模型请求与正在执行的工具会收到中止信号，`onFinish` 不会被调用。如果希望无论如何都生成到结束（例如在 `onFinish` 中保存回复），请在返回响应之前调用 `result.consume()`。
+
 ```ts
 const result = AI.streamText({ prompt: 'Write a haiku' })
 for await (const chunk of result.textStream)

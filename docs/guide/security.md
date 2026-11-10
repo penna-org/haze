@@ -102,7 +102,7 @@ export default defineSessionConfig({
 | `driver` | `'cookie'` | See below, or a custom `SessionStore` object |
 | `store` | default cache store | With `driver: 'cache'`: which store from `config/cache.ts` |
 | `cookie` | `'haze_session'` | Cookie name |
-| `lifetime` | `'2h'` | Duration string or seconds |
+| `lifetime` | `'2h'` | Duration string or seconds. Sliding: a write restarts it, and a request that only reads the session re-issues the cookie (and renews the store entry) once less than half of it remains, so active users aren't signed out mid-use |
 | `cookieOptions` | | Overrides the default cookie options |
 
 | Driver | Where data lives |

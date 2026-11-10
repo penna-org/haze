@@ -176,6 +176,7 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return new ModelQuery(this).useWriter()
   }
 
+  /** 按主键查询；主键为 undefined / null 时返回 undefined（不会退化为“取第一条”） */
   static find<M extends ModelLike>(this: ModelClass<M>, id: unknown): Promise<M | undefined> {
     return new ModelQuery(this).find(id)
   }
@@ -206,7 +207,10 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
     return transaction(callback, this.connection, config)
   }
 
-  /** 创建并保存（会触发事件与时间戳）；allowField 限制可写入的字段。值可以是 drizzle SQL 表达式 */
+  /**
+   * 创建并保存（会触发事件与时间戳）；allowField 限制可写入的字段。值可以是 drizzle SQL 表达式。
+   * data 按批量赋值处理（见 fill()）：可以指定主键，租户列 / 软删除列 / 乐观锁版本列被忽略，除非在 allowField 中列出
+   */
   static async create<M extends ModelLike>(this: ModelClass<M>, data: Partial<InsertValues<TableOf<M>>>, allowField?: Array<ColumnKey<TableOf<M>>>): Promise<M> {
     const model = new this()
     const record = model as unknown as Model
@@ -305,7 +309,10 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
 
   // ---------------------------------------------------------------- 持久化
 
-  /** 限制 fill() / save(data) 可写入的字段 */
+  /**
+   * 限制 fill() / save(data) 可写入的字段。显式列出的字段不再受 `static fillable` / `static guarded`
+   * 与受保护字段（主键、租户列、软删除列、乐观锁版本列）的限制
+   */
   allowField(fields: ReadonlyArray<keyof Row<T> & string>): this {
     this.$allowField = [...fields]
     return this
@@ -499,7 +506,27 @@ export class Model<T extends Table = Table> extends ActiveRecord<Row<T>> {
   // ---------------------------------------------------------------- 内部
 
   protected override acceptsAttribute(key: string): boolean {
-    return key in this.#meta().columns && (!this.$allowField || this.$allowField.includes(key))
+    if (!(key in this.#meta().columns))
+      return false
+    if (this.$unguarded)
+      return true
+    // allowField() 显式列出的字段不受 fillable / guarded 与受保护字段的限制
+    return this.$allowField
+      ? this.$allowField.includes(key)
+      : this.isFillable(key)
+  }
+
+  /** 默认拒绝批量赋值：已存在记录的主键（新建时可以指定主键）、租户列、软删除列、乐观锁版本列 */
+  protected override protectedAttributes(): string[] {
+    const meta = this.#meta()
+    return [
+      this.$exists
+        ? meta.primaryKey
+        : undefined,
+      meta.tenantColumn,
+      meta.softDelete,
+      meta.lockVersion,
+    ].filter((key): key is string => key !== undefined)
   }
 
   #meta(): ReturnType<typeof metaOf> {

@@ -10,7 +10,8 @@ type Core = typeof import('@hazejs/core')
 
 /** 在应用的模块图中运行（不监听端口）；keepAlive 时保持运行，文件变化后应用热替换 */
 async function withApp<T>(root: string, run: (server: DevServer, core: Core) => Promise<T>, keepAlive = false): Promise<T> {
-  const server = await createDevServer({ root, listen: false })
+  // 一次性命令（queue:failed、schedule:run 等）执行后即退出，不监听文件变化
+  const server = await createDevServer({ root, listen: false, watch: keepAlive })
   if (!server.app) {
     await server.close()
     throw new Error('Application failed to start')

@@ -55,7 +55,7 @@ export async function loadUserCommands(argv: string[], builtin: Set<string>): Pr
     await server?.close()
   }
   try {
-    server = await createDevServer({ root, listen: false })
+    server = await createDevServer({ root, listen: false, watch: false })
     if (!server.app)
       throw new Error('Application failed to start')
     const core = await appCore(server, root)

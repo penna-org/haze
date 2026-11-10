@@ -102,7 +102,7 @@ export default defineSessionConfig({
 | `driver` | `'cookie'` | 见下表，也可以传入自定义的 `SessionStore` 对象 |
 | `store` | 缓存的默认存储 | `driver: 'cache'` 时使用 `config/cache.ts` 中的哪个存储 |
 | `cookie` | `'haze_session'` | Cookie 名 |
-| `lifetime` | `'2h'` | 有效期，时长字符串或秒数 |
+| `lifetime` | `'2h'` | 有效期，时长字符串或秒数。滑动续期：会话有修改时重新计时；只读的请求在剩余时间不足一半时重新下发 Cookie（服务端存储同时续期），活跃用户不会在使用中途被登出 |
 | `cookieOptions` | | 覆盖默认的 Cookie 选项 |
 
 | 驱动 | 数据存在哪里 |

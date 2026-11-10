@@ -490,4 +490,67 @@ describe('openai-compatible presets', () => {
     if (previous)
       process.env.DEEPSEEK_API_KEY = previous
   })
+
+  it('reports truncated streams and in-stream errors as APICallError', async () => {
+    // 连接在 finish_reason / [DONE] 之前断开：不当作正常结束，也不输出累积到一半的工具调用
+    server.reply(() => ({
+      sse: [
+        {
+          id: 'c1',
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Hel' },
+            },
+          ],
+        },
+        {
+          id: 'c1',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_1',
+                    function: { name: 'lookup', arguments: '{"q":' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }))
+    const errors: unknown[] = []
+    const truncated = streamText({
+      model: openai()('gpt-5'),
+      prompt: 'x',
+      onError: error => void errors.push(error),
+    })
+    const events = []
+    for await (const event of truncated.fullStream)
+      events.push(event)
+    expect(events.some(event => event.type === 'tool-call' || event.type === 'finish')).toBe(false)
+    await expect(truncated.text).rejects.toThrow('stream ended before the model finished')
+    expect(errors[0]).toBeInstanceOf(APICallError)
+    expect((errors[0] as APICallError).isRetryable).toBe(true)
+
+    server.reply(() => ({
+      sse: [
+        {
+          error: { message: 'The server is overloaded', type: 'server_error', code: 503 },
+        },
+      ],
+    }))
+    const failed = streamText({
+      model: openai()('gpt-5'),
+      prompt: 'x',
+      onError: () => {},
+    })
+    const error = await failed.text.catch(error => error)
+    expect(error).toBeInstanceOf(APICallError)
+    expect(error).toMatchObject({ provider: 'openai', isRetryable: true, message: 'openai stream error: The server is overloaded' })
+  })
 })

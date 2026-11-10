@@ -169,7 +169,7 @@ export class EventManager {
 
   /**
    * 触发：同步监听器按注册顺序执行（返回 false 时停止），排队监听器投递到队列。
-   * 一个监听器抛错（或排队监听器投递失败）时记录错误日志并继续执行其余监听器，emit() 本身不因此失败。
+   * 一个监听器抛错（或排队监听器投递失败、事件广播失败）时记录错误日志并继续执行其余监听器，emit() 本身不因此失败。
    * 事件声明了 `afterCommit` 且处于数据库事务中时，推迟到最外层事务提交后触发（回滚时丢弃）
    */
   async emit<P>(event: EventDefinition<P>, ...args: EmitArgs<P>): Promise<void> {
@@ -194,12 +194,19 @@ export class EventManager {
       return
     }
     // 声明了 broadcastOn 的事件同时广播（先于监听器，与 Laravel 一致）
-    if (event.broadcastOn && this.app.container.has(BroadcastManager))
-      await this.app.make(BroadcastManager).broadcastEvent(event, payload, name)
+    const logger = this.app.logger.child({ event: name })
+    if (event.broadcastOn && this.app.container.has(BroadcastManager)) {
+      try {
+        await this.app.make(BroadcastManager).broadcastEvent(event, payload, name)
+      }
+      catch (error) {
+        // 与监听器相同的错误隔离：广播失败（Redis 不可用、broadcastOn / broadcastWith 抛错）不影响监听器
+        logger.error('Failed to broadcast event', error)
+      }
+    }
     const listeners = this.#listeners.get(event) ?? []
     if (telemetryActive())
       recordTelemetry('event', { event: name, payload, listeners: listeners.length })
-    const logger = this.app.logger.child({ event: name })
     for (const { name: listener, definition } of listeners) {
       const queue = definition.options.queue
       try {

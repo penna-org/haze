@@ -138,8 +138,8 @@ await withoutSyncing(async () => {
 })
 ```
 
-::: warning Transactions
-Syncing happens right after the write, even inside a transaction. If the transaction rolls back, the index still contains the document. Write inside a transaction with `withoutSyncing` and import afterwards, or enable `queue` so the job runs later.
+::: tip Transactions
+When a model is written inside a `Db.transaction()` on its connection, syncing (or dispatching the sync job) waits until the outermost transaction commits and is dropped on rollback, so a rolled-back write leaves nothing in the index. The document is built from the model's state at commit time; a sync that fails after the commit is logged, not thrown. The database engine writes to the same database and stays inside the transaction.
 :::
 
 ## Searching
@@ -325,7 +325,7 @@ The memory engine (`engines: { memory: {} }`) is also handy in development. Ever
 
 ## Limitations
 
-- Syncing is not tied to transactions (see above), and query-builder mass updates are not synced.
+- Query-builder mass updates are not synced. Syncing follows `Db.transaction()` (see above), but not `Mongo.transaction()` or D1 batches.
 - The database engine searches one table. To search across relations, use `toSearchable()` with an external engine, or SQLite FTS5 in `engine` mode.
 - MySQL full-text search follows InnoDB's rules: words shorter than `innodb_ft_min_token_size` (3) and stopwords are ignored.
 - Without `sortable`, Typesense can only sort numeric fields, and Elasticsearch can't sort `text` fields.

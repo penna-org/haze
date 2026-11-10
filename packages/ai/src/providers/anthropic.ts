@@ -3,7 +3,7 @@ import type { ProviderInstance, ProviderSettings } from '../provider'
 import type { AssistantContentPart, FinishReason, JSONSchema, LanguageModel, Message, ModelRequest, ModelResponse, ModelStreamPart, ProviderMetadata, ProviderOptions, ToolChoice, Usage, UserContentPart } from '../types'
 import { fromBase64, resolveData } from '../data'
 import { AIError, APICallError, UnsupportedFeatureError } from '../errors'
-import { compact, parseSSE, postJSON, postStream, safeParseJSON, toReadableStream } from '../http'
+import { compact, parseSSE, postJSON, postStream, safeParseJSON, toReadableStream, truncatedStreamError } from '../http'
 import { createProvider, optionalEnv, withoutTrailingSlash } from '../provider'
 
 /** 发送的 API 版本：该版本对所有模型拒绝 temperature / top_p / top_k */
@@ -450,6 +450,8 @@ async function* anthropicStreamParts(stream: ReadableStream<Uint8Array>, warning
   let rawUsage: Record<string, unknown> = {}
   let stopReason: string | undefined
   let stopSequence: string | undefined
+  // 收到 stop_reason 或 message_stop 才算正常结束
+  let terminated = false
   for await (const event of parseSSE(stream)) {
     const chunk = JSON.parse(event.data)
     switch (chunk.type ?? event.event) {
@@ -533,8 +535,10 @@ async function* anthropicStreamParts(stream: ReadableStream<Uint8Array>, warning
         break
       }
       case 'message_delta':
-        if (chunk.delta?.stop_reason)
+        if (chunk.delta?.stop_reason) {
+          terminated = true
           stopReason = chunk.delta.stop_reason
+        }
         if (chunk.delta?.stop_sequence)
           stopSequence = chunk.delta.stop_sequence
         // message_delta 中的用量是累计值，覆盖 message_start 中的同名字段
@@ -557,8 +561,18 @@ async function* anthropicStreamParts(stream: ReadableStream<Uint8Array>, warning
         }
         return
       }
-      // ping、message_stop 无需处理
+      case 'message_stop':
+        terminated = true
+        break
+      // ping 无需处理
     }
+  }
+  if (!terminated) {
+    yield {
+      type: 'error',
+      error: truncatedStreamError('anthropic', url),
+    }
+    return
   }
   yield {
     type: 'finish',
